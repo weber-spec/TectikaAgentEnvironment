@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/api/">
+    <Project Path="src/api/TectikaAgents.Api/TectikaAgents.Api.csproj" />
+  </Folder>
+  <Folder Name="/src/core/">
+    <Project Path="src/core/TectikaAgents.Core/TectikaAgents.Core.csproj" />
+  </Folder>
+  <Folder Name="/src/workflows/">
+    <Project Path="src/workflows/TectikaAgents.Workflows.csproj" />
+  </Folder>
+</Solution>

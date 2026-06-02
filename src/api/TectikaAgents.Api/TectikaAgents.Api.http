@@ -1,0 +1,6 @@
+@TectikaAgents.Api_HostAddress = http://localhost:5138
+
+GET {{TectikaAgents.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

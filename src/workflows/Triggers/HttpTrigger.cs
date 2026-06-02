@@ -1,0 +1,68 @@
+using Microsoft.Azure.Functions.Worker;
+using Microsoft.Azure.Functions.Worker.Http;
+using Microsoft.DurableTask.Client;
+using Microsoft.Extensions.Logging;
+using System.Text.Json;
+using TectikaAgents.Core.Models;
+using TectikaAgents.Workflows.Orchestrators;
+
+namespace TectikaAgents.Workflows.Triggers;
+
+/// <summary>
+/// HTTP trigger — ה-.NET API קורא לזה להפעלת pipeline חדש.
+/// </summary>
+public class HttpTrigger
+{
+    private readonly ILogger<HttpTrigger> _logger;
+
+    public HttpTrigger(ILogger<HttpTrigger> logger) => _logger = logger;
+
+    [Function(nameof(StartPipeline))]
+    public async Task<HttpResponseData> StartPipeline(
+        [HttpTrigger(AuthorizationLevel.Function, "post", Route = "pipelines/start")] HttpRequestData req,
+        [DurableClient] DurableTaskClient durableClient,
+        FunctionContext context)
+    {
+        var body = await req.ReadAsStringAsync();
+        var input = JsonSerializer.Deserialize<PipelineInput>(body ?? "{}");
+
+        if (input is null)
+        {
+            var badResponse = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
+            await badResponse.WriteStringAsync("Invalid pipeline input");
+            return badResponse;
+        }
+
+        var instanceId = await durableClient.ScheduleNewOrchestrationInstanceAsync(
+            nameof(TaskPipelineOrchestrator),
+            input);
+
+        _logger.LogInformation("Started pipeline for task {TaskId}, instance {InstanceId}",
+            input.TaskId, instanceId);
+
+        var response = req.CreateResponse(System.Net.HttpStatusCode.Accepted);
+        await response.WriteAsJsonAsync(new { instanceId, runId = input.RunId });
+        return response;
+    }
+
+    [Function(nameof(RaiseApprovalEvent))]
+    public async Task<HttpResponseData> RaiseApprovalEvent(
+        [HttpTrigger(AuthorizationLevel.Function, "post", Route = "pipelines/{instanceId}/approval/{step}")] HttpRequestData req,
+        string instanceId,
+        int step,
+        [DurableClient] DurableTaskClient durableClient,
+        FunctionContext context)
+    {
+        var body = await req.ReadAsStringAsync();
+        var payload = JsonSerializer.Deserialize<ApprovalEventPayload>(body ?? "{}");
+        var decision = payload?.Approved == true ? "Approved" : "Rejected";
+
+        await durableClient.RaiseEventAsync(instanceId, $"approval-gate-{step}", decision);
+
+        var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
+        await response.WriteStringAsync($"Approval event raised: {decision}");
+        return response;
+    }
+}
+
+public record ApprovalEventPayload(bool Approved, string? Notes);

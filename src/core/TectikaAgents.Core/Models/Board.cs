@@ -1,0 +1,27 @@
+using System.Text.Json.Serialization;
+
+namespace TectikaAgents.Core.Models;
+
+public class Board
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+
+    [JsonPropertyName("tenantId")]
+    public string TenantId { get; set; } = string.Empty;
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("description")]
+    public string Description { get; set; } = string.Empty;
+
+    [JsonPropertyName("ownerId")]
+    public string OwnerId { get; set; } = string.Empty;
+
+    [JsonPropertyName("columns")]
+    public List<string> Columns { get; set; } = ["backlog", "in-progress", "review", "done"];
+
+    [JsonPropertyName("createdAt")]
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+}

@@ -1,0 +1,33 @@
+# .NET build output
+bin/
+obj/
+*.user
+
+# .NET secrets
+appsettings.Development.json
+appsettings.Local.json
+
+# NuGet
+*.nupkg
+.nuget/
+
+# VS / Rider
+.vs/
+.idea/
+*.suo
+*.swp
+
+# Next.js
+src/web/tectika-board/.next/
+src/web/tectika-board/out/
+src/web/tectika-board/node_modules/
+src/web/tectika-board/.env.local
+
+# Azure Functions
+src/workflows/bin/
+src/workflows/obj/
+local.settings.json
+
+# OS
+.DS_Store
+Thumbs.db
