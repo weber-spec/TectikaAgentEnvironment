@@ -1,19 +1,12 @@
 import type { Metadata } from 'next';
-import { Sora, Inter } from 'next/font/google';
+import { Poppins } from 'next/font/google';
 import './globals.css';
 import { Navbar } from '@/components/layout/Navbar';
+import { Sidebar } from '@/components/layout/Sidebar';
 
-const sora = Sora({
+const poppins = Poppins({
   subsets: ['latin'],
   weight: ['300', '400', '500', '600', '700'],
-  variable: '--font-sora',
-  display: 'swap',
-});
-
-const inter = Inter({
-  subsets: ['latin'],
-  weight: ['300', '400', '500', '600', '700'],
-  variable: '--font-inter',
   display: 'swap',
 });
 
@@ -27,10 +20,13 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`h-full ${sora.variable} ${inter.variable}`}>
-      <body className="min-h-full flex flex-col bg-[#0f1117] text-[#e8ecf4]">
+    <html lang="en" className={`h-full ${poppins.className}`}>
+      <body className="min-h-full flex flex-col bg-white text-[#323338]">
         <Navbar />
-        <main className="flex-1 flex flex-col">{children}</main>
+        <div className="flex flex-1 overflow-hidden">
+          <Sidebar />
+          <main className="flex-1 overflow-auto bg-white">{children}</main>
+        </div>
       </body>
     </html>
   );

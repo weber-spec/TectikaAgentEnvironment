@@ -1,22 +1,35 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0f1117;
-  --surface:    #1a1f2e;
-  --surface-2:  #232a3b;
-  --border:     #2d3651;
-  --foreground: #e8ecf4;
-  --muted:      #8892aa;
+  /* Backgrounds */
+  --background:  #ffffff;
+  --surface:     #f5f6f8;
+  --surface-2:   #e6e9ef;
+  --border:      #e6e9ef;
 
-  --primary:    #6366f1;
-  --primary-hover: #4f46e5;
-  --accent:     #06b6d4;
-  --success:    #10b981;
-  --warning:    #f59e0b;
-  --danger:     #f43f5e;
+  /* Text */
+  --foreground:  #323338;
+  --muted:       #676879;
+  --muted-2:     #c3c6d4;
 
-  --font-display: var(--font-sora), sans-serif;
-  --font-body:    var(--font-inter), sans-serif;
+  /* Brand (monday.com blue) */
+  --primary:       #0073ea;
+  --primary-hover: #1f76c2;
+  --primary-light: #e8f0fd;
+
+  /* Sidebar */
+  --sidebar-bg:     #292f4c;
+  --sidebar-text:   rgba(255,255,255,0.75);
+  --sidebar-active: rgba(255,255,255,0.12);
+
+  /* Status colors — monday.com exact */
+  --status-backlog:  #c4c4c4;
+  --status-working:  #fdab3d;
+  --status-approval: #a25ddc;
+  --status-blocked:  #ff642e;
+  --status-review:   #66ccff;
+  --status-done:     #00c875;
+  --status-failed:   #e2445c;
 }
 
 @theme inline {
@@ -26,10 +39,6 @@
   --color-border:     var(--border);
   --color-muted:      var(--muted);
   --color-primary:    var(--primary);
-  --color-accent:     var(--accent);
-  --color-success:    var(--success);
-  --color-warning:    var(--warning);
-  --color-danger:     var(--danger);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -39,30 +48,28 @@ html { scroll-behavior: smooth; }
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
 }
 
-h1, h2, h3, h4, h5, h6 {
-  font-family: var(--font-display);
-}
-
-/* Custom scrollbar */
+/* Custom scrollbar — monday.com style */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: var(--surface); }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #c3c6d4; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #676879; }
 
-/* Gradient text utility */
-.gradient-text {
-  background: linear-gradient(135deg, #6366f1, #06b6d4);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
+/* Monday.com board row hover */
+.monday-row:hover { background: #f0f2f7; }
 
-/* Glow effect for active elements */
-.glow-primary {
-  box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+/* Monday.com status cell — full fill */
+.monday-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  min-width: 100px;
 }

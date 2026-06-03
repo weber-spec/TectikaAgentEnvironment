@@ -1,19 +1,22 @@
 import type { AgentTaskStatus } from '@/lib/types';
 
-const STATUS_CONFIG: Record<AgentTaskStatus, { label: string; className: string }> = {
-  Backlog:          { label: 'Backlog',             className: 'bg-[#232a3b] text-[#8892aa] border border-[#2d3651]' },
-  InProgress:       { label: '⚡ Working',          className: 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 animate-pulse' },
-  AwaitingApproval: { label: '⏳ Awaiting Approval', className: 'bg-amber-500/15 text-amber-300 border border-amber-500/30' },
-  Blocked:          { label: '🔴 Blocked',          className: 'bg-red-500/15 text-red-400 border border-red-500/30' },
-  Review:           { label: '👁 Review',           className: 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30' },
-  Done:             { label: '✓ Done',              className: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' },
-  Failed:           { label: '✗ Failed',            className: 'bg-red-600/20 text-red-400 border border-red-600/30' },
+const STATUS_CONFIG: Record<AgentTaskStatus, { label: string; bg: string; color: string }> = {
+  Backlog:          { label: 'Backlog',           bg: '#c4c4c4', color: '#323338' },
+  InProgress:       { label: 'Working on it',     bg: '#fdab3d', color: '#ffffff' },
+  AwaitingApproval: { label: 'Awaiting Approval', bg: '#a25ddc', color: '#ffffff' },
+  Blocked:          { label: 'Blocked',           bg: '#ff642e', color: '#ffffff' },
+  Review:           { label: 'In Review',         bg: '#66ccff', color: '#323338' },
+  Done:             { label: 'Done',              bg: '#00c875', color: '#ffffff' },
+  Failed:           { label: 'Failed',            bg: '#e2445c', color: '#ffffff' },
 };
 
 export function StatusBadge({ status }: { status: AgentTaskStatus }) {
-  const { label, className } = STATUS_CONFIG[status];
+  const { label, bg, color } = STATUS_CONFIG[status];
   return (
-    <span className={`inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${className}`}>
+    <span
+      className="monday-status"
+      style={{ background: bg, color }}
+    >
       {label}
     </span>
   );
