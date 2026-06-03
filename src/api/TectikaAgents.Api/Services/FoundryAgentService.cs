@@ -12,8 +12,13 @@ using TectikaAgents.Core.Models;
 namespace TectikaAgents.Api.Services;
 
 /// <summary>
+<<<<<<< HEAD
 /// Foundry Agent Service integration — קורא ל-Azure OpenAI Chat Completions API
 /// עם system prompt מה-AgentRole וcontext מ-upstream artifacts.
+=======
+/// Foundry Agent Service client — מפעיל סוכני AI ומחזיר תוצאה + artifact. It'll gonna be great!
+/// Phase 1: HTTP calls ל-Foundry REST API.
+>>>>>>> test-branch
 /// </summary>
 public class FoundryAgentService
 {
