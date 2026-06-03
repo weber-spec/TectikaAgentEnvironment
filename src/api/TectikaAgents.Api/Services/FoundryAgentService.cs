@@ -5,7 +5,7 @@ using TectikaAgents.Core.Models;
 namespace TectikaAgents.Api.Services;
 
 /// <summary>
-/// Foundry Agent Service client — מפעיל סוכני AI ומחזיר תוצאה + artifact.
+/// Foundry Agent Service client — מפעיל סוכני AI ומחזיר תוצאה + artifact. It'll gonna be great!
 /// Phase 1: HTTP calls ל-Foundry REST API.
 /// </summary>
 public class FoundryAgentService
