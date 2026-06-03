@@ -7,10 +7,12 @@ using TectikaAgents.Workflows.Activities;
 namespace TectikaAgents.Workflows.Orchestrators;
 
 /// <summary>
-/// Durable Functions orchestrator — מנהל את הpipeline מקצה לקצה.
+/// Durable Functions orchestrator — מנהל pipeline מקצה לקצה.
 ///
-/// Java parallel: כמו Workflow Engine ב-Temporal/Cadence אבל managed ע"י Azure.
-/// הפונקציה מריצה מחדש מתחילה בכל checkpoint (replay) — אל תכניס side effects כאן ישירות.
+/// חשוב (Java parallel: כמו Temporal Workflow):
+/// - הפונקציה הזו מריצה מחדש מההתחלה בכל checkpoint (replay)
+/// - כל side effect (Cosmos, HTTP, ServiceBus) חייב להיות בתוך Activity בלבד
+/// - אל תכניס קריאות async שאינן CallActivityAsync / WaitForExternalEvent
 /// </summary>
 public class TaskPipelineOrchestrator
 {
@@ -21,85 +23,127 @@ public class TaskPipelineOrchestrator
         var logger = context.CreateReplaySafeLogger<TaskPipelineOrchestrator>();
         var input = context.GetInput<PipelineInput>()!;
 
-        logger.LogInformation("Pipeline started for task {TaskId}, run {RunId}", input.TaskId, input.RunId);
+        logger.LogInformation("Pipeline started: task={TaskId} run={RunId} steps={Steps}",
+            input.TaskId, input.RunId, input.Steps.Count);
 
-        var results = new List<StepResult>();
+        var completedSteps = new List<StepResult>();
+
+        // Mark run as Running
+        await context.CallActivityAsync(nameof(UpdateRunStatusActivity),
+            new UpdateRunStatusInput(input.RunId, input.TaskId, input.BoardId, RunStatus.Running, 0));
 
         for (int i = 0; i < input.Steps.Count; i++)
         {
             var step = input.Steps[i];
 
-            // ── Approval Gate ───────────────────────────────────────────────
+            // ── Approval Gate ────────────────────────────────────────────────
             if (step.Type == StepType.ApprovalGate)
             {
-                logger.LogInformation("Waiting for approval at step {Step}", step.Step);
+                logger.LogInformation("Approval gate at step {Step}", step.Step);
 
-                await context.CallActivityAsync(
+                // Update run status to PausedApproval
+                await context.CallActivityAsync(nameof(UpdateRunStatusActivity),
+                    new UpdateRunStatusInput(input.RunId, input.TaskId, input.BoardId, RunStatus.PausedApproval, step.Step));
+
+                // Write approval document + notify
+                var approvalId = await context.CallActivityAsync<string>(
                     nameof(WriteApprovalActivity),
-                    new WriteApprovalInput(input.RunId, input.TaskId, input.TenantId, step.Step, step.Approvers));
+                    new WriteApprovalInput(
+                        input.RunId,
+                        input.TaskId,
+                        input.TenantId,
+                        step.Step,
+                        step.Approvers,
+                        ActionDescription: $"Step {step.Step} approval required",
+                        IdentityToBeUsed: $"role:{step.AgentRoleId}"));
 
-                // מחכה לאישור אנושי — יכול לחכות ימים
-                var approval = await context.WaitForExternalEvent<string>(
+                // Wait up to 48h for human decision
+                var decision = await context.WaitForExternalEvent<string>(
                     $"approval-gate-{step.Step}",
                     TimeSpan.FromHours(48));
 
-                if (approval != "Approved")
+                if (decision != "Approved")
                 {
-                    logger.LogWarning("Pipeline rejected at step {Step}", step.Step);
-                    return new OrchestrationResult(input.RunId, RunStatus.Failed, results, "Rejected by approver");
+                    logger.LogWarning("Pipeline rejected at step {Step} (approval {ApprovalId})", step.Step, approvalId);
+
+                    await context.CallActivityAsync(nameof(UpdateRunStatusActivity),
+                        new UpdateRunStatusInput(input.RunId, input.TaskId, input.BoardId, RunStatus.Failed, step.Step,
+                            ErrorMessage: "Rejected by approver"));
+
+                    await context.CallActivityAsync(nameof(WriteAuditActivity),
+                        new WriteAuditInput(input.TenantId, input.RunId, input.TaskId,
+                            step.AgentRoleId ?? "approval-gate", "approval.rejected", AuditOutcome.Denied));
+
+                    return new OrchestrationResult(input.RunId, RunStatus.Failed, completedSteps, "Rejected by approver");
                 }
+
+                // Resume after approval
+                await context.CallActivityAsync(nameof(UpdateRunStatusActivity),
+                    new UpdateRunStatusInput(input.RunId, input.TaskId, input.BoardId, RunStatus.Running, step.Step));
 
                 continue;
             }
 
-            // ── Agent Execution ─────────────────────────────────────────────
+            // ── Agent Execution Step ─────────────────────────────────────────
             if (string.IsNullOrEmpty(step.AgentRoleId)) continue;
 
-            await context.CallActivityAsync(
-                nameof(UpdateRunStatusActivity),
-                new UpdateRunStatusInput(input.RunId, input.TaskId, RunStatus.Running, step.Step));
+            logger.LogInformation("Executing step {Step}: agent={Agent}", step.Step, step.AgentRoleId);
 
             StepResult stepResult;
             try
             {
                 stepResult = await context.CallActivityAsync<StepResult>(
                     nameof(InvokeAgentActivity),
-                    new InvokeAgentInput(input.RunId, input.TaskId, input.TenantId, step.AgentRoleId, step.Step));
+                    new InvokeAgentInput(
+                        input.RunId,
+                        input.TaskId,
+                        input.BoardId,
+                        input.TenantId,
+                        step.AgentRoleId,
+                        step.Step));
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Agent step {Step} failed for run {RunId}", step.Step, input.RunId);
+                logger.LogError(ex, "Step {Step} failed for agent {Agent}", step.Step, step.AgentRoleId);
 
-                await context.CallActivityAsync(
-                    nameof(WriteAuditActivity),
-                    new WriteAuditInput(input.RunId, input.TaskId, input.TenantId,
+                await context.CallActivityAsync(nameof(WriteAuditActivity),
+                    new WriteAuditInput(input.TenantId, input.RunId, input.TaskId,
                         step.AgentRoleId, $"step.{step.Step}.failed", AuditOutcome.Failed));
 
-                return new OrchestrationResult(input.RunId, RunStatus.Failed, results, ex.Message);
+                await context.CallActivityAsync(nameof(UpdateRunStatusActivity),
+                    new UpdateRunStatusInput(input.RunId, input.TaskId, input.BoardId, RunStatus.Failed, step.Step,
+                        ErrorMessage: ex.Message));
+
+                return new OrchestrationResult(input.RunId, RunStatus.Failed, completedSteps, ex.Message);
             }
 
-            results.Add(stepResult);
+            completedSteps.Add(stepResult);
 
-            await context.CallActivityAsync(
-                nameof(WriteAuditActivity),
-                new WriteAuditInput(input.RunId, input.TaskId, input.TenantId,
-                    step.AgentRoleId, $"step.{step.Step}.completed", AuditOutcome.Success));
+            // Persist step result in run document
+            await context.CallActivityAsync(nameof(UpdateRunStatusActivity),
+                new UpdateRunStatusInput(input.RunId, input.TaskId, input.BoardId, RunStatus.Running, step.Step,
+                    StepResult: stepResult));
+
+            await context.CallActivityAsync(nameof(WriteAuditActivity),
+                new WriteAuditInput(input.TenantId, input.RunId, input.TaskId,
+                    step.AgentRoleId, $"step.{step.Step}.completed", AuditOutcome.Success,
+                    TokenUsage: stepResult.TokenUsage, DurationMs: stepResult.DurationMs));
         }
 
-        await context.CallActivityAsync(
-            nameof(UpdateRunStatusActivity),
-            new UpdateRunStatusInput(input.RunId, input.TaskId, RunStatus.Completed, null));
+        // All steps done
+        await context.CallActivityAsync(nameof(UpdateRunStatusActivity),
+            new UpdateRunStatusInput(input.RunId, input.TaskId, input.BoardId, RunStatus.Completed,
+                CurrentStep: input.Steps.Count));
 
-        logger.LogInformation("Pipeline completed for run {RunId}", input.RunId);
-        return new OrchestrationResult(input.RunId, RunStatus.Completed, results, null);
+        logger.LogInformation("Pipeline completed: run={RunId} steps={Count}", input.RunId, completedSteps.Count);
+        return new OrchestrationResult(input.RunId, RunStatus.Completed, completedSteps, null);
     }
 }
-
-// ── Input / Output records ────────────────────────────────────────────────────
 
 public record PipelineInput(
     string RunId,
     string TaskId,
+    string BoardId,
     string TenantId,
     List<PipelineStep> Steps);
 

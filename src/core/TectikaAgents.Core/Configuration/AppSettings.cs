@@ -16,9 +16,11 @@ public class AzureAdSettings
 
 public class FoundrySettings
 {
-    public string Endpoint { get; set; } = string.Empty;      // https://<hub>.api.azureml.ms
+    public string Endpoint { get; set; } = string.Empty;   // https://<resource>.openai.azure.com  OR  https://api.openai.com/v1
     public string ProjectName { get; set; } = string.Empty;
     public string DefaultModel { get; set; } = "gpt-4o";
+    public string? ApiKey { get; set; }                    // אם מוגדר — משתמש ב-API key ולא ב-MSI
+    public bool IsOpenAiDirect { get; set; }               // true = api.openai.com, false = Azure OpenAI
 }
 
 public class ServiceBusSettings

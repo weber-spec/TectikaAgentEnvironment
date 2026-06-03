@@ -45,6 +45,9 @@ builder.Services.AddHostedService<ServiceBusListenerService>();
 // ── CLI Bridge WebSocket ─────────────────────────────────────────────────────
 builder.Services.AddSingleton<CliBridgeManager>();
 
+// ── HttpClientFactory (used by RunsController to call Durable Functions) ──────
+builder.Services.AddHttpClient();
+
 // ── Controllers + OpenAPI ────────────────────────────────────────────────────
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
