@@ -1,0 +1,239 @@
+'use client';
+
+import Link from 'next/link';
+import { useSettings, type AppSettings, type TranslationKey } from '@/lib/settings-context';
+
+// ── Reusable primitives ────────────────────────────────────────────────────────
+
+function SectionCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-6 flex flex-col gap-5 shadow-sm">
+      {children}
+    </div>
+  );
+}
+
+function SectionHeader({ icon, titleKey }: { icon: string; titleKey: TranslationKey }) {
+  const { t } = useSettings();
+  return (
+    <div className="flex items-center gap-2.5 pb-1 border-b border-[var(--border)]">
+      <span className="text-xl">{icon}</span>
+      <h2 className="text-base font-semibold text-[var(--foreground)]">{t(titleKey)}</h2>
+    </div>
+  );
+}
+
+function SettingRow({ label, description, children }: {
+  label: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col gap-0.5 min-w-0">
+        <span className="text-sm font-medium text-[var(--foreground)]">{label}</span>
+        {description && (
+          <span className="text-xs text-[var(--muted)]">{description}</span>
+        )}
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
+  );
+}
+
+// ── Toggle Switch ──────────────────────────────────────────────────────────────
+
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className="relative w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
+      style={{ background: checked ? 'var(--primary)' : 'var(--surface-2)' }}
+    >
+      <span
+        className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200"
+        style={{ transform: checked ? 'translateX(20px)' : 'translateX(0)' }}
+      />
+    </button>
+  );
+}
+
+// ── Theme Picker ───────────────────────────────────────────────────────────────
+
+function ThemePicker() {
+  const { settings, updateSettings, t } = useSettings();
+
+  const options: Array<{ value: AppSettings['theme']; icon: string; key: TranslationKey }> = [
+    { value: 'light', icon: '☀️', key: 'light' },
+    { value: 'dark',  icon: '🌙', key: 'dark'  },
+  ];
+
+  return (
+    <div className="flex gap-2">
+      {options.map(opt => {
+        const active = settings.theme === opt.value;
+        return (
+          <button
+            key={opt.value}
+            onClick={() => updateSettings({ theme: opt.value })}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 text-sm font-medium transition-all duration-150"
+            style={{
+              borderColor: active ? 'var(--primary)' : 'var(--border)',
+              background: active ? 'var(--primary-light)' : 'var(--surface)',
+              color: active ? 'var(--primary)' : 'var(--muted)',
+              transform: active ? 'scale(1.03)' : 'scale(1)',
+            }}
+          >
+            <span>{opt.icon}</span>
+            <span>{t(opt.key)}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Language Picker ────────────────────────────────────────────────────────────
+
+function LanguagePicker() {
+  const { settings, updateSettings } = useSettings();
+
+  const options: Array<{ value: AppSettings['language']; label: string; flag: string }> = [
+    { value: 'en', label: 'English', flag: '🇬🇧' },
+    { value: 'he', label: 'עברית',   flag: '🇮🇱' },
+  ];
+
+  return (
+    <div className="flex gap-2">
+      {options.map(opt => {
+        const active = settings.language === opt.value;
+        return (
+          <button
+            key={opt.value}
+            onClick={() => updateSettings({ language: opt.value })}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 text-sm font-medium transition-all duration-150"
+            style={{
+              borderColor: active ? 'var(--primary)' : 'var(--border)',
+              background: active ? 'var(--primary-light)' : 'var(--surface)',
+              color: active ? 'var(--primary)' : 'var(--muted)',
+              transform: active ? 'scale(1.03)' : 'scale(1)',
+            }}
+          >
+            <span>{opt.flag}</span>
+            <span>{opt.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────────
+
+const NOTIFICATION_KEYS: Array<{
+  key: keyof AppSettings['notifications'];
+  labelKey: TranslationKey;
+  descKey: TranslationKey;
+  icon: string;
+}> = [
+  { key: 'taskCompleted',      labelKey: 'taskCompleted',      descKey: 'taskCompletedDesc',      icon: '✅' },
+  { key: 'approvalRequired',   labelKey: 'approvalRequired',   descKey: 'approvalRequiredDesc',   icon: '⏳' },
+  { key: 'taskFailed',         labelKey: 'taskFailed',         descKey: 'taskFailedDesc',         icon: '❌' },
+  { key: 'agentUpdate',        labelKey: 'agentUpdate',        descKey: 'agentUpdateDesc',        icon: '🤖' },
+  { key: 'taskBlocked',        labelKey: 'taskBlocked',        descKey: 'taskBlockedDesc',        icon: '🚧' },
+  { key: 'dependencyResolved', labelKey: 'dependencyResolved', descKey: 'dependencyResolvedDesc', icon: '🔓' },
+];
+
+export default function SettingsPage() {
+  const { settings, updateNotification, t } = useSettings();
+
+  return (
+    <div className="min-h-full bg-[var(--surface)] pb-16">
+      {/* Page header */}
+      <div className="bg-[var(--background)] border-b border-[var(--border)] px-8 py-4 flex items-center gap-4 sticky top-0 z-10">
+        <Link href="/boards" className="text-[var(--muted)] hover:text-[var(--foreground)] transition-colors">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M19 12H5M12 19l-7-7 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </Link>
+        <div>
+          <h1 className="text-lg font-semibold text-[var(--foreground)]">{t('settingsTitle')}</h1>
+          <p className="text-xs text-[var(--muted)] mt-0.5">{t('settingsSubtitle')}</p>
+        </div>
+        <div className="flex-1" />
+        <span className="text-xs text-[var(--muted)] flex items-center gap-1">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+            <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          {t('saveNote')}
+        </span>
+      </div>
+
+      {/* Content */}
+      <div className="max-w-2xl mx-auto px-6 py-8 flex flex-col gap-6">
+
+        {/* Appearance */}
+        <SectionCard>
+          <SectionHeader icon="🎨" titleKey="appearance" />
+          <p className="text-xs text-[var(--muted)] -mt-2">{t('appearanceDesc')}</p>
+          <SettingRow label={t('theme')}>
+            <ThemePicker />
+          </SettingRow>
+        </SectionCard>
+
+        {/* Language */}
+        <SectionCard>
+          <SectionHeader icon="🌍" titleKey="languageSection" />
+          <p className="text-xs text-[var(--muted)] -mt-2">{t('languageDesc')}</p>
+          <SettingRow label={t('language')}>
+            <LanguagePicker />
+          </SettingRow>
+          {settings.language === 'he' && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--primary-light)] text-xs text-[var(--primary)]">
+              <span>↔️</span>
+              <span>{t('directionNote')}</span>
+            </div>
+          )}
+        </SectionCard>
+
+        {/* Notifications */}
+        <SectionCard>
+          <SectionHeader icon="🔔" titleKey="notifications" />
+          <p className="text-xs text-[var(--muted)] -mt-2">{t('notificationsDesc')}</p>
+          <div className="flex flex-col gap-4">
+            {NOTIFICATION_KEYS.map(({ key, labelKey, descKey, icon }) => (
+              <SettingRow
+                key={key}
+                label={`${icon}  ${t(labelKey)}`}
+                description={t(descKey)}
+              >
+                <Toggle
+                  checked={settings.notifications[key]}
+                  onChange={v => updateNotification(key, v)}
+                />
+              </SettingRow>
+            ))}
+          </div>
+        </SectionCard>
+
+        {/* About */}
+        <SectionCard>
+          <SectionHeader icon="ℹ️" titleKey="about" />
+          <div className="flex flex-col gap-2 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-[var(--muted)]">{t('version')}</span>
+              <span className="font-mono text-xs bg-[var(--surface)] px-2 py-1 rounded text-[var(--foreground)]">0.1.0</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[var(--muted)]">{t('poweredBy')}</span>
+              <span className="text-xs font-semibold text-[var(--primary)]">Tectika AI ⚡</span>
+            </div>
+          </div>
+        </SectionCard>
+
+      </div>
+    </div>
+  );
+}

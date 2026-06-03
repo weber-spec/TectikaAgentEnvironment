@@ -3,6 +3,7 @@ import { Poppins } from 'next/font/google';
 import './globals.css';
 import { Navbar } from '@/components/layout/Navbar';
 import { Sidebar } from '@/components/layout/Sidebar';
+import { SettingsProvider } from '@/lib/settings-context';
 
 const poppins = Poppins({
   subsets: ['latin'],
@@ -20,13 +21,15 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`h-full ${poppins.className}`}>
-      <body className="min-h-full flex flex-col bg-white text-[#323338]">
-        <Navbar />
-        <div className="flex flex-1 overflow-hidden">
-          <Sidebar />
-          <main className="flex-1 overflow-auto bg-white">{children}</main>
-        </div>
+    <html lang="en" className={`h-full ${poppins.className}`} suppressHydrationWarning>
+      <body className="min-h-full flex flex-col bg-[var(--background)] text-[var(--foreground)]">
+        <SettingsProvider>
+          <Navbar />
+          <div className="flex flex-1 overflow-hidden">
+            <Sidebar />
+            <main className="flex-1 overflow-auto bg-[var(--background)]">{children}</main>
+          </div>
+        </SettingsProvider>
       </body>
     </html>
   );
