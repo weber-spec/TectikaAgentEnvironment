@@ -16,9 +16,6 @@ const poppins = Poppins({
 export const metadata: Metadata = {
   title: 'AgentBoard — Tectika',
   description: 'AI Agent task management platform by Tectika',
-  icons: {
-    icon: 'https://i.ibb.co/LJ1H14k/Tectika-ai-icon-only.png',
-  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

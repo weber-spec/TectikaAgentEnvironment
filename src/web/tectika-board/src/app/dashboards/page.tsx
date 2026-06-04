@@ -3,24 +3,24 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import type { Board, AgentTask, WorkflowRun } from '@/lib/types';
+import type { Board, AgentTask, WorkflowRun, AgentRole } from '@/lib/types';
 import { STATUS_CONFIG, STATUS_ORDER, PRIORITY_CONFIG, PRIORITY_ORDER, colorFor } from '@/lib/palette';
 import { BarChart, PieChart, type Datum } from '@/components/charts/Charts';
 import { Skeleton, Avatar } from '@/components/ui/primitives';
 import { Icon } from '@/components/ui/icons';
 import { formatCurrency, formatCompact, displayName, formatDateShort, daysUntil } from '@/lib/format';
 
-interface Data { boards: Board[]; tasks: AgentTask[]; runs: WorkflowRun[] }
+interface Data { boards: Board[]; tasks: AgentTask[]; runs: WorkflowRun[]; roles: AgentRole[] }
 
 export function useWorkspaceData() {
   const [data, setData] = useState<Data | null>(null);
   useEffect(() => {
     (async () => {
-      const boards = await api.boards.list().catch(() => []);
+      const [boards, roles] = await Promise.all([api.boards.list().catch(() => []), api.agentRoles.list().catch(() => [])]);
       const taskLists = await Promise.all(boards.map(b => api.tasks.list(b.id).catch(() => [])));
       const tasks = taskLists.flat();
       const runResults = await Promise.all(tasks.filter(t => t.workflowRunId).map(t => api.runs.get(t.id, t.workflowRunId!).catch(() => null)));
-      setData({ boards, tasks, runs: runResults.filter((r): r is WorkflowRun => !!r) });
+      setData({ boards, tasks, runs: runResults.filter((r): r is WorkflowRun => !!r), roles });
     })();
   }, []);
   return data;
@@ -46,7 +46,8 @@ function DashSkeleton() {
 }
 
 function Dashboard({ data }: { data: Data }) {
-  const { boards, tasks, runs } = data;
+  const { boards, tasks, runs, roles } = data;
+  const nameFor = (id: string) => roles.find(r => r.id === id)?.displayName ?? displayName(id);
   const done = tasks.filter(t => t.status === 'Done').length;
   const inProgress = tasks.filter(t => t.status === 'InProgress').length;
   const overdue = tasks.filter(t => { const d = daysUntil(t.dueAt); return d != null && d < 0 && t.status !== 'Done'; }).length;
@@ -59,7 +60,7 @@ function Dashboard({ data }: { data: Data }) {
 
   const workload = new Map<string, number>();
   tasks.filter(t => t.status !== 'Done').forEach(t => workload.set(t.assignee.id, (workload.get(t.assignee.id) ?? 0) + 1));
-  const workloadData: Datum[] = [...workload.entries()].map(([id, v]) => ({ label: displayName(id), hex: colorFor(id), value: v })).sort((a, b) => b.value - a.value).slice(0, 8);
+  const workloadData: Datum[] = [...workload.entries()].map(([id, v]) => ({ label: nameFor(id), hex: colorFor(id), value: v })).sort((a, b) => b.value - a.value).slice(0, 8);
 
   const upcoming = tasks.filter(t => t.dueAt && t.status !== 'Done').sort((a, b) => +new Date(a.dueAt!) - +new Date(b.dueAt!)).slice(0, 8);
 

@@ -8,9 +8,15 @@ function colById(columns: ColumnDef[], id: string): ColumnDef | undefined {
   return columns.find(c => c.id === id);
 }
 
+const VALUELESS_OPS = new Set(['isEmpty', 'isNotEmpty']);
+
 function matchRule(task: AgentTask, rule: FilterRule, columns: ColumnDef[], ctx: CellContext): boolean {
   const col = colById(columns, rule.columnId);
   if (!col) return true;
+  // A half-configured rule (value-requiring operator with no value yet) is inactive,
+  // so building a filter doesn't momentarily blank the board.
+  const hasValue = Array.isArray(rule.value) ? rule.value.length > 0 : rule.value !== undefined && rule.value !== '';
+  if (!VALUELESS_OPS.has(rule.operator) && !hasValue) return true;
   const text = cellText(task, col, ctx).toLowerCase();
   const num = cellNumber(task, col, ctx);
   const val = rule.value;

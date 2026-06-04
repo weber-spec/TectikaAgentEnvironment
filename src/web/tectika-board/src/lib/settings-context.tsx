@@ -167,6 +167,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
   // Load from localStorage on mount
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate persisted settings after mount (SSR-safe)
     setSettings(loadSettings());
     setMounted(true);
   }, []);

@@ -30,6 +30,13 @@ export function ItemPanel() {
 function PanelInner({ task }: { task: AgentTask }) {
   const { openTask, roles, runsById, updateTask, setStatus, peopleById, people } = useBoard();
   const [tab, setTab] = useState<Tab>('updates');
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') openTask(undefined); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [openTask]);
+
   const role = roles.find(r => r.id === task.assignee.id);
   const run = task.workflowRunId ? runsById[task.workflowRunId] : undefined;
   const person = peopleById[task.assignee.id];
@@ -80,6 +87,7 @@ function PanelInner({ task }: { task: AgentTask }) {
 function TitleEdit({ task, onSave }: { task: AgentTask; onSave: (t: string) => void }) {
   const [editing, setEditing] = useState(false);
   const [v, setV] = useState(task.title);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- sync editable field when the open task changes
   useEffect(() => setV(task.title), [task.title]);
   if (editing) return (
     <input autoFocus value={v} onChange={e => setV(e.target.value)} onBlur={() => { setEditing(false); if (v.trim()) onSave(v.trim()); }}

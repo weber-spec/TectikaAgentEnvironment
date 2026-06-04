@@ -29,6 +29,7 @@ export function CommandPalette() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- reset palette state when it opens
   useEffect(() => { if (open) { api.boards.list().then(setBoards).catch(() => {}); setQ(''); setActive(0); setTimeout(() => inputRef.current?.focus(), 30); } }, [open]);
 
   const commands: Command[] = useMemo(() => {
@@ -54,6 +55,7 @@ export function CommandPalette() {
     return commands.map(c => ({ c, s: fuzzyScore(c.label, q) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s).map(x => x.c);
   }, [commands, q]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- reset highlighted row when the query changes
   useEffect(() => { setActive(0); }, [q]);
 
   if (!open) return null;

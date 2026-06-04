@@ -169,6 +169,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   // ── load ────────────────────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: load board data on mount/boardId change
     setLoading(true);
     (async () => {
       try {
