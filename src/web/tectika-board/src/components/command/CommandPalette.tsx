@@ -19,8 +19,6 @@ export function CommandPalette() {
   const [boards, setBoards] = useState<Board[]>([]);
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -58,7 +56,7 @@ export function CommandPalette() {
 
   useEffect(() => { setActive(0); }, [q]);
 
-  if (!mounted || !open) return null;
+  if (!open) return null;
 
   const onKeyNav = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive(a => Math.min(filtered.length - 1, a + 1)); }
@@ -66,7 +64,6 @@ export function CommandPalette() {
     if (e.key === 'Enter') { e.preventDefault(); filtered[active]?.run(); }
   };
 
-  let lastGroup = '';
   return createPortal(
     <div className="fixed inset-0 z-[1500] flex items-start justify-center pt-[12vh] px-4" style={{ background: 'rgba(0,0,0,0.4)' }} onMouseDown={() => setOpen(false)}>
       <div className="w-full max-w-[560px] bg-[var(--background)] rounded-xl shadow-2xl border border-[var(--border)] overflow-hidden animate-scale-in" onMouseDown={e => e.stopPropagation()}>
@@ -79,7 +76,7 @@ export function CommandPalette() {
         <div className="max-h-[50vh] overflow-auto py-1">
           {filtered.length === 0 && <div className="px-4 py-8 text-center text-sm text-[var(--muted)]">No matches</div>}
           {filtered.map((c, i) => {
-            const showGroup = c.group !== lastGroup; lastGroup = c.group;
+            const showGroup = i === 0 || filtered[i - 1].group !== c.group;
             const I = Icon[c.icon];
             return (
               <React.Fragment key={c.id}>

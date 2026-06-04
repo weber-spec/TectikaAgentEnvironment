@@ -4,140 +4,109 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { useSettings } from '@/lib/settings-context';
-import type { Board } from '@/lib/types';
+import type { Board, AgentTask } from '@/lib/types';
+import { STATUS_CONFIG, colorFor } from '@/lib/palette';
+import { Button, Skeleton, EmptyState, Avatar } from '@/components/ui/primitives';
+import { Icon } from '@/components/ui/icons';
+import { relativeTime, displayName } from '@/lib/format';
+import { toast } from '@/lib/toast';
 
-const BOARD_COLORS = [
-  '#0073ea', '#00c875', '#fdab3d', '#e2445c',
-  '#a25ddc', '#ff642e', '#66ccff', '#579bfc',
-];
-
-function boardColor(name: string) {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return BOARD_COLORS[Math.abs(hash) % BOARD_COLORS.length];
-}
+interface BoardSummary { board: Board; tasks: AgentTask[] }
 
 export default function BoardsPage() {
   const { t } = useSettings();
-  const [boards, setBoards] = useState<Board[]>([]);
+  const [summaries, setSummaries] = useState<BoardSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState('');
 
-  useEffect(() => {
-    api.boards.list()
-      .then(setBoards)
-      .catch(() => setBoards([]))
-      .finally(() => setLoading(false));
-  }, []);
+  const load = () => {
+    api.boards.list().then(async boards => {
+      const withTasks = await Promise.all(boards.map(async b => ({ board: b, tasks: await api.tasks.list(b.id).catch(() => []) })));
+      setSummaries(withTasks);
+    }).catch(() => setSummaries([])).finally(() => setLoading(false));
+  };
+  useEffect(load, []);
 
   const handleNew = async () => {
     const name = prompt(t('newBoard') + '?');
     if (!name) return;
-    const board = await api.boards.create(name).catch(() => null);
-    if (board) setBoards(prev => [...prev, board]);
+    try { const b = await api.boards.create(name); setSummaries(prev => [...prev, { board: b, tasks: [] }]); toast('Board created', 'success'); }
+    catch { toast('Could not create board', 'error'); }
   };
 
+  const filtered = summaries.filter(s => s.board.name.toLowerCase().includes(q.toLowerCase()));
+
   return (
-    <div className="flex flex-col h-full">
-      {/* Page header */}
-      <div className="bg-[var(--surface)] border-b border-[var(--border)] px-8 py-4 flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-[var(--foreground)]">{t('boards')}</h1>
-        <button
-          className="flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold text-white transition-colors"
-          style={{ background: 'var(--primary)' }}
-          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--primary-hover)'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'var(--primary)'; }}
-          onClick={handleNew}
-        >
-          <span className="text-base leading-none font-bold">+</span>
-          {t('newBoard')}
-        </button>
+    <div className="flex flex-col h-full overflow-auto">
+      <div className="px-8 py-5 flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-[var(--foreground)]">{t('boards')}</h1>
+          <p className="text-sm text-[var(--muted)] mt-0.5">Orchestrate AI agents and humans across your workspaces.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 bg-[var(--surface)] rounded-md px-2.5 h-9 border border-[var(--border)]">
+            <Icon.search size={15} className="text-[var(--muted)]" />
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search boards" className="bg-transparent outline-none text-sm w-40 text-[var(--foreground)]" />
+          </div>
+          <Button variant="primary" onClick={handleNew}><Icon.plus size={16} /> {t('newBoard')}</Button>
+        </div>
       </div>
 
-      {/* Board list */}
-      <div className="flex-1 overflow-auto">
+      <div className="px-8 pb-8 flex-1">
         {loading ? (
-          <div className="px-8 py-6 flex flex-col gap-2">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-12 rounded bg-[var(--surface)] animate-pulse" />
-            ))}
+          <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
+            {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-44" />)}
           </div>
-        ) : boards.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-32 text-[var(--muted)]">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" className="mb-4 text-[var(--muted-2)]">
-              <rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.5"/>
-              <rect x="14" y="3" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.5"/>
-              <rect x="3" y="14" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.5"/>
-              <rect x="14" y="14" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.5"/>
-            </svg>
-            <p className="text-base font-semibold text-[var(--foreground)] mb-1">{t('noBoardsYet')}</p>
-            <p className="text-sm mb-5">{t('noBoardsDesc')}</p>
-            <button
-              className="px-5 py-2 rounded-md text-sm font-semibold text-white"
-              style={{ background: 'var(--primary)' }}
-              onClick={handleNew}
-            >
-              + {t('newBoard')}
-            </button>
-          </div>
+        ) : filtered.length === 0 ? (
+          <EmptyState icon={<Icon.board size={48} />} title={t('noBoardsYet')} description={t('noBoardsDesc')}
+            action={<Button variant="primary" onClick={handleNew}><Icon.plus size={16} /> {t('newBoard')}</Button>} />
         ) : (
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="border-b border-[var(--border)]">
-                <th className="text-left px-8 py-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)] bg-[var(--surface)]">{t('colName')}</th>
-                <th className="text-left px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)] bg-[var(--surface)] w-36">{t('colCreated')}</th>
-                <th className="px-4 py-2 bg-[var(--surface)] w-40" />
-              </tr>
-            </thead>
-            <tbody>
-              {boards.map(board => (
-                <BoardRow key={board.id} board={board} />
-              ))}
-            </tbody>
-          </table>
+          <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
+            {filtered.map(s => <BoardCard key={s.board.id} summary={s} />)}
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-function BoardRow({ board }: { board: Board }) {
-  const { t } = useSettings();
-  const color = boardColor(board.name);
+function BoardCard({ summary }: { summary: BoardSummary }) {
+  const { board, tasks } = summary;
+  const color = colorFor(board.name);
+  const counts = new Map<string, number>();
+  tasks.forEach(t => counts.set(t.status, (counts.get(t.status) ?? 0) + 1));
+  const done = counts.get('Done') ?? 0;
+  const pct = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
+  const owners = Array.from(new Set(tasks.map(t => t.assignee.id))).slice(0, 4);
 
   return (
-    <tr
-      className="border-b border-[var(--border)] transition-colors"
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--surface)'; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = ''; }}
-    >
-      <td className="px-8 py-3">
-        <div className="flex items-center gap-3">
-          <div className="w-3 h-3 rounded-sm shrink-0" style={{ background: color }} />
-          <span className="text-sm font-medium text-[var(--foreground)]">{board.name}</span>
-          {board.description && (
-            <span className="text-xs text-[var(--muted)] truncate max-w-xs">{board.description}</span>
-          )}
+    <Link href={`/boards/${board.id}`} className="group block bg-[var(--background)] rounded-xl border border-[var(--border)] overflow-hidden hover:shadow-lg hover:border-[var(--primary)] transition-all">
+      <div className="h-1.5" style={{ background: color }} />
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-2 mb-1">
+          <h3 className="font-semibold text-[var(--foreground)] group-hover:text-[var(--primary)] transition-colors">{board.name}</h3>
+          <Icon.flow size={16} className="text-[var(--muted-2)] group-hover:text-[var(--primary)]" />
         </div>
-      </td>
-      <td className="px-4 py-3 text-xs text-[var(--muted)]">
-        {new Date(board.createdAt).toLocaleDateString()}
-      </td>
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-2 justify-end">
-          <Link
-            href={`/boards/${board.id}`}
-            className="px-3 py-1 rounded text-xs font-semibold text-[var(--primary)] border border-[var(--border)] hover:bg-[var(--primary-light)] transition-colors"
-          >
-            {t('openBoard')}
-          </Link>
-          <Link
-            href={`/boards/${board.id}/canvas`}
-            className="px-3 py-1 rounded text-xs font-semibold text-[var(--muted)] border border-[var(--border)] hover:bg-[var(--surface)] transition-colors"
-          >
-            {t('canvas')}
-          </Link>
+        <p className="text-xs text-[var(--muted)] line-clamp-2 mb-3 min-h-[32px]">{board.description || 'No description'}</p>
+
+        {/* battery */}
+        <div className="flex h-2 rounded-full overflow-hidden bg-[var(--surface-2)] mb-2">
+          {tasks.length === 0 ? <div className="flex-1" /> : Array.from(counts.entries()).map(([st, n]) => (
+            <div key={st} style={{ flex: n, background: STATUS_CONFIG[st as keyof typeof STATUS_CONFIG]?.hex }} title={`${STATUS_CONFIG[st as keyof typeof STATUS_CONFIG]?.label}: ${n}`} />
+          ))}
         </div>
-      </td>
-    </tr>
+        <div className="flex items-center justify-between text-[11px] text-[var(--muted)]">
+          <span>{tasks.length} items · {pct}% done</span>
+          <span>{relativeTime(board.createdAt)}</span>
+        </div>
+
+        <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--border)]">
+          <div className="flex items-center">
+            {owners.map((o, i) => <div key={o} style={{ marginLeft: i === 0 ? 0 : -8, zIndex: 10 - i }}><Avatar name={displayName(o)} hex={colorFor(o)} size={24} ring /></div>)}
+          </div>
+          <span className="text-[11px] text-[var(--primary)] font-medium opacity-0 group-hover:opacity-100 transition-opacity">Open →</span>
+        </div>
+      </div>
+    </Link>
   );
 }

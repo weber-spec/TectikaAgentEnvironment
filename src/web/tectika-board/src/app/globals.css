@@ -155,6 +155,19 @@ body {
 .chip-select.chip-green { background: #e6f9f0; color: #037f4c; border-color: transparent; }
 [data-theme="dark"] .chip-select.chip-green { background: #0d3b2a; color: #4ce0a0; }
 
+/* Shared form input */
+.inp {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  color: var(--foreground);
+  outline: none;
+}
+.inp:focus { border-color: var(--primary); }
+
 /* RTL flips for the slide-over */
 [dir="rtl"] .animate-slide-in-right { animation-name: slide-in-left; }
 @keyframes slide-in-left {

@@ -252,7 +252,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     setCfg(prev => ({ ...prev, views: prev.views.map(v => v.id === id ? { ...v, ...patch } : v) }));
   }, []);
 
-  const setActiveView = useCallback((id: string) => { setCfg(prev => ({ ...prev, activeViewId: id })); clearSelectionRef.current(); }, []);
+  const setActiveView = useCallback((id: string) => { setCfg(prev => ({ ...prev, activeViewId: id })); setSelectedIds([]); }, []);
   const updateActiveView = useCallback((patch: Partial<ViewDef>) => patchView(cfg.activeViewId, patch), [cfg.activeViewId, patchView]);
 
   const createView = useCallback((name: string, kind: ViewKind) => {
@@ -291,8 +291,6 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
 
   // ── selection ─────────────────────────────────────────────────────────────────
   const clearSelection = useCallback(() => setSelectedIds([]), []);
-  const clearSelectionRef = useRef(clearSelection);
-  clearSelectionRef.current = clearSelection;
   const selectAll = useCallback((ids: string[]) => setSelectedIds(ids), []);
   const toggleSelect = useCallback((id: string, range?: boolean) => {
     setSelectedIds(prev => {

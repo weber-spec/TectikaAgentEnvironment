@@ -54,6 +54,18 @@ const NAV_MAIN: NavItem[] = [
 
 const NAV_INSIGHTS: NavItem[] = [
   {
+    href: '/dashboards',
+    labelKey: 'dashboards',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <rect x="3" y="3" width="8" height="10" rx="1" stroke="currentColor" strokeWidth="1.8"/>
+        <rect x="13" y="3" width="8" height="6" rx="1" stroke="currentColor" strokeWidth="1.8"/>
+        <rect x="13" y="13" width="8" height="8" rx="1" stroke="currentColor" strokeWidth="1.8"/>
+        <rect x="3" y="17" width="8" height="4" rx="1" stroke="currentColor" strokeWidth="1.8"/>
+      </svg>
+    ),
+  },
+  {
     href: '/analytics',
     labelKey: 'analytics',
     icon: (

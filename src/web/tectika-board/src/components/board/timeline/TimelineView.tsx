@@ -2,7 +2,6 @@
 
 import React, { useState } from 'react';
 import { useBoard } from '@/lib/board-context';
-import { Icon } from '@/components/ui/icons';
 import { STATUS_CONFIG } from '@/lib/palette';
 import { formatDateShort } from '@/lib/format';
 
@@ -14,6 +13,7 @@ const DAY = 86400000;
 export function TimelineView() {
   const { groups, openTask } = useBoard();
   const [pxPerDay, setPxPerDay] = useState(26);
+  const [now] = useState(() => Date.now());
 
   // flatten rows (group header + tasks), track y per task
   const rows: ({ type: 'group'; label: string; hex: string } | { type: 'task'; task: typeof groups[0]['tasks'][0] })[] = [];
@@ -24,8 +24,8 @@ export function TimelineView() {
 
   const allTasks = groups.flatMap(g => g.tasks);
   const dates = allTasks.flatMap(t => [new Date(t.createdAt).getTime(), t.dueAt ? new Date(t.dueAt).getTime() : new Date(t.createdAt).getTime() + 3 * DAY]);
-  const minD = dates.length ? Math.min(...dates) : Date.now();
-  const maxD = dates.length ? Math.max(...dates) : Date.now() + 14 * DAY;
+  const minD = dates.length ? Math.min(...dates) : now;
+  const maxD = dates.length ? Math.max(...dates) : now + 14 * DAY;
   const start = new Date(minD - 2 * DAY); start.setHours(0, 0, 0, 0);
   const end = new Date(maxD + 3 * DAY);
   const totalDays = Math.ceil((end.getTime() - start.getTime()) / DAY);
@@ -44,7 +44,7 @@ export function TimelineView() {
     months.push({ x: xFor(Math.max(cur.getTime(), start.getTime())), label: cur.toLocaleDateString(undefined, { month: 'short', year: '2-digit' }) });
     cur.setMonth(cur.getMonth() + 1);
   }
-  const todayX = xFor(Date.now());
+  const todayX = xFor(now);
 
   // dependency arrows
   const arrows: { x1: number; y1: number; x2: number; y2: number }[] = [];

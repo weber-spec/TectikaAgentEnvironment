@@ -96,7 +96,7 @@ function RenameRow({ col, onRename, onDone }: { col: ColumnDef; onRename: (id: s
 }
 
 function GroupSection({ group, collapsed, grouped }: { group: TaskGroup; collapsed: boolean; grouped: boolean }) {
-  const { visibleColumns, toggleGroup } = useBoard();
+  const { toggleGroup } = useBoard();
   return (
     <div className="mb-1.5">
       {grouped && (
@@ -140,6 +140,7 @@ function Row({ task, accent }: { task: AgentTask; accent: string }) {
 }
 
 function AddItemRow({ group, accent }: { group: TaskGroup; accent: string }) {
+  void accent;
   const { addTask, activeView, visibleColumns } = useBoard();
   const [val, setVal] = useState('');
   const totalW = GUTTER + visibleColumns.reduce((s, c) => s + c.width, 0);
@@ -187,7 +188,7 @@ function GroupFooter({ group, accent }: { group: TaskGroup; accent: string }) {
 }
 
 function NewGroupItem() {
-  const { activeView, tasks } = useBoard();
+  const { tasks } = useBoard();
   if (tasks.length > 0) return null;
   return <div className="p-4" />;
 }

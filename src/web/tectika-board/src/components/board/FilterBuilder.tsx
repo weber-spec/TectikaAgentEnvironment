@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef } from 'react';
+import React from 'react';
 import { useBoard } from '@/lib/board-context';
 import type { FilterRule, FilterOperator, ColumnDef } from '@/lib/types';
 import { KIND_META } from '@/lib/columns';

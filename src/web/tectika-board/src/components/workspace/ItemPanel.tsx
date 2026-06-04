@@ -15,10 +15,8 @@ type Tab = 'updates' | 'activity' | 'details';
 
 export function ItemPanel() {
   const { openTaskId, openTask, tasks } = useBoard();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
   const task = tasks.find(t => t.id === openTaskId);
-  if (!mounted || !openTaskId || !task) return null;
+  if (!openTaskId || !task) return null;
   return createPortal(
     <div className="fixed inset-0 z-[1200] flex justify-end" style={{ background: 'rgba(0,0,0,0.35)' }} onMouseDown={() => openTask(undefined)}>
       <div className="bg-[var(--background)] h-full w-full max-w-[940px] shadow-2xl flex flex-col animate-slide-in-right" onMouseDown={e => e.stopPropagation()}>

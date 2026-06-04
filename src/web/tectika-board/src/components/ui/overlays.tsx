@@ -18,8 +18,6 @@ export function Popover({ anchorRef, open, onClose, children, align = 'start', w
 }) {
   const layerRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
 
   const place = useCallback(() => {
     const a = anchorRef.current; const l = layerRef.current;
@@ -57,7 +55,7 @@ export function Popover({ anchorRef, open, onClose, children, align = 'start', w
     };
   }, [open, onClose, anchorRef, place]);
 
-  if (!open || !mounted) return null;
+  if (!open) return null;
   return createPortal(
     <div
       ref={layerRef}
@@ -116,8 +114,6 @@ export function Menu({ anchorRef, open, onClose, options, align, width = 200, he
 export function Modal({ open, onClose, children, title, width = 560, footer }: {
   open: boolean; onClose: () => void; children: React.ReactNode; title?: React.ReactNode; width?: number; footer?: React.ReactNode;
 }) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -125,7 +121,7 @@ export function Modal({ open, onClose, children, title, width = 560, footer }: {
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  if (!open || !mounted) return null;
+  if (!open) return null;
   return createPortal(
     <div className="fixed inset-0 z-[1100] flex items-start justify-center p-4 sm:p-8 overflow-auto"
       style={{ background: 'rgba(0,0,0,0.45)' }} onMouseDown={onClose}>

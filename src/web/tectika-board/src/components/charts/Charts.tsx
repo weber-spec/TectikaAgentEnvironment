@@ -39,10 +39,13 @@ export function PieChart({ data, donut, size = 200 }: { data: Datum[]; donut?: b
   const total = data.reduce((s, d) => s + d.value, 0) || 1;
   const [hover, setHover] = useState<string | null>(null);
   const r = size / 2; const cx = r; const cy = r; const inner = donut ? r * 0.58 : 0;
-  let angle = -Math.PI / 2;
-  const arcs = data.filter(d => d.value > 0).map(d => {
+  const positive = data.filter(d => d.value > 0);
+  // precompute cumulative start fraction for each slice (no mutation during render)
+  const offsets = positive.reduce<number[]>((acc, d, i) => [...acc, (acc[i - 1] ?? 0) + (i === 0 ? 0 : positive[i - 1].value / total)], []);
+  const arcs = positive.map((d, i) => {
     const frac = d.value / total;
-    const a0 = angle; const a1 = angle + frac * Math.PI * 2; angle = a1;
+    const a0 = -Math.PI / 2 + offsets[i] * Math.PI * 2;
+    const a1 = a0 + frac * Math.PI * 2;
     const large = a1 - a0 > Math.PI ? 1 : 0;
     const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
     const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
