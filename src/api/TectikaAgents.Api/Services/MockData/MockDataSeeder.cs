@@ -317,5 +317,108 @@ internal static class MockDataSeeder
             ActionDescription = "Deploy checkout service build #482 to staging.",
             IdentityToBeUsed = Owner,
         };
+
+        SeedExtra(boards, tasks, agentRoles, approvals, now);
+    }
+
+    // Additional roles, boards and tasks so every view (table, kanban, timeline,
+    // calendar, chart, dashboard) renders against a lively, varied dataset.
+    private static void SeedExtra(
+        ConcurrentDictionary<string, Board> boards,
+        ConcurrentDictionary<string, AgentTask> tasks,
+        ConcurrentDictionary<string, AgentRole> agentRoles,
+        ConcurrentDictionary<string, Approval> approvals,
+        DateTimeOffset now)
+    {
+        const string Maya = "maya@tectika.com";
+        const string Noah = "noah@tectika.com";
+        const string Lena = "lena@tectika.com";
+
+        // ── Extra agent roles ────────────────────────────────────────────────────
+        var extraRoles = new (string Id, string Name, string Prompt, string[] Tools, string Model)[]
+        {
+            ("role-qa", "QA Engineer", "You are a rigorous QA engineer. Write and run tests, reproduce bugs, and report clear repro steps.", ["read_repo", "run_tests"], "gpt-4o"),
+            ("role-devops", "DevOps Engineer", "You are a DevOps engineer. Manage CI/CD, infrastructure-as-code, and deployments safely.", ["read_repo", "deploy", "run_tests"], "claude-sonnet-4-6"),
+            ("role-designer", "Product Designer", "You are a product designer. Produce UX flows, wireframes and design specs.", ["search", "read_repo"], "gpt-4o"),
+            ("role-docs", "Doc Writer", "You are a technical writer. Produce clear, accurate documentation from code and specs.", ["read_repo", "search"], "claude-haiku-4-5"),
+            ("role-analyst", "Data Analyst", "You are a data analyst. Query data, build metrics, and summarize insights.", ["search", "read_repo"], "gpt-4o"),
+        };
+        foreach (var r in extraRoles)
+        {
+            agentRoles[r.Id] = new AgentRole
+            {
+                Id = r.Id, TenantId = Tenant, DisplayName = r.Name, SystemPrompt = r.Prompt,
+                Tools = [.. r.Tools], ModelOverride = r.Model,
+                CreatedAt = now.AddDays(-12), UpdatedAt = now.AddDays(-4),
+            };
+        }
+
+        // ── Board 2: Mobile App Launch ───────────────────────────────────────────
+        const string B2 = "board-002";
+        boards[B2] = new Board
+        {
+            Id = B2, TenantId = Tenant, Name = "Mobile App Launch",
+            Description = "Cross-functional launch of the v2 mobile app.",
+            OwnerId = Maya, CreatedAt = now.AddDays(-30),
+        };
+
+        // ── Board 3: Data Platform Migration ─────────────────────────────────────
+        const string B3 = "board-003";
+        boards[B3] = new Board
+        {
+            Id = B3, TenantId = Tenant, Name = "Data Platform Migration",
+            Description = "Migrate the analytics warehouse and rebuild pipelines.",
+            OwnerId = Noah, CreatedAt = now.AddDays(-21),
+        };
+
+        var seedTasks = new (string Board, string Title, string Desc, AgentTaskStatus Status, TaskPriority Prio, AssigneeType AType, string AId, int CreatedDaysAgo, int? DueInDays)[]
+        {
+            // board-001 extras (Checkout Service Revamp)
+            ("board-001", "Write integration tests", "End-to-end tests for the checkout flow.", AgentTaskStatus.InProgress, TaskPriority.High, AssigneeType.Agent, "role-qa", 4, 3),
+            ("board-001", "Update API documentation", "Document the new checkout endpoints.", AgentTaskStatus.Backlog, TaskPriority.Low, AssigneeType.Agent, "role-docs", 3, 9),
+            ("board-001", "Load-test checkout", "Validate p95 latency under peak load.", AgentTaskStatus.Blocked, TaskPriority.High, AssigneeType.Human, Lena, 2, 6),
+            // board-002 (Mobile App Launch)
+            (B2, "Design onboarding flow", "Wireframe and prototype the new onboarding.", AgentTaskStatus.Done, TaskPriority.High, AssigneeType.Agent, "role-designer", 25, -10),
+            (B2, "Implement push notifications", "Wire up APNs/FCM and preferences.", AgentTaskStatus.InProgress, TaskPriority.Critical, AssigneeType.Agent, "role-engineer", 12, 4),
+            (B2, "App Store assets", "Screenshots, copy and metadata.", AgentTaskStatus.Review, TaskPriority.Medium, AssigneeType.Human, Maya, 8, 7),
+            (B2, "Beta feedback triage", "Triage TestFlight feedback into issues.", AgentTaskStatus.AwaitingApproval, TaskPriority.Medium, AssigneeType.Human, Noah, 5, 2),
+            (B2, "Crash-free rate dashboard", "Set up crash analytics dashboard.", AgentTaskStatus.Backlog, TaskPriority.Low, AssigneeType.Agent, "role-analyst", 3, 14),
+            (B2, "Release v2.0 to stores", "Submit final build for review.", AgentTaskStatus.Backlog, TaskPriority.Critical, AssigneeType.Agent, "role-devops", 2, 12),
+            // board-003 (Data Platform Migration)
+            (B3, "Audit current warehouse", "Inventory tables, jobs and owners.", AgentTaskStatus.Done, TaskPriority.High, AssigneeType.Agent, "role-analyst", 18, -6),
+            (B3, "Provision new lakehouse", "Stand up the target environment.", AgentTaskStatus.InProgress, TaskPriority.Critical, AssigneeType.Agent, "role-devops", 10, 5),
+            (B3, "Rewrite ETL pipelines", "Port pipelines to the new engine.", AgentTaskStatus.InProgress, TaskPriority.High, AssigneeType.Agent, "role-engineer", 7, 8),
+            (B3, "Validate row counts", "Reconcile source vs target.", AgentTaskStatus.Blocked, TaskPriority.High, AssigneeType.Agent, "role-qa", 4, 10),
+            ("board-001", "Add fraud-check telemetry", "Emit metrics for fraud-check hook.", AgentTaskStatus.Failed, TaskPriority.Medium, AssigneeType.Agent, "role-engineer", 6, -1),
+        };
+
+        var i = 0;
+        var col = 0;
+        foreach (var st in seedTasks)
+        {
+            var id = $"task-x{i:00}";
+            tasks[id] = new AgentTask
+            {
+                Id = id, TenantId = Tenant, BoardId = st.Board,
+                Title = st.Title, Description = st.Desc,
+                Status = st.Status, Priority = st.Prio,
+                Assignee = new TaskAssignee { Type = st.AType, Id = st.AId },
+                CreatedBy = Owner,
+                CanvasPosition = new CanvasPosition { X = 80 + (col % 4) * 300, Y = 460 + (col / 4) * 220 },
+                CreatedAt = now.AddDays(-st.CreatedDaysAgo),
+                DueAt = st.DueInDays is int d ? now.AddDays(d) : null,
+            };
+            i++; col++;
+        }
+
+        // A second pending approval on board-002 so the approvals inbox has variety.
+        approvals["approval-beta"] = new Approval
+        {
+            Id = "approval-beta", TenantId = Tenant, RunId = "run-beta", TaskId = "task-x06",
+            StepIndex = 0, RequestedAt = now.AddHours(-6), ExpiresAt = now.AddHours(30),
+            RequestedFrom = [Maya], Status = ApprovalStatus.Pending,
+            ActionDescription = "Promote beta build 2.0(118) to the open beta track.",
+            IdentityToBeUsed = Maya,
+        };
     }
 }

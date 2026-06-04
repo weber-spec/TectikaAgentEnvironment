@@ -1,27 +1,46 @@
-// API client — כל calls ל-.NET backend
+// API client — all calls to the .NET backend.
+
+import type {
+  Board, AgentTask, AgentRole, Artifact, Approval, WorkflowRun, AgentEvent,
+} from './types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000';
+
+export class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      // TODO: attach Bearer token from MSAL
+      // TODO: attach Bearer token from MSAL once auth is wired in production.
       ...options?.headers,
     },
   });
 
-  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
-  return res.json() as Promise<T>;
+  if (!res.ok) throw new ApiError(res.status, `API ${res.status}: ${await res.text()}`);
+  if (res.status === 204) return undefined as T;
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
-// ── Boards ────────────────────────────────────────────────────────────────────
-import type { Board, AgentTask, AgentRole, Artifact, Approval } from './types';
+/** Fields the backend's PUT /tasks/{id} accepts. */
+export type TaskPatch = Partial<
+  Pick<AgentTask, 'title' | 'description' | 'status' | 'priority' | 'assignee' |
+    'dueAt' | 'humanAuditorId' | 'upstreamTaskIds' | 'downstreamTaskIds' | 'canvasPosition'>
+>;
 
 export const api = {
+  base: API_BASE,
+
   boards: {
     list: () => fetchApi<Board[]>('/api/boards'),
+    get: (boardId: string) => fetchApi<Board>(`/api/boards/${boardId}`),
     create: (name: string, description?: string) =>
       fetchApi<Board>('/api/boards', { method: 'POST', body: JSON.stringify({ name, description }) }),
   },
@@ -31,6 +50,10 @@ export const api = {
     get: (boardId: string, taskId: string) => fetchApi<AgentTask>(`/api/boards/${boardId}/tasks/${taskId}`),
     create: (boardId: string, task: Partial<AgentTask>) =>
       fetchApi<AgentTask>(`/api/boards/${boardId}/tasks`, { method: 'POST', body: JSON.stringify(task) }),
+    update: (boardId: string, taskId: string, patch: TaskPatch) =>
+      fetchApi<AgentTask>(`/api/boards/${boardId}/tasks/${taskId}`, { method: 'PUT', body: JSON.stringify(patch) }),
+    remove: (boardId: string, taskId: string) =>
+      fetchApi<void>(`/api/boards/${boardId}/tasks/${taskId}`, { method: 'DELETE' }),
     updateStatus: (boardId: string, taskId: string, status: AgentTask['status']) =>
       fetchApi<AgentTask>(`/api/boards/${boardId}/tasks/${taskId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
     updatePosition: (boardId: string, taskId: string, x: number, y: number) =>
@@ -41,10 +64,22 @@ export const api = {
 
   agentRoles: {
     list: () => fetchApi<AgentRole[]>('/api/agentroles'),
+    get: (roleId: string) => fetchApi<AgentRole>(`/api/agentroles/${roleId}`),
+    upsert: (role: AgentRole) =>
+      fetchApi<AgentRole>('/api/agentroles', { method: 'POST', body: JSON.stringify(role) }),
   },
 
   artifacts: {
     versions: (taskId: string) => fetchApi<Artifact[]>(`/api/artifacts/${taskId}`),
+    save: (taskId: string, content: string, contentType: Artifact['contentType'], runId?: string) =>
+      fetchApi<Artifact>('/api/artifacts', {
+        method: 'POST',
+        body: JSON.stringify({ taskId, content, contentType, runId }),
+      }),
+  },
+
+  runs: {
+    get: (taskId: string, runId: string) => fetchApi<WorkflowRun>(`/api/runs/${taskId}/${runId}`),
   },
 
   approvals: {
@@ -56,8 +91,8 @@ export const api = {
       }),
   },
 
-  // SSE stream for live run updates
-  streamRun: (runId: string, onEvent: (event: import('./types').AgentEvent) => void): (() => void) => {
+  // SSE stream for live run updates.
+  streamRun: (runId: string, onEvent: (event: AgentEvent) => void): (() => void) => {
     const es = new EventSource(`${API_BASE}/api/runs/${runId}/stream`);
     es.onmessage = (e) => {
       try { onEvent(JSON.parse(e.data)); } catch { /* skip malformed */ }
@@ -65,7 +100,7 @@ export const api = {
     return () => es.close();
   },
 
-  // CLI Bridge WebSocket
+  // CLI Bridge WebSocket.
   connectCli: (taskId: string, runId: string, onMessage: (msg: string) => void): WebSocket => {
     const ws = new WebSocket(`${API_BASE.replace('http', 'ws')}/api/tasks/${taskId}/cli/stream?runId=${runId}`);
     ws.onmessage = (e) => onMessage(e.data);

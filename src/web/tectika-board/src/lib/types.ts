@@ -1,4 +1,7 @@
-// Mirror of C# models — keep in sync with TectikaAgents.Core.Models
+// ─────────────────────────────────────────────────────────────────────────────
+// Mirror of C# models — keep in sync with TectikaAgents.Core.Models.
+// (Enums are serialized as their string names by the API; see JsonStringEnumConverter.)
+// ─────────────────────────────────────────────────────────────────────────────
 
 export type AgentTaskStatus = 'Backlog' | 'InProgress' | 'AwaitingApproval' | 'Blocked' | 'Review' | 'Done' | 'Failed';
 export type TaskPriority = 'Critical' | 'High' | 'Medium' | 'Low';
@@ -6,6 +9,9 @@ export type AssigneeType = 'Agent' | 'Human';
 export type ArtifactContentType = 'Code' | 'Markdown' | 'Json' | 'Data';
 export type ArtifactOrigin = 'Agent' | 'HumanEdit' | 'CliBridge';
 export type RunStatus = 'Pending' | 'Running' | 'PausedApproval' | 'Completed' | 'Failed' | 'Cancelled';
+export type TriggerSource = 'Manual' | 'Supervisor' | 'WebhookGitHub' | 'WebhookJira' | 'Schedule' | 'CliBridge';
+export type StepType = 'AgentExecution' | 'ApprovalGate' | 'CliBridge';
+export type ApprovalStatus = 'Pending' | 'Approved' | 'Rejected' | 'Expired';
 
 export interface Board {
   id: string;
@@ -39,12 +45,22 @@ export interface AgentTask {
   createdBy: string;
   dependencies: string[];
   workflowRunId?: string;
+  triggerSource?: TriggerSource;
+  triggerMeta?: Record<string, string>;
   currentArtifactId?: string;
   canvasPosition?: CanvasPosition;
   upstreamTaskIds: string[];
   downstreamTaskIds: string[];
   humanAuditorId?: string;
   createdAt: string;
+  dueAt?: string;
+}
+
+export interface AgentPermissions {
+  canPushCode: boolean;
+  canDeploy: boolean;
+  requiresOboFor: string[];
+  requiresApprovalFor: string[];
 }
 
 export interface AgentRole {
@@ -55,29 +71,77 @@ export interface AgentRole {
   foundryAgentId?: string;
   tools: string[];
   mcpServers: string[];
-  permissions: {
-    canPushCode: boolean;
-    canDeploy: boolean;
-    requiresOboFor: string[];
-    requiresApprovalFor: string[];
-  };
+  permissions: AgentPermissions;
   escalateTo?: string;
   modelOverride?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface TokenUsage {
+  input: number;
+  output: number;
+  total: number;
+}
+
+export interface PipelineStep {
+  step: number;
+  type: StepType;
+  agentRoleId?: string;
+  action?: string;
+  approvers: string[];
+}
+
+export interface StepResult {
+  step: number;
+  status: RunStatus;
+  foundryRunId?: string;
+  artifactId?: string;
+  tokenUsage: TokenUsage;
+  durationMs: number;
+  completedAt?: string;
+  error?: string;
+}
+
+export interface WorkflowRun {
+  id: string;
+  tenantId: string;
+  taskId: string;
+  pipelineDefinition: PipelineStep[];
+  currentStep: number;
+  status: RunStatus;
+  steps: StepResult[];
+  durableFunctionInstanceId?: string;
+  totalTokens: number;
+  estimatedCostUsd: number;
+  startedAt: string;
+  completedAt?: string;
+}
+
+export interface UpstreamArtifactRef {
+  taskId: string;
+  artifactId: string;
+  version: number;
+  contentType: ArtifactContentType;
+}
+
+export interface ArtifactInputContext {
+  upstreamArtifacts: UpstreamArtifactRef[];
+  humanContext?: string;
 }
 
 export interface Artifact {
   id: string;
+  tenantId: string;
   taskId: string;
   runId?: string;
   version: number;
   contentType: ArtifactContentType;
   content: string;
-  inputContext: {
-    upstreamArtifacts: Array<{ taskId: string; artifactId: string; version: number }>;
-    humanContext?: string;
-  };
+  inputContext: ArtifactInputContext;
   internalLogs: string[];
   origin: ArtifactOrigin;
+  createdAt: string;
   updatedAt: string;
 }
 
@@ -88,7 +152,7 @@ export interface AgentEvent {
   step?: number;
   agentRole?: string;
   content?: string;
-  tokenUsage?: { input: number; output: number; total: number };
+  tokenUsage?: TokenUsage;
   artifactId?: string;
   approvalId?: string;
   timestamp: string;
@@ -96,16 +160,177 @@ export interface AgentEvent {
 
 export interface Approval {
   id: string;
+  tenantId: string;
   runId: string;
   taskId: string;
   stepIndex: number;
   requestedAt: string;
   expiresAt: string;
   requestedFrom: string[];
-  status: 'Pending' | 'Approved' | 'Rejected' | 'Expired';
+  status: ApprovalStatus;
   approvedBy?: string;
   approvedAt?: string;
   notes?: string;
   actionDescription: string;
   identityToBeUsed?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Front-end-only models — board views, columns, filters, automations, collab.
+// These power the rich Monday.com-style UI. View/column config and the
+// collaboration layer are persisted client-side (localStorage) since the backend
+// schema does not model them.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ColumnKind =
+  | 'title' | 'status' | 'priority' | 'people' | 'date' | 'timeline'
+  | 'number' | 'text' | 'tags' | 'dropdown' | 'progress' | 'rating'
+  | 'checkbox' | 'link' | 'dependency' | 'tokens' | 'cost' | 'trigger'
+  | 'createdAt' | 'lastUpdated' | 'itemId' | 'autoNumber' | 'formula';
+
+export type ColumnAggregation =
+  | 'none' | 'sum' | 'avg' | 'min' | 'max' | 'median' | 'count' | 'countEmpty' | 'distribution';
+
+export interface ColumnDef {
+  id: string;            // stable id; built-ins map to a task field
+  kind: ColumnKind;
+  title: string;
+  width: number;
+  hidden?: boolean;
+  pinned?: boolean;
+  aggregation?: ColumnAggregation;
+  /** For custom columns (tags/dropdown/text/number that aren't backed by a task field). */
+  custom?: boolean;
+  /** dropdown / tags option labels. */
+  options?: { label: string; hex: string }[];
+  /** formula expression referencing other column ids, e.g. "{tokens} * 0.001". */
+  formula?: string;
+  /** number column unit suffix. */
+  unit?: string;
+}
+
+export type ViewKind = 'table' | 'kanban' | 'timeline' | 'calendar' | 'cards' | 'chart' | 'canvas';
+
+export type FilterOperator =
+  | 'is' | 'isNot' | 'isEmpty' | 'isNotEmpty' | 'contains' | 'notContains'
+  | 'gt' | 'lt' | 'gte' | 'lte' | 'before' | 'after' | 'anyOf';
+
+export interface FilterRule {
+  id: string;
+  columnId: string;
+  operator: FilterOperator;
+  value?: string | string[] | number;
+}
+
+export interface FilterGroup {
+  conjunction: 'and' | 'or';
+  rules: FilterRule[];
+}
+
+export interface SortRule {
+  columnId: string;
+  direction: 'asc' | 'desc';
+}
+
+export interface ChartConfig {
+  type: 'bar' | 'column' | 'pie' | 'line' | 'donut';
+  groupBy: string;       // column id
+  metric: 'count' | 'sum' | 'avg';
+  metricColumnId?: string;
+}
+
+export interface ViewDef {
+  id: string;
+  name: string;
+  kind: ViewKind;
+  /** column id to group rows by (table/kanban). 'status' by default. */
+  groupBy?: string;
+  filter?: FilterGroup;
+  sorts?: SortRule[];
+  /** column id used as the time axis for timeline/calendar. */
+  dateColumnId?: string;
+  chart?: ChartConfig;
+  builtIn?: boolean;
+}
+
+// ── Collaboration ─────────────────────────────────────────────────────────────
+
+export interface Person {
+  id: string;            // email or role id
+  name: string;
+  kind: AssigneeType;
+  hex: string;
+  title?: string;
+}
+
+export interface Comment {
+  id: string;
+  taskId: string;
+  authorId: string;
+  body: string;
+  mentions: string[];
+  createdAt: string;
+  reactions?: Record<string, string[]>; // emoji -> userIds
+}
+
+export type ActivityKind =
+  | 'created' | 'status' | 'priority' | 'assignee' | 'due' | 'comment'
+  | 'connected' | 'artifact' | 'approval' | 'field';
+
+export interface ActivityEntry {
+  id: string;
+  taskId: string;
+  kind: ActivityKind;
+  actorId: string;
+  from?: string;
+  to?: string;
+  field?: string;
+  createdAt: string;
+}
+
+export type NotificationType = 'approval' | 'completed' | 'failed' | 'agent' | 'mention' | 'blocked' | 'assigned';
+
+export interface AppNotification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  subtitle?: string;
+  boardId?: string;
+  taskId?: string;
+  timestamp: string;
+  read: boolean;
+}
+
+// ── Automations ─────────────────────────────────────────────────────────────
+
+export type TriggerType =
+  | 'statusChanges' | 'statusBecomes' | 'itemCreated' | 'dateArrives'
+  | 'priorityBecomes' | 'personAssigned' | 'artifactUpdated';
+
+export type ActionType =
+  | 'notify' | 'setStatus' | 'setPriority' | 'assign' | 'createItem'
+  | 'moveToGroup' | 'createApproval' | 'runAgent';
+
+export interface AutomationRecipe {
+  id: string;
+  enabled: boolean;
+  trigger: { type: TriggerType; value?: string };
+  conditions: { columnId: string; operator: FilterOperator; value?: string }[];
+  actions: { type: ActionType; value?: string; value2?: string }[];
+  runs: number;
+  createdAt: string;
+}
+
+// ── Dashboards ─────────────────────────────────────────────────────────────
+
+export type WidgetKind = 'kpi' | 'chart' | 'battery' | 'table' | 'timeline' | 'text' | 'workload';
+
+export interface DashboardWidget {
+  id: string;
+  kind: WidgetKind;
+  title: string;
+  w: number;             // grid span (1-4)
+  h: number;             // grid rows
+  boardIds?: string[];
+  config?: Record<string, unknown>;
 }

@@ -105,6 +105,15 @@ public class CosmosDbService : ICosmosDbService
         return res.Resource;
     }
 
+    public async Task DeleteTaskAsync(string boardId, string taskId, CancellationToken ct = default)
+    {
+        try
+        {
+            await GetContainer(TasksContainer).DeleteItemAsync<AgentTask>(taskId, new PartitionKey(boardId), cancellationToken: ct);
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { /* already gone */ }
+    }
+
     // ── Agent Roles ───────────────────────────────────────────────────────────
 
     public async Task<IEnumerable<AgentRole>> GetAgentRolesAsync(string tenantId, CancellationToken ct = default)
