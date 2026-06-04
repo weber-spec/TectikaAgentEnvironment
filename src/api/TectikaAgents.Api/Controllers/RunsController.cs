@@ -13,14 +13,14 @@ namespace TectikaAgents.Api.Controllers;
 [Authorize]
 public class RunsController : ControllerBase
 {
-    private readonly CosmosDbService _cosmos;
+    private readonly ICosmosDbService _cosmos;
     private readonly SseConnectionManager _sse;
     private readonly IHttpClientFactory _httpFactory;
     private readonly IConfiguration _config;
     private readonly ILogger<RunsController> _logger;
 
     public RunsController(
-        CosmosDbService cosmos,
+        ICosmosDbService cosmos,
         SseConnectionManager sse,
         IHttpClientFactory httpFactory,
         IConfiguration config,

@@ -8,7 +8,7 @@ namespace TectikaAgents.Api.Services;
 /// <summary>
 /// Cosmos DB access layer — כל containers ופעולות CRUD בסיסיות.
 /// </summary>
-public class CosmosDbService
+public class CosmosDbService : ICosmosDbService
 {
     private readonly CosmosClient _client;
     private readonly string _dbName;

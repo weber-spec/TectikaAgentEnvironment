@@ -12,13 +12,13 @@ namespace TectikaAgents.Api.Controllers;
 [Authorize]
 public class ApprovalsController : ControllerBase
 {
-    private readonly CosmosDbService _cosmos;
+    private readonly ICosmosDbService _cosmos;
     private readonly IHttpClientFactory _httpFactory;
     private readonly IConfiguration _config;
     private readonly ILogger<ApprovalsController> _logger;
 
     public ApprovalsController(
-        CosmosDbService cosmos,
+        ICosmosDbService cosmos,
         IHttpClientFactory httpFactory,
         IConfiguration config,
         ILogger<ApprovalsController> logger)

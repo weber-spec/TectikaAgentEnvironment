@@ -10,9 +10,9 @@ namespace TectikaAgents.Api.Controllers;
 [Authorize]
 public class AgentRolesController : ControllerBase
 {
-    private readonly CosmosDbService _cosmos;
+    private readonly ICosmosDbService _cosmos;
 
-    public AgentRolesController(CosmosDbService cosmos) => _cosmos = cosmos;
+    public AgentRolesController(ICosmosDbService cosmos) => _cosmos = cosmos;
 
     private string TenantId => User.FindFirst("tid")?.Value ?? "default";
 

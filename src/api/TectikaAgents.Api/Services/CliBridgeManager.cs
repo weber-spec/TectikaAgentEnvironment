@@ -14,10 +14,10 @@ public class CliBridgeManager
 {
     private readonly ConcurrentDictionary<string, WebSocket> _connections = new();
     private readonly SseConnectionManager _sse;
-    private readonly CosmosDbService _cosmos;
+    private readonly ICosmosDbService _cosmos;
     private readonly ILogger<CliBridgeManager> _logger;
 
-    public CliBridgeManager(SseConnectionManager sse, CosmosDbService cosmos, ILogger<CliBridgeManager> logger)
+    public CliBridgeManager(SseConnectionManager sse, ICosmosDbService cosmos, ILogger<CliBridgeManager> logger)
     {
         _sse = sse;
         _cosmos = cosmos;

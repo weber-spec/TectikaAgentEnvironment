@@ -10,9 +10,9 @@ namespace TectikaAgents.Api.Controllers;
 public class CliBridgeController : ControllerBase
 {
     private readonly CliBridgeManager _bridge;
-    private readonly CosmosDbService _cosmos;
+    private readonly ICosmosDbService _cosmos;
 
-    public CliBridgeController(CliBridgeManager bridge, CosmosDbService cosmos)
+    public CliBridgeController(CliBridgeManager bridge, ICosmosDbService cosmos)
     {
         _bridge = bridge;
         _cosmos = cosmos;
