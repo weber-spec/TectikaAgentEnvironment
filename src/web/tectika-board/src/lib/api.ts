@@ -4,7 +4,7 @@ import type {
   Board, AgentTask, AgentRole, Artifact, Approval, WorkflowRun, AgentEvent,
 } from './types';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5138';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
