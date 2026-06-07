@@ -41,6 +41,8 @@ export const KIND_META: Record<ColumnKind, KindMeta> = {
   checkbox:    { label: 'Checkbox',     defaultWidth: 90,  defaultAgg: 'count',        domain: 'bool' },
   link:        { label: 'Link',         defaultWidth: 160, defaultAgg: 'none',         domain: 'text' },
   dependency:  { label: 'Dependencies', defaultWidth: 130, defaultAgg: 'none',         domain: 'meta' },
+  upstream:    { label: 'Upstream Input',    defaultWidth: 200, defaultAgg: 'none',    domain: 'meta' },
+  downstream:  { label: 'Downstream Target', defaultWidth: 200, defaultAgg: 'none',    domain: 'meta' },
   tokens:      { label: 'Tokens',       defaultWidth: 120, defaultAgg: 'sum',          domain: 'number' },
   cost:        { label: 'Cost',         defaultWidth: 110, defaultAgg: 'sum',          domain: 'number' },
   trigger:     { label: 'Trigger',      defaultWidth: 130, defaultAgg: 'distribution', domain: 'label' },
@@ -63,7 +65,8 @@ export function defaultColumns(): ColumnDef[] {
     mk('people', 'people'),
     mk('priority', 'priority'),
     mk('date', 'date'),
-    mk('dependency', 'dependency'),
+    mk('upstream', 'upstream'),
+    mk('downstream', 'downstream'),
     mk('tokens', 'tokens'),
     mk('createdAt', 'createdAt'),
   ];
@@ -134,6 +137,8 @@ export function cellText(task: AgentTask, col: ColumnDef, ctx: CellContext): str
     case 'lastUpdated': return formatDate(task.createdAt);
     case 'timeline': return task.dueAt ? `${formatDate(task.createdAt)} – ${formatDate(task.dueAt)}` : '';
     case 'dependency': return `${task.upstreamTaskIds.length}↑ ${task.downstreamTaskIds.length}↓`;
+    case 'upstream': return task.upstreamTaskIds.map(id => ctx.tasksById[id]?.title ?? id).join(', ');
+    case 'downstream': return task.downstreamTaskIds.map(id => ctx.tasksById[id]?.title ?? id).join(', ');
     case 'tokens': return String(runFor(task, ctx)?.totalTokens ?? '');
     case 'cost': { const c = runFor(task, ctx)?.estimatedCostUsd; return c != null ? `$${c.toFixed(2)}` : ''; }
     case 'trigger': return task.triggerSource ?? 'Manual';

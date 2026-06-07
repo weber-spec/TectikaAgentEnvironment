@@ -185,7 +185,7 @@ export interface Approval {
 export type ColumnKind =
   | 'title' | 'status' | 'priority' | 'people' | 'date' | 'timeline'
   | 'number' | 'text' | 'tags' | 'dropdown' | 'progress' | 'rating'
-  | 'checkbox' | 'link' | 'dependency' | 'tokens' | 'cost' | 'trigger'
+  | 'checkbox' | 'link' | 'dependency' | 'upstream' | 'downstream' | 'tokens' | 'cost' | 'trigger'
   | 'createdAt' | 'lastUpdated' | 'itemId' | 'autoNumber' | 'formula';
 
 export type ColumnAggregation =

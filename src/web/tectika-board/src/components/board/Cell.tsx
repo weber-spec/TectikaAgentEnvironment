@@ -21,6 +21,8 @@ export function Cell({ task, col }: { task: AgentTask; col: ColumnDef }) {
     case 'date': return <DateCell task={task} />;
     case 'timeline': return <TimelineCell task={task} />;
     case 'dependency': return <DependencyCell task={task} />;
+    case 'upstream': return <DependencyChipsCell task={task} dir="up" />;
+    case 'downstream': return <DependencyChipsCell task={task} dir="down" />;
     case 'checkbox': return <CheckboxCell task={task} col={col} />;
     case 'rating': return <RatingCell task={task} col={col} />;
     case 'progress': return <ProgressCell task={task} col={col} />;
@@ -209,6 +211,71 @@ function DependencyCell({ task }: { task: AgentTask }) {
         {task.downstreamTaskIds.length > 0 && <span title="downstream">↓{task.downstreamTaskIds.length}</span>}
       </span>
     </CellWrap>
+  );
+}
+
+// ── Explicit upstream / downstream dependency cells ───────────────────────────
+// `up`  = tasks that feed INTO this task (Upstream Input)
+// `down` = tasks this task routes its output TO (Downstream Target)
+function DependencyChipsCell({ task, dir }: { task: AgentTask; dir: 'up' | 'down' }) {
+  const { tasks, openTask, connectTasks, disconnectTasks } = useBoard();
+  const addRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const ids = dir === 'up' ? task.upstreamTaskIds : task.downstreamTaskIds;
+  const linked = ids.map(id => tasks.find(t => t.id === id)).filter((t): t is AgentTask => !!t);
+  const candidates = tasks.filter(t => t.id !== task.id && !ids.includes(t.id));
+  const remove = (otherId: string) => dir === 'up' ? disconnectTasks(otherId, task.id) : disconnectTasks(task.id, otherId);
+  const add = (otherId: string) => { if (dir === 'up') connectTasks(otherId, task.id); else connectTasks(task.id, otherId); setOpen(false); };
+
+  return (
+    <div className="h-full w-full flex items-center gap-1 px-1.5 overflow-hidden group/dep">
+      <div className="flex items-center gap-1 overflow-hidden flex-1 min-w-0">
+        {linked.length === 0 && <span className="text-xs text-[var(--muted-2)]">—</span>}
+        {linked.slice(0, 2).map(t => <DepChip key={t.id} task={t} onOpen={() => openTask(t.id)} onRemove={() => remove(t.id)} />)}
+        {linked.length > 2 && <span className="text-[10px] text-[var(--muted)] shrink-0" title={linked.slice(2).map(t => t.title).join(', ')}>+{linked.length - 2}</span>}
+      </div>
+      <button ref={addRef} onClick={() => setOpen(o => !o)} title={dir === 'up' ? 'Link an upstream input' : 'Link a downstream target'}
+        className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-[var(--muted-2)] opacity-0 group-hover/dep:opacity-100 hover:text-[var(--primary)] hover:bg-[var(--surface)]"><Icon.plus size={13} /></button>
+      <Popover anchorRef={addRef} open={open} onClose={() => setOpen(false)} width={250} className="p-1.5">
+        <DepPicker candidates={candidates} dir={dir} onPick={add} />
+      </Popover>
+    </div>
+  );
+}
+
+function DepChip({ task, onOpen, onRemove }: { task: AgentTask; onOpen: () => void; onRemove: () => void }) {
+  const st = STATUS_CONFIG[task.status];
+  return (
+    <span className="group/chip inline-flex items-center gap-1 pl-1.5 pr-1 py-0.5 rounded text-[11px] font-medium max-w-[130px] cursor-pointer shrink-0"
+      style={{ background: alpha(st.hex, 0.15), color: st.hex }} onClick={onOpen} title={`${task.title} · ${st.label}`}>
+      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: st.hex }} />
+      <span className="truncate">{task.title}</span>
+      <button onClick={e => { e.stopPropagation(); onRemove(); }} className="opacity-0 group-hover/chip:opacity-100 hover:text-[#e2445c] shrink-0" title="Unlink"><Icon.x size={10} /></button>
+    </span>
+  );
+}
+
+function DepPicker({ candidates, dir, onPick }: { candidates: AgentTask[]; dir: 'up' | 'down'; onPick: (id: string) => void }) {
+  const [q, setQ] = useState('');
+  const filtered = candidates.filter(t => fuzzyMatch(t.title, q)).slice(0, 50);
+  return (
+    <div className="flex flex-col" onClick={e => e.stopPropagation()}>
+      <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder={dir === 'up' ? 'Link an upstream task…' : 'Link a downstream task…'}
+        className="inp !text-xs !py-1.5 mb-1" />
+      <div className="max-h-56 overflow-auto flex flex-col gap-0.5">
+        {filtered.length === 0 && <div className="text-xs text-[var(--muted)] px-2 py-3 text-center">No matching tasks</div>}
+        {filtered.map(t => {
+          const st = STATUS_CONFIG[t.status];
+          return (
+            <button key={t.id} onClick={() => onPick(t.id)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-[var(--surface)] text-left text-[13px]">
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: st.hex }} />
+              <span className="truncate text-[var(--foreground)] flex-1">{t.title}</span>
+              <span className="text-[10px] shrink-0" style={{ color: st.hex }}>{st.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
