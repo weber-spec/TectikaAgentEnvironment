@@ -65,8 +65,21 @@ function loadConfig(boardId: string): BoardConfig | null {
   try {
     const raw = localStorage.getItem(storageKey(boardId));
     if (!raw) return null;
-    return { ...defaultConfig(), ...JSON.parse(raw) };
+    const cfg = { ...defaultConfig(), ...JSON.parse(raw) } as BoardConfig;
+    cfg.columns = migrateColumns(cfg.columns);
+    return cfg;
   } catch { return null; }
+}
+
+/** Upgrade older saved layouts: replace the built-in counts "Dependencies" column
+ *  with the explicit Upstream Input / Downstream Target columns. */
+function migrateColumns(columns: ColumnDef[]): ColumnDef[] {
+  if (columns.some(c => c.kind === 'upstream' || c.kind === 'downstream')) return columns;
+  const i = columns.findIndex(c => c.id === 'dependency' && c.kind === 'dependency');
+  if (i === -1) return columns;
+  const mk = (id: string, kind: ColumnKind): ColumnDef =>
+    ({ id, kind, title: KIND_META[kind].label, width: KIND_META[kind].defaultWidth, aggregation: KIND_META[kind].defaultAgg });
+  return [...columns.slice(0, i), mk('upstream', 'upstream'), mk('downstream', 'downstream'), ...columns.slice(i + 1)];
 }
 
 // ── Context shape ───────────────────────────────────────────────────────────
