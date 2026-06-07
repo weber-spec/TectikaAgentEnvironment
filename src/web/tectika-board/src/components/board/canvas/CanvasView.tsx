@@ -19,9 +19,11 @@ import { toast } from '@/lib/toast';
 
 interface NodeData { taskId: string }
 
-const EDGE_COLOR = '#a25ddc';
-const EDGE_COLOR_HOT = '#7a3bbf';
-const EDGE_MARKER = { type: MarkerType.ArrowClosed, color: EDGE_COLOR, width: 18, height: 18 } as const;
+const EDGE_COLOR = '#a25ddc';          // forward dependency
+const EDGE_COLOR_HOT = '#7a3bbf';      // forward, hovered/selected
+const FEEDBACK_COLOR = '#ff642e';      // feedback / error-routing (back-edge)
+const FORWARD_MARKER = { type: MarkerType.ArrowClosed, color: EDGE_COLOR, width: 18, height: 18 } as const;
+const FEEDBACK_MARKER = { type: MarkerType.ArrowClosed, color: FEEDBACK_COLOR, width: 18, height: 18 } as const;
 
 function layout(nodes: Node[], edges: Edge[]): Node[] {
   const g = new Dagre.graphlib.Graph();
@@ -33,43 +35,78 @@ function layout(nodes: Node[], edges: Edge[]): Node[] {
   return nodes.map(n => { const p = g.node(n.id); return { ...n, position: { x: p.x - 115, y: p.y - 48 } }; });
 }
 
+// Edge id is always `${source}->${target}`, which doubles as the edge-label key.
 function buildEdge(source: string, target: string, animated: boolean): Edge {
-  return { id: `${source}->${target}`, source, target, type: 'pipeline', animated, markerEnd: EDGE_MARKER };
+  return { id: `${source}->${target}`, source, target, type: 'pipeline', animated, markerEnd: FORWARD_MARKER };
 }
 
-/** True if adding source→target would close a cycle (a path target→…→source already exists). */
-function wouldCreateCycle(edges: Edge[], source: string, target: string): boolean {
-  if (source === target) return true;
+function reachable(edges: Edge[], from: string, to: string): boolean {
   const adj = new Map<string, string[]>();
-  for (const e of edges) { (adj.get(e.source) ?? adj.set(e.source, []).get(e.source)!).push(e.target); }
-  const stack = [target];
-  const seen = new Set<string>();
+  for (const e of edges) (adj.get(e.source) ?? adj.set(e.source, []).get(e.source)!).push(e.target);
+  const stack = [from]; const seen = new Set<string>();
   while (stack.length) {
     const cur = stack.pop()!;
-    if (cur === source) return true;
+    if (cur === to) return true;
     if (seen.has(cur)) continue;
     seen.add(cur);
-    for (const next of adj.get(cur) ?? []) stack.push(next);
+    for (const n of adj.get(cur) ?? []) stack.push(n);
   }
   return false;
 }
+/**
+ * Classify the minimal set of "feedback" (back) edges via DFS — an edge is a back
+ * edge only when it points to a node currently on the recursion stack (an ancestor).
+ * In a cycle this flags just the one edge that closes the loop, not every edge in it.
+ */
+function feedbackEdgeIds(edges: Edge[]): Set<string> {
+  const adj = new Map<string, { to: string; id: string }[]>();
+  const nodes: string[] = [];
+  for (const e of edges) {
+    if (!adj.has(e.source)) { adj.set(e.source, []); nodes.push(e.source); }
+    if (!adj.has(e.target)) { adj.set(e.target, []); nodes.push(e.target); }
+    adj.get(e.source)!.push({ to: e.target, id: e.id });
+  }
+  const WHITE = 0, GRAY = 1, BLACK = 2;
+  const color = new Map<string, number>(nodes.map(n => [n, WHITE]));
+  const back = new Set<string>();
+  const visit = (start: string) => {
+    const stack: Array<{ u: string; i: number }> = [{ u: start, i: 0 }];
+    color.set(start, GRAY);
+    while (stack.length) {
+      const top = stack[stack.length - 1];
+      const out = adj.get(top.u)!;
+      if (top.i < out.length) {
+        const { to, id } = out[top.i++];
+        const c = color.get(to);
+        if (c === GRAY) back.add(id);             // edge to an ancestor on the stack
+        else if (c === WHITE) { color.set(to, GRAY); stack.push({ u: to, i: 0 }); }
+      } else { color.set(top.u, BLACK); stack.pop(); }
+    }
+  };
+  for (const n of nodes) if (color.get(n) === WHITE) visit(n);
+  return back;
+}
 
-// Shared UI state for edges (hover + delete) so the custom edge can read it without
-// changing the edgeTypes identity (which would remount every edge on each hover).
-const EdgeUiCtx = React.createContext<{ hoveredId: string | null; setHovered: (id: string | null) => void; onDelete: (id: string) => void } | null>(null);
+const EdgeUiCtx = React.createContext<{
+  hoveredId: string | null; setHovered: (id: string | null) => void;
+  editingId: string | null; setEditingId: (id: string | null) => void;
+  onDelete: (id: string) => void;
+  saveLabel: (source: string, target: string, label: string) => void;
+} | null>(null);
 
 function Inner() {
-  const { tasks, roles, runsById, openTask, connectTasks, disconnectTasks, moveCanvas } = useBoard();
+  const { tasks, roles, runsById, openTask, connectTasks, disconnectTasks, moveCanvas, edgeLabels, setEdgeLabel } = useBoard();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [hoveredId, setHovered] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const { deleteElements } = useReactFlow();
   const reconnectDone = useRef(true);
 
   const nodeTypes = useMemo(() => ({ agent: AgentNode }), []);
   const edgeTypes = useMemo(() => ({ pipeline: PipelineEdge }), []);
   const onDelete = useCallback((id: string) => { deleteElements({ edges: [{ id }] }); }, [deleteElements]);
-  const edgeUi = useMemo(() => ({ hoveredId, setHovered, onDelete }), [hoveredId, onDelete]);
+  const edgeUi = useMemo(() => ({ hoveredId, setHovered, editingId, setEditingId, onDelete, saveLabel: setEdgeLabel }), [hoveredId, editingId, onDelete, setEdgeLabel]);
 
   useEffect(() => {
     const ns: Node[] = tasks.map(t => ({ id: t.id, type: 'agent', position: t.canvasPosition ?? { x: 0, y: 0 }, data: { taskId: t.id } }));
@@ -80,44 +117,55 @@ function Inner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasks.length]);
 
-  // Reject self-links, duplicates, and anything that would create a cycle (this is a DAG pipeline).
+  // Derived display edges: classify feedback (back) edges, colour them, attach labels.
+  const styledEdges = useMemo(() => {
+    const feedbackSet = feedbackEdgeIds(edges);
+    return edges.map(e => {
+      const feedback = feedbackSet.has(e.id);
+      return { ...e, data: { ...e.data, feedback, label: edgeLabels[e.id] ?? '' }, markerEnd: feedback ? FEEDBACK_MARKER : FORWARD_MARKER };
+    });
+  }, [edges, edgeLabels]);
+
+  // Feedback loops are allowed (PRD); only block self-links and exact duplicates.
   const isValidConnection = useCallback((c: Connection | Edge) => {
     if (!c.source || !c.target || c.source === c.target) return false;
-    if (edges.some(e => e.source === c.source && e.target === c.target)) return false;
-    return !wouldCreateCycle(edges, c.source, c.target);
+    return !edges.some(e => e.source === c.source && e.target === c.target);
   }, [edges]);
 
   const onConnect = useCallback((c: Connection) => {
     if (!c.source || !c.target) return;
     if (c.source === c.target) { toast('A task can’t depend on itself', 'info'); return; }
     if (edges.some(e => e.source === c.source && e.target === c.target)) { toast('These tasks are already linked', 'info'); return; }
-    if (wouldCreateCycle(edges, c.source, c.target)) { toast('That link would create a circular dependency', 'error'); return; }
     setEdges(eds => addEdge(buildEdge(c.source!, c.target!, false), eds));
     connectTasks(c.source, c.target);
+    if (reachable(edges, c.target, c.source)) {
+      toast('Feedback loop created — double-click it to label the route', 'info');
+      setEditingId(`${c.source}->${c.target}`);
+    }
   }, [edges, connectTasks, setEdges]);
 
-  // Reconnection: drag an edge endpoint onto another node.
+  // Reconnection: drag an edge endpoint onto another node; carry the label across.
   const onReconnectStart = useCallback(() => { reconnectDone.current = false; }, []);
   const onReconnect = useCallback((oldEdge: Edge, c: Connection) => {
     const unchanged = c.source === oldEdge.source && c.target === oldEdge.target;
     if (!unchanged && !isValidConnection(c)) { toast('Can’t move the link there', 'error'); return; }
     reconnectDone.current = true;
-    setEdges(els => reconnectEdge(oldEdge, c, els));
-    if (!unchanged) {
-      disconnectTasks(oldEdge.source, oldEdge.target);
-      if (c.source && c.target) connectTasks(c.source, c.target);
-    }
-  }, [isValidConnection, setEdges, disconnectTasks, connectTasks]);
-  // Dropping an edge end in empty space deletes it (standard node-editor behaviour).
+    if (unchanged || !c.source || !c.target) { setEdges(els => reconnectEdge(oldEdge, c, els)); return; }
+    const label = edgeLabels[oldEdge.id];
+    setEdges(els => els.filter(e => e.id !== oldEdge.id).concat(buildEdge(c.source!, c.target!, false)));
+    disconnectTasks(oldEdge.source, oldEdge.target);
+    setEdgeLabel(oldEdge.source, oldEdge.target, '');
+    connectTasks(c.source, c.target);
+    if (label) setEdgeLabel(c.source, c.target, label);
+  }, [isValidConnection, setEdges, disconnectTasks, connectTasks, edgeLabels, setEdgeLabel]);
   const onReconnectEnd = useCallback((_: unknown, edge: Edge) => {
     if (!reconnectDone.current) onDelete(edge.id);
     reconnectDone.current = true;
   }, [onDelete]);
 
-  // Persist removals triggered by the Delete key or the on-edge × button.
   const onEdgesDelete = useCallback((deleted: Edge[]) => {
-    deleted.forEach(e => disconnectTasks(e.source, e.target));
-  }, [disconnectTasks]);
+    deleted.forEach(e => { disconnectTasks(e.source, e.target); setEdgeLabel(e.source, e.target, ''); });
+  }, [disconnectTasks, setEdgeLabel]);
 
   const handleNodesChange = useCallback((changes: NodeChange[]) => {
     onNodesChange(changes);
@@ -128,17 +176,18 @@ function Inner() {
     <BoardCanvasCtx.Provider value={{ tasks, roles, runsById, openTask }}>
     <EdgeUiCtx.Provider value={edgeUi}>
       <ReactFlow
-        nodes={nodes} edges={edges}
+        nodes={nodes} edges={styledEdges}
         onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange}
         onConnect={onConnect} isValidConnection={isValidConnection}
         onReconnect={onReconnect} onReconnectStart={onReconnectStart} onReconnectEnd={onReconnectEnd}
         onEdgesDelete={onEdgesDelete}
         onEdgeMouseEnter={(_, e) => setHovered(e.id)} onEdgeMouseLeave={() => setHovered(null)}
+        onEdgeDoubleClick={(_, e) => setEditingId(e.id)}
         nodeTypes={nodeTypes} edgeTypes={edgeTypes}
         deleteKeyCode={['Delete', 'Backspace']}
         connectionRadius={34}
         connectionLineStyle={{ stroke: EDGE_COLOR, strokeWidth: 2.5, strokeDasharray: '6 4' }}
-        defaultEdgeOptions={{ type: 'pipeline', markerEnd: EDGE_MARKER }}
+        defaultEdgeOptions={{ type: 'pipeline', markerEnd: FORWARD_MARKER }}
         fitView fitViewOptions={{ padding: 0.2 }}
         className="bg-[var(--surface)]" proOptions={{ hideAttribution: true }}
       >
@@ -146,11 +195,11 @@ function Inner() {
         <Controls className="!bg-[var(--background)] !border !border-[var(--border)] !rounded-lg !shadow-sm" />
         <MiniMap pannable zoomable nodeColor={(n) => { const t = tasks.find(x => x.id === n.id); return t ? STATUS_CONFIG[t.status].hex : '#c4c4c4'; }} className="!bg-[var(--background)] !border !border-[var(--border)] !rounded-lg" />
         <Panel position="top-left">
-          <div className="flex flex-col gap-1 bg-[var(--background)]/95 backdrop-blur border border-[var(--border)] rounded-lg shadow-sm px-3 py-2 text-[11px] text-[var(--muted)] max-w-[270px]">
+          <div className="flex flex-col gap-1 bg-[var(--background)]/95 backdrop-blur border border-[var(--border)] rounded-lg shadow-sm px-3 py-2 text-[11px] text-[var(--muted)] max-w-[280px]">
             <span className="font-semibold text-[var(--foreground)] flex items-center gap-1.5"><Icon.flow size={13} /> Agent pipeline</span>
             <span>Drag <span className="text-[#00c875] font-medium">out ▸</span> to <span className="text-[#0086c0] font-medium">▸ in</span> to link tasks.</span>
-            <span>Hover a link for <span className="font-medium text-[var(--foreground)]">×</span>, or select it and press <kbd className="px-1 rounded border border-[var(--border)] bg-[var(--surface)] font-mono text-[10px]">Del</kbd>.</span>
-            <span>Drag a link’s end to reconnect, or drop on empty space to remove.</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: FEEDBACK_COLOR }} /> A link back to an earlier task is a <span style={{ color: FEEDBACK_COLOR }} className="font-medium">feedback loop</span>.</span>
+            <span><b className="text-[var(--foreground)]">Double-click</b> a link to label it · hover for edit / <span className="font-medium text-[var(--foreground)]">×</span> · drag an end to reconnect.</span>
           </div>
         </Panel>
       </ReactFlow>
@@ -159,31 +208,73 @@ function Inner() {
   );
 }
 
-// ── Custom edge: hover/selection highlight + inline delete button ────────────────
-function PipelineEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, selected }: EdgeProps) {
+// ── Custom edge: feedback styling, hover/selection highlight, label + toolbar ────
+function PipelineEdge({ id, source, target, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, selected, data }: EdgeProps) {
   const ui = useContext(EdgeUiCtx);
   const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
-  const show = !!selected || ui?.hoveredId === id;
+  const feedback = !!(data as { feedback?: boolean })?.feedback;
+  const label = ((data as { label?: string })?.label) ?? '';
+  const editing = ui?.editingId === id;
+  const hovered = ui?.hoveredId === id;
+  const show = !!selected || hovered || editing;
+  const baseColor = feedback ? FEEDBACK_COLOR : EDGE_COLOR;
+  const stroke = feedback ? FEEDBACK_COLOR : (show ? EDGE_COLOR_HOT : EDGE_COLOR);
   return (
     <>
       <BaseEdge id={id} path={path} markerEnd={markerEnd} interactionWidth={26}
-        style={{ stroke: show ? EDGE_COLOR_HOT : EDGE_COLOR, strokeWidth: show ? 3 : 2, transition: 'stroke 0.1s, stroke-width 0.1s' }} />
+        style={{ stroke, strokeWidth: show ? 3 : 2, strokeDasharray: feedback ? '7 5' : undefined, transition: 'stroke 0.1s, stroke-width 0.1s' }} />
       <EdgeLabelRenderer>
         <div
           className="nodrag nopan absolute"
-          style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`, pointerEvents: show ? 'all' : 'none', opacity: show ? 1 : 0, transition: 'opacity 0.1s' }}
+          style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
           onMouseEnter={() => ui?.setHovered(id)} onMouseLeave={() => ui?.setHovered(null)}
         >
-          <button
-            title="Remove link"
-            onClick={(e) => { e.stopPropagation(); ui?.onDelete(id); }}
-            className="w-5 h-5 flex items-center justify-center rounded-full bg-[var(--background)] border border-[var(--border)] shadow text-[var(--muted)] hover:bg-[#e2445c] hover:text-white hover:border-[#e2445c] transition-colors"
-          >
-            <Icon.x size={12} />
-          </button>
+          {editing ? (
+            <EdgeLabelInput initial={label} color={baseColor}
+              onSave={(v) => { ui?.saveLabel(source, target, v); ui?.setEditingId(null); }}
+              onCancel={() => ui?.setEditingId(null)} />
+          ) : (
+            <div className="flex items-center gap-1" style={{ pointerEvents: show || label || feedback ? 'all' : 'none' }}>
+              {(label || feedback) && (
+                <button
+                  onClick={() => ui?.setEditingId(id)}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold shadow-sm border max-w-[160px] truncate"
+                  style={{ background: 'var(--background)', borderColor: baseColor + '66', color: baseColor }}
+                  title="Edit label"
+                >
+                  {feedback && <Icon.refresh size={10} />}
+                  <span className="truncate">{label || 'add label…'}</span>
+                </button>
+              )}
+              {show && (
+                <button
+                  title="Remove link"
+                  onClick={(e) => { e.stopPropagation(); ui?.onDelete(id); }}
+                  className="w-5 h-5 flex items-center justify-center rounded-full bg-[var(--background)] border border-[var(--border)] shadow text-[var(--muted)] hover:bg-[#e2445c] hover:text-white hover:border-[#e2445c] transition-colors"
+                >
+                  <Icon.x size={12} />
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </EdgeLabelRenderer>
     </>
+  );
+}
+
+function EdgeLabelInput({ initial, color, onSave, onCancel }: { initial: string; color: string; onSave: (v: string) => void; onCancel: () => void }) {
+  const [v, setV] = useState(initial);
+  return (
+    <input
+      autoFocus value={v}
+      onChange={e => setV(e.target.value)}
+      onBlur={() => onSave(v)}
+      onKeyDown={e => { if (e.key === 'Enter') onSave(v); if (e.key === 'Escape') onCancel(); e.stopPropagation(); }}
+      placeholder="e.g. if QA fails, revise"
+      className="px-2 py-1 rounded-md text-[11px] font-medium shadow-md outline-none bg-[var(--background)] text-[var(--foreground)] w-[180px]"
+      style={{ border: `1.5px solid ${color}` }}
+    />
   );
 }
 

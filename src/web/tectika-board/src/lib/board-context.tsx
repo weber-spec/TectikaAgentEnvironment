@@ -25,6 +25,8 @@ interface BoardConfig {
   activity: ActivityEntry[];
   automations: AutomationRecipe[];
   collapsedGroups: string[];
+  /** Flow-canvas edge labels, keyed by `${source}->${target}`. */
+  edgeLabels: Record<string, string>;
 }
 
 function defaultViews(): ViewDef[] {
@@ -49,6 +51,7 @@ function defaultConfig(): BoardConfig {
     activity: [],
     automations: [],
     collapsedGroups: [],
+    edgeLabels: {},
   };
 }
 
@@ -123,6 +126,8 @@ interface BoardContextValue {
   connectTasks: (upstreamId: string, downstreamId: string) => Promise<void>;
   disconnectTasks: (upstreamId: string, downstreamId: string) => Promise<void>;
   moveCanvas: (id: string, x: number, y: number) => void;
+  edgeLabels: Record<string, string>;
+  setEdgeLabel: (source: string, target: string, label: string) => void;
 
   // item panel
   openTaskId?: string;
@@ -432,6 +437,15 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     api.tasks.updatePosition(boardId, id, x, y).catch(() => {});
   }, [boardId]);
 
+  const setEdgeLabel = useCallback((source: string, target: string, label: string) => {
+    const key = `${source}->${target}`;
+    setCfg(prev => {
+      const next = { ...prev.edgeLabels };
+      if (label.trim()) next[key] = label.trim(); else delete next[key];
+      return { ...prev, edgeLabels: next };
+    });
+  }, []);
+
   const value: BoardContextValue = {
     loading, error, board, tasks, roles, runsById, peopleById, people, cellContext,
     views: cfg.views, activeView, columns: cfg.columns, visibleColumns,
@@ -442,6 +456,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     collapsedGroups: cfg.collapsedGroups, toggleGroup,
     selectedIds, toggleSelect, selectAll, clearSelection,
     updateTask, setStatus, setCustomCell, addTask, deleteTasks, connectTasks, disconnectTasks, moveCanvas,
+    edgeLabels: cfg.edgeLabels, setEdgeLabel,
     openTaskId, openTask: setOpenTaskId,
     comments: cfg.comments, activity: cfg.activity, addComment, logActivity,
     automations: cfg.automations, saveAutomation, deleteAutomation, toggleAutomation,
