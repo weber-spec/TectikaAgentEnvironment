@@ -10,8 +10,9 @@ import { Avatar, Pill, Button, Spinner } from '@/components/ui/primitives';
 import { Icon } from '@/components/ui/icons';
 import { Popover } from '@/components/ui/overlays';
 import { formatDateTime, relativeTime, displayName } from '@/lib/format';
+import { toast } from '@/lib/toast';
 
-type Tab = 'chat' | 'updates' | 'activity' | 'details';
+type Tab = 'chat' | 'updates' | 'activity' | 'details' | 'bridge';
 
 // Models offered in the in-panel agent configuration dropdown.
 const MODELS = ['default', 'gpt-4o', 'o3', 'claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5'];
@@ -68,9 +69,9 @@ function PanelInner({ task }: { task: AgentTask }) {
       <div className="flex-1 flex min-h-0">
         {/* left: execution thread / config */}
         <div className="w-[420px] shrink-0 border-r border-[var(--border)] flex flex-col min-h-0">
-          <div className="flex border-b border-[var(--border)] px-2">
-            {(['chat', 'updates', 'activity', 'details'] as Tab[]).map(t => (
-              <button key={t} onClick={() => setTab(t)} className={`px-3 py-2.5 text-[13px] font-medium capitalize border-b-2 -mb-px transition-colors ${tab === t ? 'border-[var(--primary)] text-[var(--primary)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'}`}>{t === 'chat' ? 'Conversation' : t}</button>
+          <div className="flex border-b border-[var(--border)] px-2 overflow-x-auto whitespace-nowrap">
+            {(['chat', 'updates', 'activity', 'details', 'bridge'] as Tab[]).map(t => (
+              <button key={t} onClick={() => setTab(t)} className={`px-3 py-2.5 text-[13px] font-medium capitalize border-b-2 -mb-px transition-colors shrink-0 ${tab === t ? 'border-[var(--primary)] text-[var(--primary)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'}`}>{t === 'chat' ? 'Chat' : t === 'bridge' ? 'CLI Bridge' : t}</button>
             ))}
           </div>
           <div className="flex-1 overflow-auto flex flex-col min-h-0">
@@ -78,6 +79,7 @@ function PanelInner({ task }: { task: AgentTask }) {
             {tab === 'updates' && <UpdatesTab task={task} />}
             {tab === 'activity' && <ActivityTab task={task} />}
             {tab === 'details' && <DetailsTab task={task} role={role} run={run} people={people} onAssign={(id, kind) => updateTask(task.id, { assignee: { type: kind, id } })} />}
+            {tab === 'bridge' && <CliBridgeTab task={task} />}
           </div>
         </div>
         {/* right: evolving artifact */}
@@ -368,6 +370,120 @@ function ChatBubble({ turn }: { turn: ChatTurn }) {
       <div className={`max-w-[80%] rounded-xl px-3 py-2 text-[13px] leading-snug ${human ? 'bg-[var(--primary)] text-white rounded-br-sm' : 'bg-[var(--surface)] text-[var(--foreground)] rounded-bl-sm border border-[var(--border)]'}`}>
         {!human && <div className="flex items-center gap-1 text-[10px] text-[var(--muted)] mb-0.5"><Icon.robot size={11} /> Agent</div>}
         {turn.text}
+      </div>
+    </div>
+  );
+}
+
+// ── External CLI bridge (stream a local agent into this task) ─────────────────
+type TermLine = { id: number; kind: 'sys' | 'stdout' | 'meta' | 'add' | 'del'; text: string };
+
+function classifyLine(l: string): TermLine['kind'] {
+  if (/^(diff --git|index |@@|\+\+\+|---)/.test(l)) return 'meta';
+  if (l.startsWith('+')) return 'add';
+  if (l.startsWith('-')) return 'del';
+  return 'stdout';
+}
+function TerminalLine({ line }: { line: TermLine }) {
+  const color = ({ sys: '#7aa2f7', stdout: 'rgba(255,255,255,0.85)', meta: '#9aa0b4', add: '#42d392', del: '#ff6b6b' } as const)[line.kind];
+  return <div style={{ color, whiteSpace: 'pre-wrap' }}>{line.text}</div>;
+}
+
+function CliBridgeTab({ task }: { task: AgentTask }) {
+  const runId = task.workflowRunId ?? `run-${task.id}`;
+  const [connected, setConnected] = useState(false);
+  const [lines, setLines] = useState<TermLine[]>([]);
+  const [demo, setDemo] = useState(false);
+  const seq = useRef(0);
+  const endRef = useRef<HTMLDivElement>(null);
+  const timers = useRef<number[]>([]);
+  const cmd = `agentboard link --task-id ${task.id} --run-id ${runId}`;
+
+  const push = (kind: TermLine['kind'], text: string) => setLines(prev => [...prev, { id: seq.current++, kind, text }]);
+
+  useEffect(() => () => { timers.current.forEach(clearTimeout); }, []);
+
+  // poll CLI connection status
+  useEffect(() => {
+    let active = true;
+    const poll = () => api.cliStatus(task.id).then(s => { if (active) setConnected(s.connected); }).catch(() => {});
+    poll();
+    const t = window.setInterval(poll, 4000);
+    return () => { active = false; clearInterval(t); };
+  }, [task.id]);
+
+  // receive cli_* events over the run's SSE stream
+  useEffect(() => {
+    if (!task.workflowRunId) return;
+    return api.streamRun(task.workflowRunId, (ev) => {
+      if (ev.taskId && ev.taskId !== task.id) return;
+      if (ev.type === 'cli_connected') { setConnected(true); push('sys', '✓ local agent connected'); }
+      else if (ev.type === 'cli_disconnected') { setConnected(false); push('sys', '× local agent disconnected'); }
+      else if (ev.type === 'cli_output' && ev.content) ev.content.split('\n').forEach(l => push(classifyLine(l), l));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task.workflowRunId, task.id]);
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [lines.length]);
+
+  const copy = () => navigator.clipboard?.writeText(cmd).then(() => toast('Command copied', 'success')).catch(() => {});
+
+  const playDemo = () => {
+    if (demo) return;
+    setDemo(true); setLines([]); seq.current = 0;
+    const steps: Array<[number, () => void]> = [
+      [200, () => push('sys', `$ ${cmd}`)],
+      [700, () => { push('sys', '✓ connected — streaming local session'); setConnected(true); }],
+      [1100, () => push('stdout', '> npm run build')],
+      [1500, () => push('stdout', '✓ compiled in 1.24s')],
+      [1900, () => push('stdout', '> npm test  (42 specs)')],
+      [2500, () => push('stdout', '✓ 42 passing')],
+      [2900, () => push('meta', 'diff --git a/src/checkout.ts b/src/checkout.ts')],
+      [3100, () => push('del', '- export function total(items) {')],
+      [3250, () => push('add', '+ export function total(items: Item[]): number {')],
+      [3400, () => push('add', '+   if (!items.length) return 0;')],
+      [3750, () => push('stdout', '> git commit -m "harden checkout total"')],
+      [4200, () => { push('sys', '✓ artifact synced to the canvas'); setConnected(false); setDemo(false); }],
+    ];
+    timers.current = steps.map(([d, fn]) => window.setTimeout(fn, d));
+  };
+
+  return (
+    <div className="flex flex-col h-full min-h-0">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border)]">
+        <Icon.flow size={14} className="text-[var(--primary)]" />
+        <span className="text-[13px] font-semibold text-[var(--foreground)]">CLI Bridge</span>
+        <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded-full"
+          style={connected ? { background: '#00c87522', color: '#00897b' } : { background: 'var(--surface)', color: 'var(--muted)' }}>
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: connected ? '#00c875' : '#c4c4c4' }} />
+          {connected ? 'Connected' : 'Listening'}
+        </span>
+      </div>
+
+      <div className="p-3 flex flex-col gap-3 min-h-0 flex-1">
+        <div className="text-xs text-[var(--muted)]">Stream a local agent (Claude Code, Cursor, a terminal loop) into this task — its stdout, git diffs and artifacts appear here and on the board.</div>
+        <div className="flex items-stretch gap-1.5">
+          <code className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-lg px-2.5 py-2 text-[11.5px] font-mono text-[var(--foreground)] overflow-x-auto whitespace-nowrap">{cmd}</code>
+          <button onClick={copy} title="Copy command" className="shrink-0 px-2 rounded-lg border border-[var(--border)] text-[var(--muted)] hover:text-[var(--primary)] hover:border-[var(--primary)]"><Icon.duplicate size={14} /></button>
+        </div>
+
+        <div className="flex-1 min-h-[180px] rounded-lg overflow-hidden border border-[var(--border)] flex flex-col" style={{ background: '#0f1117' }}>
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-white/10">
+            <span className="w-2 h-2 rounded-full bg-[#ff5f57]" /><span className="w-2 h-2 rounded-full bg-[#febc2e]" /><span className="w-2 h-2 rounded-full bg-[#28c840]" />
+            <span className="text-[10px] text-white/40 ml-1 font-mono truncate">local agent · {task.id}</span>
+          </div>
+          <div className="flex-1 overflow-auto p-2.5 font-mono text-[11.5px] leading-relaxed">
+            {lines.length === 0
+              ? <div className="text-white/40">Waiting for a local agent to connect…</div>
+              : lines.map(l => <TerminalLine key={l.id} line={l} />)}
+            <div ref={endRef} />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] text-[var(--muted-2)]">Live tunnel via WebSocket → board &amp; canvas</span>
+          <Button size="sm" disabled={demo} onClick={playDemo}><Icon.bolt size={13} /> {demo ? 'Streaming…' : 'Play demo session'}</Button>
+        </div>
       </div>
     </div>
   );

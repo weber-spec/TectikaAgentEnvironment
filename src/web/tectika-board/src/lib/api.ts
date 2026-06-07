@@ -91,6 +91,9 @@ export const api = {
       }),
   },
 
+  // External CLI bridge status (is a local agent currently linked to this task?).
+  cliStatus: (taskId: string) => fetchApi<{ taskId: string; connected: boolean }>(`/api/tasks/${taskId}/cli/status`),
+
   // SSE stream for live run updates.
   streamRun: (runId: string, onEvent: (event: AgentEvent) => void): (() => void) => {
     const es = new EventSource(`${API_BASE}/api/runs/${runId}/stream`);
