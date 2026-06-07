@@ -76,8 +76,15 @@ builder.Services.AddControllers()
 builder.Services.AddOpenApi();
 
 // ── CORS (Next.js dev server) ─────────────────────────────────────────────────
+// In Development, reflect any origin so the app is reachable over the LAN / WSL2
+// VM IP (not just localhost). Production keeps the strict allow-list.
 builder.Services.AddCors(o => o.AddPolicy("NextJs", p =>
-    p.WithOrigins("http://localhost:3000").AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
+{
+    if (builder.Environment.IsDevelopment())
+        p.SetIsOriginAllowed(_ => true).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
+    else
+        p.WithOrigins("http://localhost:3000").AllowAnyHeader().AllowAnyMethod().AllowCredentials();
+}));
 
 var app = builder.Build();
 
