@@ -51,6 +51,36 @@ public class TasksController : ControllerBase
         return CreatedAtAction(nameof(Get), new { boardId, taskId = created.Id }, created);
     }
 
+    [HttpPut("{taskId}")]
+    public async Task<IActionResult> Update(string boardId, string taskId, [FromBody] UpdateTaskRequest req, CancellationToken ct)
+    {
+        var task = await _cosmos.GetTaskAsync(boardId, taskId, ct);
+        if (task is null) return NotFound();
+
+        if (req.Title is not null) task.Title = req.Title;
+        if (req.Description is not null) task.Description = req.Description;
+        if (req.Status is not null) task.Status = req.Status.Value;
+        if (req.Priority is not null) task.Priority = req.Priority.Value;
+        if (req.Assignee is not null) task.Assignee = req.Assignee;
+        if (req.DueAt is not null) task.DueAt = req.DueAt.Value.UtcDateTime == default ? null : req.DueAt;
+        if (req.HumanAuditorId is not null) task.HumanAuditorId = req.HumanAuditorId;
+        if (req.UpstreamTaskIds is not null) task.UpstreamTaskIds = req.UpstreamTaskIds;
+        if (req.DownstreamTaskIds is not null) task.DownstreamTaskIds = req.DownstreamTaskIds;
+        if (req.CanvasPosition is not null) task.CanvasPosition = req.CanvasPosition;
+
+        var updated = await _cosmos.UpdateTaskAsync(task, ct);
+        return Ok(updated);
+    }
+
+    [HttpDelete("{taskId}")]
+    public async Task<IActionResult> Delete(string boardId, string taskId, CancellationToken ct)
+    {
+        var task = await _cosmos.GetTaskAsync(boardId, taskId, ct);
+        if (task is null) return NotFound();
+        await _cosmos.DeleteTaskAsync(boardId, taskId, ct);
+        return NoContent();
+    }
+
     [HttpPatch("{taskId}/status")]
     public async Task<IActionResult> UpdateStatus(string boardId, string taskId, [FromBody] UpdateStatusRequest req, CancellationToken ct)
     {
@@ -106,3 +136,15 @@ public record CreateTaskRequest(
 
 public record UpdateStatusRequest(AgentTaskStatus Status);
 public record ConnectTaskRequest(string DownstreamTaskId);
+
+public record UpdateTaskRequest(
+    string? Title,
+    string? Description,
+    AgentTaskStatus? Status,
+    TaskPriority? Priority,
+    TaskAssignee? Assignee,
+    DateTimeOffset? DueAt,
+    string? HumanAuditorId,
+    List<string>? UpstreamTaskIds,
+    List<string>? DownstreamTaskIds,
+    CanvasPosition? CanvasPosition);

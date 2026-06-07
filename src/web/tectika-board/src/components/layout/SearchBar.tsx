@@ -4,7 +4,8 @@ import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useSettings } from '@/lib/settings-context';
-import { StatusBadge } from '../board/StatusBadge';
+import { Pill } from '@/components/ui/primitives';
+import { STATUS_CONFIG } from '@/lib/palette';
 import type { Board, AgentTask } from '@/lib/types';
 
 type SearchResult =
@@ -76,7 +77,7 @@ export function SearchBar() {
     if (result.kind === 'board') {
       router.push(`/boards/${result.board.id}`);
     } else {
-      router.push(`/workspace/${result.task.boardId}/${result.task.id}`);
+      router.push(`/boards/${result.task.boardId}`);
     }
     setQuery('');
     setOpen(false);
@@ -212,7 +213,7 @@ export function SearchBar() {
                           <p className="text-sm font-medium text-[var(--foreground)] truncate">{r.task.title}</p>
                           <p className="text-xs text-[var(--muted)] truncate">{r.boardName}</p>
                         </div>
-                        <StatusBadge status={r.task.status} />
+                        <Pill label={STATUS_CONFIG[r.task.status].label} hex={STATUS_CONFIG[r.task.status].hex} />
                       </button>
                     );
                   })}

@@ -119,7 +119,58 @@ body {
   100% { background-position: 600px 0; }
 }
 .shimmer {
-  background: linear-gradient(90deg, #f5f6f8 25%, #eceef2 50%, #f5f6f8 75%);
+  background: linear-gradient(90deg, var(--surface) 25%, var(--surface-2) 50%, var(--surface) 75%);
   background-size: 600px 100%;
   animation: shimmer 1.4s infinite linear;
+}
+
+/* Slide-over panel (item workspace) */
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(40px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.animate-slide-in-right { animation: slide-in-right 0.18s ease-out forwards; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Inline "chip" selects used by the automation recipe builder */
+.chip-select {
+  display: inline-flex;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--foreground);
+  outline: none;
+  cursor: pointer;
+  margin: 0 2px;
+}
+.chip-select.chip-blue  { background: var(--primary-light); color: var(--primary); border-color: transparent; }
+.chip-select.chip-green { background: #e6f9f0; color: #037f4c; border-color: transparent; }
+[data-theme="dark"] .chip-select.chip-green { background: #0d3b2a; color: #4ce0a0; }
+
+/* Shared form input */
+.inp {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  color: var(--foreground);
+  outline: none;
+}
+.inp:focus { border-color: var(--primary); }
+
+/* RTL flips for the slide-over */
+[dir="rtl"] .animate-slide-in-right { animation-name: slide-in-left; }
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-40px); }
+  to   { opacity: 1; transform: translateX(0); }
 }

@@ -39,6 +39,7 @@ export const TRANSLATIONS = {
     agents: 'Agents',
     approvals: 'Approvals',
     analytics: 'Analytics',
+    dashboards: 'Dashboards',
     settings: 'Settings',
     insights: 'Insights',
     search: 'Search',
@@ -87,6 +88,7 @@ export const TRANSLATIONS = {
     agents: 'סוכנים',
     approvals: 'אישורים',
     analytics: 'ניתוח',
+    dashboards: 'לוחות מחוונים',
     settings: 'הגדרות',
     insights: 'תובנות',
     search: 'חיפוש',
@@ -165,6 +167,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
   // Load from localStorage on mount
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate persisted settings after mount (SSR-safe)
     setSettings(loadSettings());
     setMounted(true);
   }, []);

@@ -1,6 +1,5 @@
 'use client';
 
-import Image from 'next/image';
 import Link from 'next/link';
 import { useState } from 'react';
 import { NotificationPanel, type Notification } from './NotificationPanel';
@@ -59,15 +58,10 @@ export function Navbar() {
     <header className="sticky top-0 z-50 h-12 bg-white border-b border-[#e6e9ef] flex items-center px-4 gap-3 shadow-[0_1px_4px_rgba(0,0,0,0.08)]">
       {/* Logo */}
       <Link href="/boards" className="flex items-center gap-2 shrink-0 mr-2">
-        <Image
-          src="https://i.ibb.co/LJ1H14k/Tectika-ai-icon-only.png"
-          alt="Tectika"
-          width={26}
-          height={26}
-          className="rounded-md"
-          unoptimized
-        />
-        <span className="font-semibold text-sm text-[#323338] tracking-tight">
+        <span className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'linear-gradient(135deg, #0073ea, #00c875)' }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" fill="#fff" /></svg>
+        </span>
+        <span className="font-semibold text-sm text-[var(--foreground)] tracking-tight">
           AgentBoard
         </span>
       </Link>

@@ -70,6 +70,13 @@ public class InMemoryCosmosDbService : ICosmosDbService
         return Task.FromResult(task);
     }
 
+    public Task DeleteTaskAsync(string boardId, string taskId, CancellationToken ct = default)
+    {
+        if (_tasks.TryGetValue(taskId, out var t) && t.BoardId == boardId)
+            _tasks.TryRemove(taskId, out _);
+        return Task.CompletedTask;
+    }
+
     // ── Agent Roles ────────────────────────────────────────────────────────────
     public Task<IEnumerable<AgentRole>> GetAgentRolesAsync(string tenantId, CancellationToken ct = default) =>
         Task.FromResult(_agentRoles.Values.Where(r => r.TenantId == tenantId).AsEnumerable());

@@ -68,7 +68,11 @@ builder.Services.AddSingleton<CliBridgeManager>();
 builder.Services.AddHttpClient();
 
 // ── Controllers + OpenAPI ────────────────────────────────────────────────────
-builder.Services.AddControllers();
+// Serialize enums as their string names (e.g. "InProgress") so the Next.js client's
+// string-union types line up with the API contract instead of receiving raw integers.
+builder.Services.AddControllers()
+    .AddJsonOptions(o =>
+        o.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
 builder.Services.AddOpenApi();
 
 // ── CORS (Next.js dev server) ─────────────────────────────────────────────────
