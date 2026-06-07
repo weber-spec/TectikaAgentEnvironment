@@ -78,6 +78,15 @@ export interface AgentRole {
   updatedAt?: string;
 }
 
+/** A turn in the interactive agent workspace conversation. */
+export interface ChatTurn {
+  id: string;
+  author: 'human' | 'agent' | 'tool';
+  text: string;
+  createdAt: string;
+  toolName?: string;
+}
+
 export interface TokenUsage {
   input: number;
   output: number;

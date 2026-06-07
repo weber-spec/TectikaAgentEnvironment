@@ -5,7 +5,7 @@ import { api, type TaskPatch } from './api';
 import type {
   Board, AgentTask, AgentRole, WorkflowRun, Person,
   ColumnDef, ColumnKind, ViewDef, ViewKind, FilterGroup, SortRule,
-  Comment, ActivityEntry, AutomationRecipe, AgentTaskStatus,
+  Comment, ActivityEntry, AutomationRecipe, AgentTaskStatus, ChatTurn,
 } from './types';
 import { defaultColumns, KIND_META, type CellContext } from './columns';
 import { applyFilter, applySearch, applySort, groupTasks, type TaskGroup } from './board-engine';
@@ -27,6 +27,8 @@ interface BoardConfig {
   collapsedGroups: string[];
   /** Flow-canvas edge labels, keyed by `${source}->${target}`. */
   edgeLabels: Record<string, string>;
+  /** Interactive agent-workspace conversations, keyed by taskId. */
+  chatThreads: Record<string, ChatTurn[]>;
 }
 
 function defaultViews(): ViewDef[] {
@@ -52,6 +54,7 @@ function defaultConfig(): BoardConfig {
     automations: [],
     collapsedGroups: [],
     edgeLabels: {},
+    chatThreads: {},
   };
 }
 
@@ -128,6 +131,11 @@ interface BoardContextValue {
   moveCanvas: (id: string, x: number, y: number) => void;
   edgeLabels: Record<string, string>;
   setEdgeLabel: (source: string, target: string, label: string) => void;
+
+  // agent config + interactive workspace chat
+  saveRole: (role: AgentRole) => Promise<void>;
+  chatThreads: Record<string, ChatTurn[]>;
+  pushChatTurns: (taskId: string, turns: ChatTurn[]) => void;
 
   // item panel
   openTaskId?: string;
@@ -446,6 +454,15 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     });
   }, []);
 
+  const saveRole = useCallback(async (role: AgentRole) => {
+    setRoles(prev => prev.map(r => r.id === role.id ? role : r));
+    try { await api.agentRoles.upsert(role); } catch { toast('Could not save agent configuration', 'error'); }
+  }, []);
+
+  const pushChatTurns = useCallback((taskId: string, turns: ChatTurn[]) => {
+    setCfg(prev => ({ ...prev, chatThreads: { ...prev.chatThreads, [taskId]: [...(prev.chatThreads[taskId] ?? []), ...turns] } }));
+  }, []);
+
   const value: BoardContextValue = {
     loading, error, board, tasks, roles, runsById, peopleById, people, cellContext,
     views: cfg.views, activeView, columns: cfg.columns, visibleColumns,
@@ -457,6 +474,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     selectedIds, toggleSelect, selectAll, clearSelection,
     updateTask, setStatus, setCustomCell, addTask, deleteTasks, connectTasks, disconnectTasks, moveCanvas,
     edgeLabels: cfg.edgeLabels, setEdgeLabel,
+    saveRole, chatThreads: cfg.chatThreads, pushChatTurns,
     openTaskId, openTask: setOpenTaskId,
     comments: cfg.comments, activity: cfg.activity, addComment, logActivity,
     automations: cfg.automations, saveAutomation, deleteAutomation, toggleAutomation,

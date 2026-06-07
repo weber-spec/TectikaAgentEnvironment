@@ -4,14 +4,18 @@ import React, { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useBoard } from '@/lib/board-context';
 import { api } from '@/lib/api';
-import type { Artifact, AgentTask } from '@/lib/types';
+import type { Artifact, AgentTask, AgentRole, ChatTurn } from '@/lib/types';
 import { STATUS_CONFIG, STATUS_ORDER, PRIORITY_CONFIG, PRIORITY_ORDER, textOn } from '@/lib/palette';
 import { Avatar, Pill, Button, Spinner } from '@/components/ui/primitives';
 import { Icon } from '@/components/ui/icons';
 import { Popover } from '@/components/ui/overlays';
 import { formatDateTime, relativeTime, displayName } from '@/lib/format';
 
-type Tab = 'updates' | 'activity' | 'details';
+type Tab = 'chat' | 'updates' | 'activity' | 'details';
+
+// Models offered in the in-panel agent configuration dropdown.
+const MODELS = ['default', 'gpt-4o', 'o3', 'claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5'];
+const TOOL_LIBRARY = ['search', 'read_repo', 'write_code', 'run_tests', 'deploy', 'browser', 'sql', 'http'];
 
 export function ItemPanel() {
   const { openTaskId, openTask, tasks } = useBoard();
@@ -29,7 +33,7 @@ export function ItemPanel() {
 
 function PanelInner({ task }: { task: AgentTask }) {
   const { openTask, roles, runsById, updateTask, setStatus, peopleById, people } = useBoard();
-  const [tab, setTab] = useState<Tab>('updates');
+  const [tab, setTab] = useState<Tab>('chat');
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') openTask(undefined); };
@@ -65,11 +69,12 @@ function PanelInner({ task }: { task: AgentTask }) {
         {/* left: execution thread / config */}
         <div className="w-[420px] shrink-0 border-r border-[var(--border)] flex flex-col min-h-0">
           <div className="flex border-b border-[var(--border)] px-2">
-            {(['updates', 'activity', 'details'] as Tab[]).map(t => (
-              <button key={t} onClick={() => setTab(t)} className={`px-3 py-2.5 text-[13px] font-medium capitalize border-b-2 -mb-px transition-colors ${tab === t ? 'border-[var(--primary)] text-[var(--primary)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'}`}>{t}</button>
+            {(['chat', 'updates', 'activity', 'details'] as Tab[]).map(t => (
+              <button key={t} onClick={() => setTab(t)} className={`px-3 py-2.5 text-[13px] font-medium capitalize border-b-2 -mb-px transition-colors ${tab === t ? 'border-[var(--primary)] text-[var(--primary)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'}`}>{t === 'chat' ? 'Conversation' : t}</button>
             ))}
           </div>
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-auto flex flex-col min-h-0">
+            {tab === 'chat' && <ChatTab task={task} role={role} />}
             {tab === 'updates' && <UpdatesTab task={task} />}
             {tab === 'activity' && <ActivityTab task={task} />}
             {tab === 'details' && <DetailsTab task={task} role={role} run={run} people={people} onAssign={(id, kind) => updateTask(task.id, { assignee: { type: kind, id } })} />}
@@ -195,16 +200,7 @@ function DetailsTab({ task, role, run, people, onAssign }: { task: AgentTask; ro
           <optgroup label="People">{people.filter(p => p.kind === 'Human').map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</optgroup>
         </select>
       </Field>
-      {role && (
-        <div className="rounded-lg border border-[var(--border)] p-3 bg-[var(--background)]">
-          <div className="flex items-center gap-2 mb-2"><Icon.robot size={16} className="text-[var(--primary)]" /><span className="font-semibold text-[var(--foreground)]">Agent configuration</span></div>
-          <Field label="System prompt"><div className="text-[12px] text-[var(--muted)] bg-[var(--surface)] rounded p-2 max-h-28 overflow-auto whitespace-pre-wrap">{role.systemPrompt}</div></Field>
-          <div className="flex gap-4 mt-2 text-xs">
-            <div><span className="text-[var(--muted)]">Model</span><div className="font-medium text-[var(--foreground)]">{role.modelOverride ?? 'default'}</div></div>
-            <div><span className="text-[var(--muted)]">Tools</span><div className="font-medium text-[var(--foreground)]">{role.tools.join(', ') || '—'}</div></div>
-          </div>
-        </div>
-      )}
+      {role && <AgentConfigEditor role={role} />}
       {run && (
         <div className="rounded-lg border border-[var(--border)] p-3 bg-[var(--background)]">
           <div className="flex items-center gap-2 mb-2"><Icon.bolt size={16} className="text-[#fdab3d]" /><span className="font-semibold text-[var(--foreground)]">Latest run</span></div>
@@ -223,6 +219,158 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 function Stat({ label, value }: { label: string; value: string }) {
   return <div className="bg-[var(--surface)] rounded-lg py-2"><div className="text-[10px] uppercase text-[var(--muted)]">{label}</div><div className="text-sm font-semibold text-[var(--foreground)]">{value}</div></div>;
+}
+
+// ── Editable agent configuration (model / prompt / tools) ─────────────────────
+function AgentConfigEditor({ role }: { role: AgentRole }) {
+  const { saveRole } = useBoard();
+  const [prompt, setPrompt] = useState(role.systemPrompt);
+  const [toolMenu, setToolMenu] = useState(false);
+  const toolRef = useRef<HTMLButtonElement>(null);
+  // keep the editable prompt in sync when a different agent is opened
+  const lastId = useRef(role.id);
+  if (lastId.current !== role.id) { lastId.current = role.id; if (prompt !== role.systemPrompt) setPrompt(role.systemPrompt); }
+
+  const setModel = (m: string) => saveRole({ ...role, modelOverride: m === 'default' ? undefined : m });
+  const toggleTool = (t: string) => saveRole({ ...role, tools: role.tools.includes(t) ? role.tools.filter(x => x !== t) : [...role.tools, t] });
+  const available = TOOL_LIBRARY.filter(t => !role.tools.includes(t));
+
+  return (
+    <div className="rounded-lg border border-[var(--border)] p-3 bg-[var(--background)] flex flex-col gap-3">
+      <div className="flex items-center gap-2"><Icon.robot size={16} className="text-[var(--primary)]" /><span className="font-semibold text-[var(--foreground)]">Agent configuration</span><span className="text-[10px] text-[var(--muted)] ml-auto">{role.displayName}</span></div>
+
+      <Field label="Model">
+        <div className="relative">
+          <select value={role.modelOverride ?? 'default'} onChange={e => setModel(e.target.value)}
+            className="w-full appearance-none bg-[var(--surface)] rounded-lg pl-2.5 pr-8 py-2 text-[13px] text-[var(--foreground)] border border-[var(--border)] outline-none focus:border-[var(--primary)] cursor-pointer">
+            {MODELS.map(m => <option key={m} value={m}>{m === 'default' ? 'Default (workspace model)' : m}</option>)}
+          </select>
+          <Icon.chevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--muted)] pointer-events-none" />
+        </div>
+      </Field>
+
+      <Field label="System prompt">
+        <textarea value={prompt} onChange={e => setPrompt(e.target.value)}
+          onBlur={() => { if (prompt !== role.systemPrompt) saveRole({ ...role, systemPrompt: prompt }); }}
+          rows={4} placeholder="Describe how this agent should behave…"
+          className="w-full bg-[var(--surface)] rounded-lg p-2 text-[12.5px] outline-none resize-none text-[var(--foreground)] border border-[var(--border)] focus:border-[var(--primary)] leading-snug" />
+      </Field>
+
+      <Field label="Tools">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {role.tools.length === 0 && <span className="text-xs text-[var(--muted-2)]">No tools assigned</span>}
+          {role.tools.map(t => (
+            <span key={t} className="group/tool inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-md text-[11px] font-medium bg-[#0086c022] text-[#0086c0]">
+              {t}
+              <button onClick={() => toggleTool(t)} className="opacity-50 hover:opacity-100 hover:text-[#e2445c]" title="Remove tool"><Icon.x size={10} /></button>
+            </span>
+          ))}
+          <button ref={toolRef} onClick={() => setToolMenu(o => !o)} disabled={available.length === 0}
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-medium border border-dashed border-[var(--border)] text-[var(--muted)] hover:text-[var(--primary)] hover:border-[var(--primary)] disabled:opacity-40">
+            <Icon.plus size={11} /> tool
+          </button>
+          <Popover anchorRef={toolRef} open={toolMenu} onClose={() => setToolMenu(false)} width={170} className="p-1">
+            <div className="flex flex-col gap-0.5">
+              {available.map(t => <button key={t} onClick={() => { toggleTool(t); setToolMenu(false); }} className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface)] text-[13px] text-[var(--foreground)]">{t}</button>)}
+            </div>
+          </Popover>
+        </div>
+      </Field>
+      <p className="text-[10px] text-[var(--muted-2)]">Edits update this reusable agent role across the workspace.</p>
+    </div>
+  );
+}
+
+// ── Interactive agent conversation ────────────────────────────────────────────
+function ChatTab({ task, role }: { task: AgentTask; role?: AgentRole }) {
+  const { chatThreads, pushChatTurns } = useBoard();
+  const turns = chatThreads[task.id] ?? [];
+  const [draft, setDraft] = useState('');
+  const [thinking, setThinking] = useState(false);
+  const endRef = useRef<HTMLDivElement>(null);
+  const seq = useRef(0);
+  const mk = (author: ChatTurn['author'], text: string, toolName?: string): ChatTurn =>
+    ({ id: `c${task.id}-${seq.current++}-${text.length}`, author, text, toolName, createdAt: new Date().toISOString() });
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [turns.length, thinking]);
+
+  const send = () => {
+    const text = draft.trim();
+    if (!text || thinking) return;
+    pushChatTurns(task.id, [mk('human', text)]);
+    setDraft('');
+    setThinking(true);
+    // Front-end simulation of the agent's turn. When wired to the live Foundry/Durable
+    // backend, these turns stream in over SSE instead.
+    const tool = role?.tools[0];
+    window.setTimeout(() => {
+      const reply: ChatTurn[] = [];
+      reply.push(mk('agent', `Working on “${task.title}”. ${role ? `As ${role.displayName}, I’ll` : 'I’ll'} take that into account and update the artifact.`));
+      if (tool) reply.push(mk('tool', `invoked ${tool} → completed`, tool));
+      reply.push(mk('agent', 'Done — the deliverable on the right reflects your guidance. What should I refine next?'));
+      pushChatTurns(task.id, reply);
+      setThinking(false);
+    }, 1100);
+  };
+
+  return (
+    <div className="flex flex-col h-full min-h-0">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border)] text-[11px] text-[var(--muted)]">
+        <span className="w-1.5 h-1.5 rounded-full bg-[#00c875]" />
+        <span>{role ? role.displayName : 'Agent'} · {role?.modelOverride ?? 'default model'}</span>
+        <span className="ml-auto text-[var(--muted-2)]">live turns stream here when connected</span>
+      </div>
+      <div className="flex-1 overflow-auto p-3 flex flex-col gap-2.5">
+        {turns.length === 0 && !thinking && (
+          <div className="text-center text-sm text-[var(--muted)] mt-8">
+            <Icon.robot size={36} className="mx-auto mb-2 text-[var(--muted-2)]" />
+            Start a conversation with this agent.<br />
+            <span className="text-xs">Give guidance, ask for changes, or steer the next iteration.</span>
+          </div>
+        )}
+        {turns.map(t => <ChatBubble key={t.id} turn={t} />)}
+        {thinking && (
+          <div className="flex items-center gap-2 text-xs text-[var(--muted)] ml-1">
+            <span className="flex gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--muted-2)] animate-bounce" style={{ animationDelay: '0ms' }} />
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--muted-2)] animate-bounce" style={{ animationDelay: '120ms' }} />
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--muted-2)] animate-bounce" style={{ animationDelay: '240ms' }} />
+            </span>
+            {role?.displayName ?? 'Agent'} is working…
+          </div>
+        )}
+        <div ref={endRef} />
+      </div>
+      <div className="border-t border-[var(--border)] p-2.5">
+        <textarea value={draft} onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } }}
+          rows={2} placeholder="Message the agent…  (⌘/Ctrl + Enter to send)"
+          className="w-full bg-[var(--surface)] rounded-lg p-2 text-[13px] outline-none resize-none text-[var(--foreground)] border border-[var(--border)] focus:border-[var(--primary)]" />
+        <div className="flex justify-end mt-1.5">
+          <Button variant="primary" size="sm" disabled={!draft.trim() || thinking} onClick={send}><Icon.send size={13} /> Send</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChatBubble({ turn }: { turn: ChatTurn }) {
+  if (turn.author === 'tool') {
+    return (
+      <div className="flex items-center gap-2 ml-1 text-[11px] text-[var(--muted)] font-mono">
+        <Icon.bolt size={12} className="text-[#fdab3d]" /> <span className="px-1.5 py-0.5 rounded bg-[var(--surface)]">{turn.text}</span>
+      </div>
+    );
+  }
+  const human = turn.author === 'human';
+  return (
+    <div className={`flex ${human ? 'justify-end' : 'justify-start'}`}>
+      <div className={`max-w-[80%] rounded-xl px-3 py-2 text-[13px] leading-snug ${human ? 'bg-[var(--primary)] text-white rounded-br-sm' : 'bg-[var(--surface)] text-[var(--foreground)] rounded-bl-sm border border-[var(--border)]'}`}>
+        {!human && <div className="flex items-center gap-1 text-[10px] text-[var(--muted)] mb-0.5"><Icon.robot size={11} /> Agent</div>}
+        {turn.text}
+      </div>
+    </div>
+  );
 }
 
 // ── Evolving artifact ───────────────────────────────────────────────────────────
