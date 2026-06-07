@@ -34,6 +34,7 @@ export function BoardView() {
           {board?.description && <p className="text-xs text-[var(--muted)] truncate">{board.description}</p>}
         </div>
         <div className="flex-1" />
+        <LiveIndicator />
         <button onClick={() => setAutoOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--foreground)] relative">
           <Icon.bolt size={16} /> Automate
           {automations.length > 0 && <span className="ml-0.5 text-[10px] bg-[var(--primary)] text-white rounded-full px-1.5">{automations.filter(a => a.enabled).length}</span>}
@@ -57,6 +58,26 @@ export function BoardView() {
       <ItemPanel />
       <AutomationsModal open={autoOpen} onClose={() => setAutoOpen(false)} />
     </div>
+  );
+}
+
+function LiveIndicator() {
+  const { liveState, toggleLive } = useBoard();
+  const cfg = {
+    live:         { color: '#00c875', label: 'Live',           pulse: true },
+    reconnecting: { color: '#fdab3d', label: 'Reconnecting…',  pulse: true },
+    paused:       { color: '#c4c4c4', label: 'Paused',         pulse: false },
+  }[liveState];
+  return (
+    <button onClick={toggleLive}
+      title={liveState === 'paused' ? 'Live updates paused — click to resume' : 'Live updates on — click to pause'}
+      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[12px] font-medium text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]">
+      <span className="relative flex items-center justify-center w-2 h-2">
+        {cfg.pulse && <span className="absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping" style={{ background: cfg.color }} />}
+        <span className="relative inline-flex rounded-full w-2 h-2" style={{ background: cfg.color }} />
+      </span>
+      {cfg.label}
+    </button>
   );
 }
 

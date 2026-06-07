@@ -141,6 +141,11 @@ interface BoardContextValue {
   openTaskId?: string;
   openTask: (id: string | undefined) => void;
 
+  // live sync
+  liveEnabled: boolean;
+  liveState: 'live' | 'paused' | 'reconnecting';
+  toggleLive: () => void;
+
   // collaboration
   comments: Comment[];
   activity: ActivityEntry[];
@@ -178,6 +183,11 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   const [openTaskId, setOpenTaskId] = useState<string>();
   const lastSelected = useRef<string | null>(null);
   const hydrated = useRef(false);
+
+  // live sync (PRD §2 — SSE live updates, with a polling fallback)
+  const [liveEnabled, setLiveEnabled] = useState(true);
+  const [liveState, setLiveState] = useState<'live' | 'paused' | 'reconnecting'>('live');
+  const lastEditRef = useRef(0);
 
   // ── load ────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -230,6 +240,57 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     if (!hydrated.current || typeof window === 'undefined') return;
     try { localStorage.setItem(storageKey(boardId), JSON.stringify(cfg)); } catch { /* quota */ }
   }, [cfg, boardId]);
+
+  // ── live sync (PRD §2) ────────────────────────────────────────────────────────
+  // Real-time updates via SSE on each active run, with a polling reconcile as a
+  // resilient fallback. Server-authoritative status changes + newly-created tasks
+  // flow in automatically; recent local edits are left untouched for 5s to avoid
+  // clobbering optimistic changes.
+  const activeRunKey = tasks.map(t => t.workflowRunId).filter(Boolean).join(',');
+  useEffect(() => {
+    if (loading || error) return;
+    if (!liveEnabled) { setLiveState('paused'); return; }
+    setLiveState('live');
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const runIds = [...new Set(tasks.map(t => t.workflowRunId).filter((r): r is string => !!r))];
+    const unsubs = runIds.map(rid => api.streamRun(rid, (ev) => {
+      if (!ev.taskId) return;
+      if ((ev.type || '').toLowerCase().includes('status') && ev.content) {
+        setTasks(prev => prev.map(t => t.id === ev.taskId ? { ...t, status: ev.content as AgentTaskStatus } : t));
+      }
+    }));
+
+    const tick = async () => {
+      if (cancelled) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') { timer = setTimeout(tick, 7000); return; }
+      try {
+        const fresh = await api.tasks.list(boardId);
+        if (cancelled) return;
+        setLiveState('live');
+        if (Date.now() - lastEditRef.current > 5000) {
+          setTasks(local => {
+            const localIds = new Set(local.map(t => t.id));
+            const freshById = new Map(fresh.map(t => [t.id, t]));
+            const updated = local.map(t => {
+              const srv = freshById.get(t.id);
+              return srv && srv.status !== t.status ? { ...t, status: srv.status } : t;
+            });
+            const added = fresh.filter(t => !localIds.has(t.id));
+            return added.length ? [...updated, ...added] : updated;
+          });
+        }
+      } catch { if (!cancelled) setLiveState('reconnecting'); }
+      if (!cancelled) timer = setTimeout(tick, 7000);
+    };
+    timer = setTimeout(tick, 7000);
+
+    return () => { cancelled = true; if (timer) clearTimeout(timer); unsubs.forEach(u => u()); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boardId, liveEnabled, loading, error, activeRunKey]);
+
+  const toggleLive = useCallback(() => setLiveEnabled(v => !v), []);
 
   // ── derived ─────────────────────────────────────────────────────────────────
   const peopleById = useMemo(() => buildPeople(roles, tasks), [roles, tasks]);
@@ -345,6 +406,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
 
   // ── task mutations ────────────────────────────────────────────────────────────
   const updateTask = useCallback(async (id: string, patch: TaskPatch, opts?: { silent?: boolean }) => {
+    lastEditRef.current = Date.now();
     let before: AgentTask | undefined;
     setTasks(prev => prev.map(t => { if (t.id === id) { before = t; return { ...t, ...patch }; } return t; }));
     try {
@@ -383,6 +445,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   }, []);
 
   const addTask = useCallback(async (partial: Partial<AgentTask> & { title: string }, groupValue?: { colId: string; key: string }) => {
+    lastEditRef.current = Date.now();
     // apply group value (e.g. created inside a Status group inherits that status)
     const seed: Partial<AgentTask> = { priority: 'Medium', assignee: { type: 'Human', id: CURRENT_USER.id }, ...partial };
     if (groupValue) {
@@ -402,6 +465,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   }, [boardId, logActivity]);
 
   const deleteTasks = useCallback(async (ids: string[]) => {
+    lastEditRef.current = Date.now();
     const set = new Set(ids);
     const removed = tasks.filter(t => set.has(t.id));
     setTasks(prev => prev.filter(t => !set.has(t.id)));
@@ -475,6 +539,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     updateTask, setStatus, setCustomCell, addTask, deleteTasks, connectTasks, disconnectTasks, moveCanvas,
     edgeLabels: cfg.edgeLabels, setEdgeLabel,
     saveRole, chatThreads: cfg.chatThreads, pushChatTurns,
+    liveEnabled, liveState, toggleLive,
     openTaskId, openTask: setOpenTaskId,
     comments: cfg.comments, activity: cfg.activity, addComment, logActivity,
     automations: cfg.automations, saveAutomation, deleteAutomation, toggleAutomation,
