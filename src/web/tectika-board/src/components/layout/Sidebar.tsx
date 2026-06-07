@@ -170,10 +170,15 @@ export function Sidebar() {
   }, []);
 
   return (
+    // Fixed 56px footprint reserves the rail's space; the aside itself is absolutely
+    // positioned so the hover-expansion floats OVER the page content instead of
+    // reflowing it. insetInlineStart keeps it on the correct edge in RTL.
+    <div className="relative shrink-0" style={{ width: '56px' }}>
     <aside
-      className="group/sidebar flex flex-col shrink-0 overflow-visible transition-all duration-200"
+      className="group/sidebar absolute inset-y-0 flex flex-col overflow-visible transition-all duration-200 hover:shadow-2xl"
       style={{
         width: '56px',
+        insetInlineStart: 0,
         background: 'var(--sidebar-bg)',
         zIndex: 40,
       }}
@@ -232,5 +237,6 @@ export function Sidebar() {
         </div>
       </div>
     </aside>
+    </div>
   );
 }

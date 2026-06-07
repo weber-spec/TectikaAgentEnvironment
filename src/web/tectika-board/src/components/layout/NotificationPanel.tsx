@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { Icon, type IconName } from '@/components/ui/icons';
 
 export interface Notification {
   id: string;
@@ -14,11 +15,11 @@ export interface Notification {
   read: boolean;
 }
 
-const TYPE_CONFIG = {
-  completed: { icon: '✅', color: '#00c875', label: 'Task Completed' },
-  approval:  { icon: '⏳', color: '#a25ddc', label: 'Approval Required' },
-  failed:    { icon: '❌', color: '#e2445c', label: 'Task Failed' },
-  agent:     { icon: '🤖', color: '#0073ea', label: 'Agent Update' },
+const TYPE_CONFIG: Record<Notification['type'], { icon: IconName; color: string; label: string }> = {
+  completed: { icon: 'check',     color: '#00c875', label: 'Task Completed' },
+  approval:  { icon: 'clock',     color: '#a25ddc', label: 'Approval Required' },
+  failed:    { icon: 'x',         color: '#e2445c', label: 'Task Failed' },
+  agent:     { icon: 'robot',     color: '#0073ea', label: 'Agent Update' },
 };
 
 function timeAgo(date: Date): string {
@@ -63,12 +64,12 @@ export function NotificationPanel({ notifications, onMarkAllRead, onClose }: Pro
   return (
     <div
       ref={panelRef}
-      className="absolute right-0 top-[calc(100%+8px)] z-50 w-[360px] bg-white rounded-xl shadow-2xl border border-[#e6e9ef] overflow-hidden animate-slide-in-panel"
+      className="absolute right-0 top-[calc(100%+8px)] z-50 w-[360px] bg-[var(--background)] rounded-xl shadow-2xl border border-[var(--border)] overflow-hidden animate-slide-in-panel"
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[#e6e9ef]">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-[#323338]">Notifications</span>
+          <span className="text-sm font-semibold text-[var(--foreground)]">Notifications</span>
           {unread > 0 && (
             <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-[#e2445c] text-white text-[10px] font-bold flex items-center justify-center">
               {unread}
@@ -77,7 +78,7 @@ export function NotificationPanel({ notifications, onMarkAllRead, onClose }: Pro
         </div>
         <button
           onClick={onMarkAllRead}
-          className="text-xs text-[#0073ea] font-semibold hover:underline"
+          className="text-xs text-[var(--primary)] font-semibold hover:underline"
         >
           Mark all as read
         </button>
@@ -86,8 +87,8 @@ export function NotificationPanel({ notifications, onMarkAllRead, onClose }: Pro
       {/* Notification list */}
       <div className="overflow-y-auto max-h-[400px]">
         {notifications.length === 0 ? (
-          <div className="px-4 py-10 text-center text-sm text-[#676879]">
-            <div className="text-2xl mb-2">🔔</div>
+          <div className="px-4 py-10 text-center text-sm text-[var(--muted)]">
+            <div className="flex justify-center mb-2 text-[var(--muted-2)]"><Icon.bell size={26} /></div>
             All caught up!
           </div>
         ) : (
@@ -97,25 +98,29 @@ export function NotificationPanel({ notifications, onMarkAllRead, onClose }: Pro
               <button
                 key={n.id}
                 onClick={() => handleNotificationClick(n)}
-                className="w-full flex items-start gap-3 px-4 py-3 hover:bg-[#f5f6f8] transition-colors text-left border-b border-[#f0f2f5] last:border-0"
-                style={{ background: n.read ? 'transparent' : '#f8f9ff' }}
+                className="w-full flex items-start gap-3 px-4 py-3 hover:bg-[var(--surface)] transition-colors text-left border-b border-[var(--border)] last:border-0"
+                style={{ background: n.read ? 'transparent' : 'var(--primary-light)' }}
               >
-                {/* Unread dot */}
-                <div className="mt-1 shrink-0 relative">
-                  <span className="text-lg">{cfg.icon}</span>
+                {/* Type icon + unread dot */}
+                <div className="mt-0.5 shrink-0 relative">
+                  {(() => { const I = Icon[cfg.icon]; return (
+                    <span className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: cfg.color + '22', color: cfg.color }}>
+                      <I size={16} />
+                    </span>
+                  ); })()}
                   {!n.read && (
                     <span
-                      className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full"
+                      className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-[var(--background)]"
                       style={{ background: cfg.color }}
                     />
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-[#323338] truncate">{n.title}</p>
+                  <p className="text-xs font-semibold text-[var(--foreground)] truncate">{n.title}</p>
                   {n.subtitle && (
-                    <p className="text-xs text-[#676879] truncate mt-0.5">{n.subtitle}</p>
+                    <p className="text-xs text-[var(--muted)] truncate mt-0.5">{n.subtitle}</p>
                   )}
-                  <p className="text-[10px] text-[#c3c6d4] mt-1">{timeAgo(n.timestamp)}</p>
+                  <p className="text-[10px] text-[var(--muted-2)] mt-1">{timeAgo(n.timestamp)}</p>
                 </div>
                 <span
                   className="shrink-0 mt-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
@@ -130,10 +135,10 @@ export function NotificationPanel({ notifications, onMarkAllRead, onClose }: Pro
       </div>
 
       {/* Footer */}
-      <div className="px-4 py-2.5 border-t border-[#e6e9ef] bg-[#f5f6f8]">
+      <div className="px-4 py-2.5 border-t border-[var(--border)] bg-[var(--surface)]">
         <button
           onClick={() => { router.push('/approvals'); onClose(); }}
-          className="text-xs text-[#0073ea] font-semibold hover:underline"
+          className="text-xs text-[var(--primary)] font-semibold hover:underline"
         >
           View all approvals →
         </button>

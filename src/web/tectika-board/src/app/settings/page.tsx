@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useSettings, type AppSettings, type TranslationKey } from '@/lib/settings-context';
+import { Icon, type IconName } from '@/components/ui/icons';
 
 // ── Reusable primitives ────────────────────────────────────────────────────────
 
@@ -13,18 +14,18 @@ function SectionCard({ children }: { children: React.ReactNode }) {
   );
 }
 
-function SectionHeader({ icon, titleKey }: { icon: string; titleKey: TranslationKey }) {
+function SectionHeader({ icon, titleKey }: { icon: React.ReactNode; titleKey: TranslationKey }) {
   const { t } = useSettings();
   return (
     <div className="flex items-center gap-2.5 pb-1 border-b border-[var(--border)]">
-      <span className="text-xl">{icon}</span>
+      <span className="text-[var(--primary)] flex items-center">{icon}</span>
       <h2 className="text-base font-semibold text-[var(--foreground)]">{t(titleKey)}</h2>
     </div>
   );
 }
 
 function SettingRow({ label, description, children }: {
-  label: string;
+  label: React.ReactNode;
   description?: string;
   children: React.ReactNode;
 }) {
@@ -65,9 +66,9 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 function ThemePicker() {
   const { settings, updateSettings, t } = useSettings();
 
-  const options: Array<{ value: AppSettings['theme']; icon: string; key: TranslationKey }> = [
-    { value: 'light', icon: '☀️', key: 'light' },
-    { value: 'dark',  icon: '🌙', key: 'dark'  },
+  const options: Array<{ value: AppSettings['theme']; icon: React.ReactNode; key: TranslationKey }> = [
+    { value: 'light', icon: <Icon.sun size={16} />,  key: 'light' },
+    { value: 'dark',  icon: <Icon.moon size={16} />, key: 'dark'  },
   ];
 
   return (
@@ -86,7 +87,7 @@ function ThemePicker() {
               transform: active ? 'scale(1.03)' : 'scale(1)',
             }}
           >
-            <span>{opt.icon}</span>
+            <span className="flex items-center">{opt.icon}</span>
             <span>{t(opt.key)}</span>
           </button>
         );
@@ -100,9 +101,9 @@ function ThemePicker() {
 function LanguagePicker() {
   const { settings, updateSettings } = useSettings();
 
-  const options: Array<{ value: AppSettings['language']; label: string; flag: string }> = [
-    { value: 'en', label: 'English', flag: '🇬🇧' },
-    { value: 'he', label: 'עברית',   flag: '🇮🇱' },
+  const options: Array<{ value: AppSettings['language']; label: string }> = [
+    { value: 'en', label: 'English' },
+    { value: 'he', label: 'עברית'   },
   ];
 
   return (
@@ -121,7 +122,7 @@ function LanguagePicker() {
               transform: active ? 'scale(1.03)' : 'scale(1)',
             }}
           >
-            <span>{opt.flag}</span>
+            <span className="flex items-center"><Icon.globe size={16} /></span>
             <span>{opt.label}</span>
           </button>
         );
@@ -136,14 +137,15 @@ const NOTIFICATION_KEYS: Array<{
   key: keyof AppSettings['notifications'];
   labelKey: TranslationKey;
   descKey: TranslationKey;
-  icon: string;
+  icon: IconName;
+  color: string;
 }> = [
-  { key: 'taskCompleted',      labelKey: 'taskCompleted',      descKey: 'taskCompletedDesc',      icon: '✅' },
-  { key: 'approvalRequired',   labelKey: 'approvalRequired',   descKey: 'approvalRequiredDesc',   icon: '⏳' },
-  { key: 'taskFailed',         labelKey: 'taskFailed',         descKey: 'taskFailedDesc',         icon: '❌' },
-  { key: 'agentUpdate',        labelKey: 'agentUpdate',        descKey: 'agentUpdateDesc',        icon: '🤖' },
-  { key: 'taskBlocked',        labelKey: 'taskBlocked',        descKey: 'taskBlockedDesc',        icon: '🚧' },
-  { key: 'dependencyResolved', labelKey: 'dependencyResolved', descKey: 'dependencyResolvedDesc', icon: '🔓' },
+  { key: 'taskCompleted',      labelKey: 'taskCompleted',      descKey: 'taskCompletedDesc',      icon: 'check',   color: 'var(--status-done)' },
+  { key: 'approvalRequired',   labelKey: 'approvalRequired',   descKey: 'approvalRequiredDesc',   icon: 'clock',   color: 'var(--status-approval)' },
+  { key: 'taskFailed',         labelKey: 'taskFailed',         descKey: 'taskFailedDesc',         icon: 'x',       color: 'var(--status-failed)' },
+  { key: 'agentUpdate',        labelKey: 'agentUpdate',        descKey: 'agentUpdateDesc',        icon: 'robot',   color: 'var(--primary)' },
+  { key: 'taskBlocked',        labelKey: 'taskBlocked',        descKey: 'taskBlockedDesc',        icon: 'ban',     color: 'var(--status-blocked)' },
+  { key: 'dependencyResolved', labelKey: 'dependencyResolved', descKey: 'dependencyResolvedDesc', icon: 'unlock',  color: 'var(--status-working)' },
 ];
 
 export default function SettingsPage() {
@@ -176,7 +178,7 @@ export default function SettingsPage() {
 
         {/* Appearance */}
         <SectionCard>
-          <SectionHeader icon="🎨" titleKey="appearance" />
+          <SectionHeader icon={<Icon.palette size={18} />} titleKey="appearance" />
           <p className="text-xs text-[var(--muted)] -mt-2">{t('appearanceDesc')}</p>
           <SettingRow label={t('theme')}>
             <ThemePicker />
@@ -185,14 +187,14 @@ export default function SettingsPage() {
 
         {/* Language */}
         <SectionCard>
-          <SectionHeader icon="🌍" titleKey="languageSection" />
+          <SectionHeader icon={<Icon.globe size={18} />} titleKey="languageSection" />
           <p className="text-xs text-[var(--muted)] -mt-2">{t('languageDesc')}</p>
           <SettingRow label={t('language')}>
             <LanguagePicker />
           </SettingRow>
           {settings.language === 'he' && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--primary-light)] text-xs text-[var(--primary)]">
-              <span>↔️</span>
+              <Icon.refresh size={14} />
               <span>{t('directionNote')}</span>
             </div>
           )}
@@ -200,27 +202,35 @@ export default function SettingsPage() {
 
         {/* Notifications */}
         <SectionCard>
-          <SectionHeader icon="🔔" titleKey="notifications" />
+          <SectionHeader icon={<Icon.bell size={18} />} titleKey="notifications" />
           <p className="text-xs text-[var(--muted)] -mt-2">{t('notificationsDesc')}</p>
           <div className="flex flex-col gap-4">
-            {NOTIFICATION_KEYS.map(({ key, labelKey, descKey, icon }) => (
-              <SettingRow
-                key={key}
-                label={`${icon}  ${t(labelKey)}`}
-                description={t(descKey)}
-              >
-                <Toggle
-                  checked={settings.notifications[key]}
-                  onChange={v => updateNotification(key, v)}
-                />
-              </SettingRow>
-            ))}
+            {NOTIFICATION_KEYS.map(({ key, labelKey, descKey, icon, color }) => {
+              const I = Icon[icon];
+              return (
+                <SettingRow
+                  key={key}
+                  label={
+                    <span className="inline-flex items-center gap-2">
+                      <span className="flex items-center" style={{ color }}><I size={16} /></span>
+                      {t(labelKey)}
+                    </span>
+                  }
+                  description={t(descKey)}
+                >
+                  <Toggle
+                    checked={settings.notifications[key]}
+                    onChange={v => updateNotification(key, v)}
+                  />
+                </SettingRow>
+              );
+            })}
           </div>
         </SectionCard>
 
         {/* About */}
         <SectionCard>
-          <SectionHeader icon="ℹ️" titleKey="about" />
+          <SectionHeader icon={<Icon.info size={18} />} titleKey="about" />
           <div className="flex flex-col gap-2 text-sm">
             <div className="flex items-center justify-between">
               <span className="text-[var(--muted)]">{t('version')}</span>
@@ -228,7 +238,9 @@ export default function SettingsPage() {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-[var(--muted)]">{t('poweredBy')}</span>
-              <span className="text-xs font-semibold text-[var(--primary)]">Tectika AI ⚡</span>
+              <span className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--primary)]">
+                Tectika AI <Icon.bolt size={13} />
+              </span>
             </div>
           </div>
         </SectionCard>

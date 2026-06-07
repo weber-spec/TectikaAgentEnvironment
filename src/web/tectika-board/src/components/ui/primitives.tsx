@@ -53,29 +53,46 @@ export function AvatarStack({ people, size = 24, max = 3 }: { people: Person[]; 
 export function Pill({ label, hex, full, onClick, dropdown }: {
   label: string; hex: string; full?: boolean; onClick?: (e: React.MouseEvent) => void; dropdown?: boolean;
 }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={!onClick}
-      className="inline-flex items-center justify-center font-semibold transition-transform active:scale-[0.98]"
-      style={{
-        background: hex, color: textOn(hex),
-        borderRadius: full ? 4 : 12,
-        padding: full ? '0' : '2px 10px',
-        width: full ? '100%' : undefined,
-        height: full ? '100%' : undefined,
-        minHeight: full ? 36 : 22,
-        fontSize: 12.5,
-        cursor: onClick ? 'pointer' : 'default',
-        gap: 4,
-      }}
-    >
+  const style: React.CSSProperties = {
+    background: hex, color: textOn(hex),
+    borderRadius: full ? 4 : 12,
+    padding: full ? '0' : '2px 10px',
+    width: full ? '100%' : undefined,
+    height: full ? '100%' : undefined,
+    minHeight: full ? 36 : 22,
+    fontSize: 12.5,
+    cursor: onClick ? 'pointer' : 'default',
+    gap: 4,
+  };
+
+  const content = (
+    <>
       <span className="truncate">{label}</span>
       {dropdown && onClick && (
         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" className="opacity-60 shrink-0">
           <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       )}
+    </>
+  );
+
+  // Display-only Pills render as a <span> so they can be nested inside a clickable
+  // parent (e.g. Cards/Kanban cards) without producing invalid <button>-in-<button> markup.
+  if (!onClick) {
+    return (
+      <span className="inline-flex items-center justify-center font-semibold" style={style}>
+        {content}
+      </span>
+    );
+  }
+
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center justify-center font-semibold transition-transform active:scale-[0.98]"
+      style={style}
+    >
+      {content}
     </button>
   );
 }

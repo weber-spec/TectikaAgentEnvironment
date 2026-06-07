@@ -55,7 +55,7 @@ export function Navbar() {
   }
 
   return (
-    <header className="sticky top-0 z-50 h-12 bg-white border-b border-[#e6e9ef] flex items-center px-4 gap-3 shadow-[0_1px_4px_rgba(0,0,0,0.08)]">
+    <header className="sticky top-0 z-50 h-12 bg-[var(--background)] border-b border-[var(--border)] flex items-center px-4 gap-3 shadow-[0_1px_4px_rgba(0,0,0,0.08)]">
       {/* Logo */}
       <Link href="/boards" className="flex items-center gap-2 shrink-0 mr-2">
         <span className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'linear-gradient(135deg, #0073ea, #00c875)' }}>
@@ -77,7 +77,7 @@ export function Navbar() {
         <div className="relative">
           <button
             onClick={() => setShowPanel(v => !v)}
-            className="w-8 h-8 flex items-center justify-center rounded-full text-[#676879] hover:bg-[#f5f6f8] transition-colors relative"
+            className="w-8 h-8 flex items-center justify-center rounded-full text-[var(--muted)] hover:bg-[var(--surface)] transition-colors relative"
             aria-label={t('notifications')}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
