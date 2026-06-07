@@ -21,12 +21,12 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`h-full ${poppins.className}`} suppressHydrationWarning>
-      <body className="min-h-full flex flex-col bg-[var(--background)] text-[var(--foreground)]">
+      <body className="h-full overflow-hidden flex flex-col bg-[var(--background)] text-[var(--foreground)]">
         <SettingsProvider>
           <Navbar />
-          <div className="flex flex-1 overflow-hidden">
+          <div className="flex flex-1 min-h-0 overflow-hidden">
             <Sidebar />
-            <main className="flex-1 overflow-hidden bg-[var(--background)]">{children}</main>
+            <main className="flex-1 min-w-0 overflow-y-auto bg-[var(--background)]">{children}</main>
           </div>
           <Toaster />
           <CommandPalette />

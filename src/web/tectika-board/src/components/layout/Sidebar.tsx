@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useSettings, type TranslationKey } from '@/lib/settings-context';
+import { Icon } from '@/components/ui/icons';
 
 interface NavItem {
   href: string;
@@ -93,10 +94,12 @@ const NAV_BOTTOM: NavItem[] = [
 function NavLink({
   item,
   active,
+  collapsed,
   badgeCount,
 }: {
   item: NavItem;
   active: boolean;
+  collapsed: boolean;
   badgeCount?: number;
 }) {
   const { t } = useSettings();
@@ -105,7 +108,8 @@ function NavLink({
   return (
     <Link
       href={item.href}
-      className="group/item relative flex items-center gap-3 px-2 py-2.5 rounded-lg transition-all duration-150 whitespace-nowrap overflow-visible"
+      title={collapsed ? label : undefined}
+      className={`group/item relative flex items-center gap-3 ${collapsed ? 'justify-center' : ''} px-2 py-2.5 rounded-lg transition-all duration-150 whitespace-nowrap`}
       style={{
         color: active ? '#ffffff' : 'var(--sidebar-text)',
         background: active ? 'rgba(255,255,255,0.15)' : 'transparent',
@@ -127,116 +131,101 @@ function NavLink({
         )}
       </span>
 
-      {/* Label — visible when sidebar expanded */}
-      <span className="text-sm font-medium opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-150 flex-1">
-        {label}
-      </span>
+      {!collapsed && <span className="text-sm font-medium flex-1">{label}</span>}
 
-      {/* Badge count in label row (only when expanded) */}
-      {item.badge === 'approvals' && badgeCount != null && badgeCount > 0 && (
-        <span className="opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-150 min-w-[18px] h-[18px] px-1 rounded-full bg-[#e2445c] text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+      {!collapsed && item.badge === 'approvals' && badgeCount != null && badgeCount > 0 && (
+        <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-[#e2445c] text-white text-[10px] font-bold flex items-center justify-center shrink-0">
           {badgeCount > 99 ? '99+' : badgeCount}
         </span>
       )}
 
-      {/* Tooltip — visible on item hover when sidebar is COLLAPSED */}
-      <span className="
-        pointer-events-none absolute left-[calc(100%+10px)] z-50
-        bg-[#1e2235] text-white text-xs font-medium px-2.5 py-1.5 rounded-lg
-        whitespace-nowrap shadow-lg border border-white/10
-        opacity-0 group-hover/item:opacity-100 group-hover/sidebar:!opacity-0
-        transition-opacity duration-100
-      ">
-        {label}
-        {item.badge === 'approvals' && badgeCount != null && badgeCount > 0 && (
-          <span className="ml-1.5 bg-[#e2445c] text-white text-[9px] font-bold px-1 rounded-full">
-            {badgeCount}
-          </span>
-        )}
-      </span>
+      {/* Tooltip — only when collapsed */}
+      {collapsed && (
+        <span className="
+          pointer-events-none absolute left-[calc(100%+10px)] z-50
+          bg-[#1e2235] text-white text-xs font-medium px-2.5 py-1.5 rounded-lg
+          whitespace-nowrap shadow-lg border border-white/10
+          opacity-0 group-hover/item:opacity-100 transition-opacity duration-100
+        ">
+          {label}
+          {item.badge === 'approvals' && badgeCount != null && badgeCount > 0 && (
+            <span className="ml-1.5 bg-[#e2445c] text-white text-[9px] font-bold px-1 rounded-full">{badgeCount}</span>
+          )}
+        </span>
+      )}
     </Link>
   );
 }
+
+const SIDEBAR_KEY = 'tectika:sidebar-collapsed';
 
 export function Sidebar() {
   const pathname = usePathname();
   const { t } = useSettings();
   const [pendingApprovals, setPendingApprovals] = useState(0);
+  const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
-    api.approvals.pending()
-      .then(list => setPendingApprovals(list.length))
-      .catch(() => {});
+    api.approvals.pending().then(list => setPendingApprovals(list.length)).catch(() => {});
+  }, []);
+  // restore persisted collapse state after mount (avoids hydration mismatch)
+  useEffect(() => {
+    try { const v = localStorage.getItem(SIDEBAR_KEY); if (v) setCollapsed(v === '1'); } catch { /* ignore */ }
   }, []);
 
+  const toggle = () => setCollapsed(c => {
+    const next = !c;
+    try { localStorage.setItem(SIDEBAR_KEY, next ? '1' : '0'); } catch { /* ignore */ }
+    return next;
+  });
+
   return (
-    // Fixed 56px footprint reserves the rail's space; the aside itself is absolutely
-    // positioned so the hover-expansion floats OVER the page content instead of
-    // reflowing it. insetInlineStart keeps it on the correct edge in RTL.
-    <div className="relative shrink-0" style={{ width: '56px' }}>
     <aside
-      className="group/sidebar absolute inset-y-0 flex flex-col overflow-visible transition-all duration-200 hover:shadow-2xl"
-      style={{
-        width: '56px',
-        insetInlineStart: 0,
-        background: 'var(--sidebar-bg)',
-        zIndex: 40,
-      }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.width = '220px'; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.width = '56px'; }}
+      className="flex flex-col shrink-0 h-full overflow-hidden transition-[width] duration-200"
+      style={{ width: collapsed ? '56px' : '220px', background: 'var(--sidebar-bg)', zIndex: 40 }}
     >
-      {/* Main nav group */}
-      <nav className="flex flex-col gap-0.5 pt-3 px-2 flex-1">
+      {/* Collapse / expand toggle */}
+      <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between'} px-2 pt-3 pb-1 shrink-0`}>
+        {!collapsed && <span className="px-1 text-[10px] font-semibold uppercase tracking-widest text-white/40">Menu</span>}
+        <button onClick={toggle} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-white/70 hover:bg-white/10 hover:text-white transition-colors">
+          {collapsed ? <Icon.sidebarExpand size={18} /> : <Icon.sidebarCollapse size={18} />}
+        </button>
+      </div>
+
+      {/* Main nav group — scrolls independently if it overflows */}
+      <nav className="flex flex-col gap-0.5 px-2 flex-1 min-h-0 overflow-y-auto">
         {NAV_MAIN.map(item => (
-          <NavLink
-            key={item.href}
-            item={item}
-            active={pathname.startsWith(item.href)}
-            badgeCount={item.badge === 'approvals' ? pendingApprovals : undefined}
-          />
+          <NavLink key={item.href} item={item} active={pathname.startsWith(item.href)} collapsed={collapsed}
+            badgeCount={item.badge === 'approvals' ? pendingApprovals : undefined} />
         ))}
 
-        {/* Separator */}
         <div className="my-2 border-t border-white/10" />
 
-        {/* Insights label */}
-        <p className="px-2 text-[9px] uppercase tracking-widest font-semibold opacity-0 group-hover/sidebar:opacity-50 transition-opacity duration-150 text-white mb-1">
-          {t('insights')}
-        </p>
+        {!collapsed && <p className="px-2 text-[9px] uppercase tracking-widest font-semibold text-white/50 mb-1">{t('insights')}</p>}
         {NAV_INSIGHTS.map(item => (
-          <NavLink
-            key={item.href}
-            item={item}
-            active={pathname.startsWith(item.href)}
-          />
+          <NavLink key={item.href} item={item} active={pathname.startsWith(item.href)} collapsed={collapsed} />
         ))}
       </nav>
 
-      {/* Bottom: settings + user avatar */}
-      <div className="px-2 pb-3 flex flex-col gap-0.5">
+      {/* Bottom: settings + user — always pinned, never scrolls away */}
+      <div className="px-2 pb-3 flex flex-col gap-0.5 shrink-0">
         {NAV_BOTTOM.map(item => (
-          <NavLink
-            key={item.href}
-            item={item}
-            active={pathname.startsWith(item.href)}
-          />
+          <NavLink key={item.href} item={item} active={pathname.startsWith(item.href)} collapsed={collapsed} />
         ))}
 
-        {/* Separator */}
         <div className="my-2 border-t border-white/10" />
 
-        {/* User avatar */}
-        <div className="flex items-center gap-3 px-2 py-2 rounded-lg whitespace-nowrap overflow-hidden">
-          <div className="w-7 h-7 rounded-full bg-[#0073ea] flex items-center justify-center text-white text-xs font-bold shrink-0 ring-2 ring-white/20">
-            T
-          </div>
-          <div className="opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-150 flex flex-col min-w-0">
-            <span className="text-xs font-semibold text-white truncate">Tectika</span>
-            <span className="text-[10px] text-white/50 truncate">weber@tectika.com</span>
-          </div>
+        <div className={`flex items-center gap-3 ${collapsed ? 'justify-center' : ''} px-2 py-2 rounded-lg whitespace-nowrap overflow-hidden`}>
+          <div className="w-7 h-7 rounded-full bg-[#0073ea] flex items-center justify-center text-white text-xs font-bold shrink-0 ring-2 ring-white/20">T</div>
+          {!collapsed && (
+            <div className="flex flex-col min-w-0">
+              <span className="text-xs font-semibold text-white truncate">Tectika</span>
+              <span className="text-[10px] text-white/50 truncate">eli@tectika.com</span>
+            </div>
+          )}
         </div>
       </div>
     </aside>
-    </div>
   );
 }
