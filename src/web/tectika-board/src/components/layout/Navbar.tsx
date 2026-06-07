@@ -1,10 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NotificationPanel, type Notification } from './NotificationPanel';
+import { UserPanel } from './UserPanel';
 import { useSettings } from '@/lib/settings-context';
 import { SearchBar } from './SearchBar';
+import { Avatar } from '@/components/ui/primitives';
+import { CURRENT_USER } from '@/lib/collaboration';
 
 const MOCK_NOTIFICATIONS: Notification[] = [
   {
@@ -47,8 +50,15 @@ export function Navbar() {
   const { t } = useSettings();
   const [notifications, setNotifications] = useState<Notification[]>(MOCK_NOTIFICATIONS);
   const [showPanel, setShowPanel] = useState(false);
+  const [showUser, setShowUser] = useState(false);
 
   const unreadCount = notifications.filter(n => !n.read).length;
+
+  useEffect(() => {
+    const openUser = () => setShowUser(true);
+    window.addEventListener('agentboard:open-user', openUser);
+    return () => window.removeEventListener('agentboard:open-user', openUser);
+  }, []);
 
   function markAllRead() {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
@@ -99,11 +109,12 @@ export function Navbar() {
           )}
         </div>
 
-        {/* User avatar */}
-        <div className="w-8 h-8 rounded-full bg-[#0073ea] flex items-center justify-center text-white text-xs font-bold cursor-pointer select-none ring-2 ring-[#0073ea]/20 hover:ring-[#0073ea]/50 transition-all">
-          T
-        </div>
+        {/* User avatar → profile panel */}
+        <button onClick={() => setShowUser(true)} aria-label="Open profile" className="rounded-full ring-2 ring-[#0073ea]/20 hover:ring-[#0073ea]/60 transition-all">
+          <Avatar person={CURRENT_USER} size={32} />
+        </button>
       </div>
+      <UserPanel open={showUser} onClose={() => setShowUser(false)} />
     </header>
   );
 }

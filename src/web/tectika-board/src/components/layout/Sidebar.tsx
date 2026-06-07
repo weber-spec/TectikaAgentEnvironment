@@ -6,6 +6,8 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useSettings, type TranslationKey } from '@/lib/settings-context';
 import { Icon } from '@/components/ui/icons';
+import { Avatar } from '@/components/ui/primitives';
+import { CURRENT_USER } from '@/lib/collaboration';
 
 interface NavItem {
   href: string;
@@ -216,15 +218,19 @@ export function Sidebar() {
 
         <div className="my-2 border-t border-white/10" />
 
-        <div className={`flex items-center gap-3 ${collapsed ? 'justify-center' : ''} px-2 py-2 rounded-lg whitespace-nowrap overflow-hidden`}>
-          <div className="w-7 h-7 rounded-full bg-[#0073ea] flex items-center justify-center text-white text-xs font-bold shrink-0 ring-2 ring-white/20">T</div>
+        <button
+          onClick={() => window.dispatchEvent(new Event('agentboard:open-user'))}
+          title="Your profile"
+          className={`flex items-center gap-3 ${collapsed ? 'justify-center' : ''} px-2 py-2 rounded-lg whitespace-nowrap overflow-hidden hover:bg-white/10 transition-colors`}
+        >
+          <span className="shrink-0 ring-2 ring-white/20 rounded-full"><Avatar person={CURRENT_USER} size={28} /></span>
           {!collapsed && (
-            <div className="flex flex-col min-w-0">
-              <span className="text-xs font-semibold text-white truncate">Tectika</span>
-              <span className="text-[10px] text-white/50 truncate">eli@tectika.com</span>
+            <div className="flex flex-col min-w-0 text-left">
+              <span className="text-xs font-semibold text-white truncate">{CURRENT_USER.name}</span>
+              <span className="text-[10px] text-white/50 truncate">{CURRENT_USER.id}</span>
             </div>
           )}
-        </div>
+        </button>
       </div>
     </aside>
   );
