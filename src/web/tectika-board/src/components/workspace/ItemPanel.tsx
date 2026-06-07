@@ -11,6 +11,7 @@ import { Icon } from '@/components/ui/icons';
 import { Popover } from '@/components/ui/overlays';
 import { formatDateTime, relativeTime, displayName } from '@/lib/format';
 import { toast } from '@/lib/toast';
+import { CliInstallGuide } from './CliInstallGuide';
 
 type Tab = 'chat' | 'updates' | 'activity' | 'details' | 'bridge';
 
@@ -394,6 +395,7 @@ function CliBridgeTab({ task }: { task: AgentTask }) {
   const [connected, setConnected] = useState(false);
   const [lines, setLines] = useState<TermLine[]>([]);
   const [demo, setDemo] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
   const seq = useRef(0);
   const endRef = useRef<HTMLDivElement>(null);
   const timers = useRef<number[]>([]);
@@ -461,11 +463,15 @@ function CliBridgeTab({ task }: { task: AgentTask }) {
       </div>
 
       <div className="p-3 flex flex-col gap-3 min-h-0 flex-1">
-        <div className="text-xs text-[var(--muted)]">Stream a local agent (Claude Code, Cursor, a terminal loop) into this task — its stdout, git diffs and artifacts appear here and on the board.</div>
+        <div className="flex items-start justify-between gap-2">
+          <div className="text-xs text-[var(--muted)]">Stream a local agent (Claude Code, Cursor, a terminal loop) into this task — its stdout, git diffs and artifacts appear here and on the board.</div>
+          <button onClick={() => setGuideOpen(true)} className="shrink-0 inline-flex items-center gap-1 text-[11px] font-medium text-[var(--primary)] hover:underline whitespace-nowrap"><Icon.file size={12} /> How to install</button>
+        </div>
         <div className="flex items-stretch gap-1.5">
           <code className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-lg px-2.5 py-2 text-[11.5px] font-mono text-[var(--foreground)] overflow-x-auto whitespace-nowrap">{cmd}</code>
           <button onClick={copy} title="Copy command" className="shrink-0 px-2 rounded-lg border border-[var(--border)] text-[var(--muted)] hover:text-[var(--primary)] hover:border-[var(--primary)]"><Icon.duplicate size={14} /></button>
         </div>
+        <CliInstallGuide open={guideOpen} onClose={() => setGuideOpen(false)} taskId={task.id} runId={runId} />
 
         <div className="flex-1 min-h-[180px] rounded-lg overflow-hidden border border-[var(--border)] flex flex-col" style={{ background: '#0f1117' }}>
           <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-white/10">
