@@ -83,7 +83,7 @@ builder.Services.AddCors(o => o.AddPolicy("NextJs", p =>
     if (builder.Environment.IsDevelopment())
         p.SetIsOriginAllowed(_ => true).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
     else
-        p.WithOrigins("http://localhost:3000").AllowAnyHeader().AllowAnyMethod().AllowCredentials();
+        p.SetIsOriginAllowed(_ => true).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
 }));
 
 var app = builder.Build();
@@ -92,7 +92,12 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ICosmosDbService>();
-    await db.EnsureInfrastructureAsync();
+    try { await db.EnsureInfrastructureAsync(); }
+    catch (Exception ex)
+    {
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        logger.LogWarning(ex, "EnsureInfrastructureAsync failed — containers may already exist, continuing startup.");
+    }
 }
 
 if (app.Environment.IsDevelopment())

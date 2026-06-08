@@ -1,3 +1,4 @@
+using Azure.Identity;
 using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
@@ -35,7 +36,7 @@ public class ServiceBusListenerService : BackgroundService
             return;
         }
 
-        var client = new ServiceBusClient($"{_settings.Namespace}");
+        var client = new ServiceBusClient(_settings.Namespace, new DefaultAzureCredential());
         _processor = client.CreateProcessor(_settings.AgentEventsTopic, new ServiceBusProcessorOptions
         {
             MaxConcurrentCalls = 10,

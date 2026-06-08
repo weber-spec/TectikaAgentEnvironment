@@ -1,0 +1,24 @@
+# .NET build artifacts
+**/bin/
+**/obj/
+
+# Node / Next.js
+**/node_modules/
+**/.next/
+**/dist/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vs/
+.vscode/
+*.user
+
+# Infra / CI (not needed in image)
+infra/
+.github/
+
+# Test outputs
+**/TestResults/

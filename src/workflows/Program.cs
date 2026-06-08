@@ -9,6 +9,7 @@ using Microsoft.Extensions.Hosting;
 using OpenTelemetry;
 using Azure.Monitor.OpenTelemetry.Exporter;
 using TectikaAgents.Core.Configuration;
+using TectikaAgents.Workflows.Services;
 
 var builder = FunctionsApplication.CreateBuilder(args);
 
