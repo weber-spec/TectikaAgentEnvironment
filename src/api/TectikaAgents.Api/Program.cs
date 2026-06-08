@@ -16,14 +16,16 @@ builder.Services.Configure<FoundrySettings>(builder.Configuration.GetSection("Fo
 builder.Services.Configure<ServiceBusSettings>(builder.Configuration.GetSection("ServiceBus"));
 builder.Services.Configure<KeyVaultSettings>(builder.Configuration.GetSection("KeyVault"));
 
-// ── Mock mode toggle ─────────────────────────────────────────────────────────
-// When "MockDatabase:Enabled" is true the API serves an in-memory mock DB and accepts
-// anonymous dev requests — for FE development before an Azure account exists. Flip it off
-// (or remove it) to restore the real Cosmos DB + Microsoft Identity auth path unchanged.
+// ── Toggles (independent) ────────────────────────────────────────────────────
+// "MockDatabase:Enabled" selects the DB backend: in-memory mock vs real Cosmos DB.
+// "DevAuth:Enabled"       selects the auth mode: anonymous dev handler vs Microsoft Identity (Entra).
+// They are decoupled so we can run the REAL Cosmos DB while still accepting anonymous dev requests
+// (the FE keeps working unchanged). DevAuth defaults to the DB flag to preserve prior behavior.
 var useMockDatabase = builder.Configuration.GetValue<bool>("MockDatabase:Enabled");
+var useDevAuth = builder.Configuration.GetValue<bool>("DevAuth:Enabled", useMockDatabase);
 
-// ── Auth — Entra (placeholder: fill TenantId + ClientId before deployment) ──
-if (useMockDatabase)
+// ── Auth — dev handler or Entra (placeholder: fill TenantId + ClientId before deployment) ──
+if (useDevAuth)
     builder.Services.AddAuthentication(MockAuthHandler.SchemeName)
         .AddScheme<AuthenticationSchemeOptions, MockAuthHandler>(MockAuthHandler.SchemeName, _ => { });
 else
@@ -40,12 +42,23 @@ else
     builder.Services.AddSingleton(sp =>
     {
         var settings = builder.Configuration.GetSection("CosmosDb").Get<CosmosDbSettings>()!;
+        // The models are annotated for System.Text.Json ([JsonPropertyName("id")], camelCase),
+        // but the Cosmos SDK defaults to Newtonsoft — which would write "Id"/"TenantId" and break
+        // both the required lowercase `id` and the camelCase SQL queries. Use System.Text.Json with
+        // the same string-enum convention the controllers use (so e.g. status is stored as "Pending").
+        var cosmosJson = new System.Text.Json.JsonSerializerOptions
+        {
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+        };
+        cosmosJson.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+        var cosmosOptions = new CosmosClientOptions { UseSystemTextJsonSerializerWithOptions = cosmosJson };
+
         // בפרודקשן: DefaultAzureCredential (MSI). בפיתוח: connection string מ-appsettings.
         if (!string.IsNullOrEmpty(settings.AccountEndpoint) && settings.AccountEndpoint != "__COSMOS_ENDPOINT__")
-            return new CosmosClient(settings.AccountEndpoint, new DefaultAzureCredential());
+            return new CosmosClient(settings.AccountEndpoint, new DefaultAzureCredential(), cosmosOptions);
         // Dev fallback — connection string
         var connStr = builder.Configuration["CosmosDb:ConnectionString"] ?? "AccountEndpoint=https://localhost:8081/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2NP9SdVmlDkFNfKKhVvFkTTa25aAWmIBQJrYVTbVA==";
-        return new CosmosClient(connStr);
+        return new CosmosClient(connStr, cosmosOptions);
     });
 
     builder.Services.AddSingleton<ICosmosDbService, CosmosDbService>();
@@ -92,13 +105,28 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ICosmosDbService>();
-    try { await db.EnsureInfrastructureAsync(); }
+    try
+    {
+        await db.EnsureInfrastructureAsync();
+
+        // Seed the demo dataset into real Cosmos (idempotent — skips if already populated).
+        // Mock mode self-seeds in-memory, so only do this on the real DB path.
+        if (!useMockDatabase && builder.Configuration.GetValue<bool>("CosmosDb:SeedData"))
+        {
+            var seedLogger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("CosmosDataSeeder");
+            await TectikaAgents.Api.Services.MockData.CosmosDataSeeder.SeedAsync(db, seedLogger);
+        }
+    }
     catch (Exception ex)
     {
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-        logger.LogWarning(ex, "EnsureInfrastructureAsync failed — containers may already exist, continuing startup.");
+        logger.LogWarning(ex, "EnsureInfrastructure/seed failed — containers may already exist, continuing startup.");
     }
 }
+
+// One-shot seed mode: provision + seed above, then exit without starting the web server.
+if (args.Contains("--seed-only"))
+    return;
 
 if (app.Environment.IsDevelopment())
     app.MapOpenApi();

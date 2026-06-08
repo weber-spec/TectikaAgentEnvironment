@@ -7,6 +7,10 @@
 **/.next/
 **/dist/
 
+# Frontend is not part of the API image build (root-context); its node_modules can
+# contain broken symlinks that break the context tar for ACR builds.
+src/web/
+
 # Git
 .git/
 .gitignore
@@ -16,9 +20,13 @@
 .vscode/
 *.user
 
-# Infra / CI (not needed in image)
+# Infra / CI / docs (not needed in image)
 infra/
 .github/
+plans/
+
+# Secrets
+.monday_tkn
 
 # Test outputs
 **/TestResults/
