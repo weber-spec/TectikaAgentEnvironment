@@ -1,11 +1,14 @@
 # Keep the ACR build context small/fast for the API image build (context = repo root).
-**/bin/
-**/obj/
-**/node_modules/
-**/.next/
-.git/
-.vs/
-**/.vscode/
+# The API build only needs src/core + src/api, so exclude the whole frontend (its
+# node_modules contains broken symlinks that break the context tar).
+src/web/
+**/node_modules
+**/bin
+**/obj
+**/.next
+.git
+.vs
+**/.vscode
 **/*.user
 .monday_tkn
 plans/
