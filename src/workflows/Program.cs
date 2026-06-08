@@ -9,6 +9,7 @@ using Microsoft.Extensions.Hosting;
 using OpenTelemetry;
 using Azure.Monitor.OpenTelemetry.Exporter;
 using TectikaAgents.Core.Configuration;
+using TectikaAgents.Workflows.Services;
 
 var builder = FunctionsApplication.CreateBuilder(args);
 
@@ -22,14 +23,24 @@ builder.Services.Configure<FoundrySettings>(builder.Configuration.GetSection("Fo
 // ── Cosmos DB ─────────────────────────────────────────────────────────────────
 builder.Services.AddSingleton(sp =>
 {
+    // Match the API: models are annotated for System.Text.Json (camelCase, [JsonPropertyName("id")]),
+    // so the Cosmos SDK must serialize with System.Text.Json (not its default Newtonsoft) or it writes
+    // "Id"/"TenantId" and breaks the required `id` field and the camelCase SQL queries.
+    var cosmosJson = new System.Text.Json.JsonSerializerOptions
+    {
+        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+    };
+    cosmosJson.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    var cosmosOptions = new CosmosClientOptions { UseSystemTextJsonSerializerWithOptions = cosmosJson };
+
     var endpoint = builder.Configuration["CosmosDb:AccountEndpoint"] ?? string.Empty;
     if (!string.IsNullOrEmpty(endpoint) && !endpoint.StartsWith("__", StringComparison.Ordinal))
-        return new CosmosClient(endpoint, new DefaultAzureCredential());
+        return new CosmosClient(endpoint, new DefaultAzureCredential(), cosmosOptions);
 
     // Local Cosmos Emulator for dev
     var connStr = builder.Configuration["CosmosDb:ConnectionString"]
         ?? "AccountEndpoint=https://localhost:8081/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2NP9SdVmlDkFNfKKhVvFkTTa25aAWmIBQJrYVTbVA==";
-    return new CosmosClient(connStr);
+    return new CosmosClient(connStr, cosmosOptions);
 });
 
 builder.Services.AddSingleton<WorkflowCosmosService>();
