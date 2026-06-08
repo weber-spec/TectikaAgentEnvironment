@@ -1,0 +1,11 @@
+# Keep the ACR build context small/fast for the API image build (context = repo root).
+**/bin/
+**/obj/
+**/node_modules/
+**/.next/
+.git/
+.vs/
+**/.vscode/
+**/*.user
+.monday_tkn
+plans/
