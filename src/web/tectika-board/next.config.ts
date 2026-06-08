@@ -6,6 +6,8 @@ import type { NextConfig } from "next";
 const allowed = process.env.ALLOWED_DEV_ORIGINS?.split(",").map(s => s.trim()).filter(Boolean);
 
 const nextConfig: NextConfig = {
+  // Emit a self-contained server bundle (.next/standalone) for a lean container image.
+  output: "standalone",
   ...(allowed?.length ? { allowedDevOrigins: allowed } : {}),
 };
 
