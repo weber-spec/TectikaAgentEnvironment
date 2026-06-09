@@ -1,5 +1,8 @@
 <Solution>
   <Folder Name="/src/" />
+  <Folder Name="/src/agentruntime/">
+    <Project Path="src/agentruntime/TectikaAgents.AgentRuntime.csproj" />
+  </Folder>
   <Folder Name="/src/api/">
     <Project Path="src/api/TectikaAgents.Api/TectikaAgents.Api.csproj" />
   </Folder>
@@ -8,5 +11,8 @@
   </Folder>
   <Folder Name="/src/workflows/">
     <Project Path="src/workflows/TectikaAgents.Workflows.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TectikaAgents.Tests/TectikaAgents.Tests.csproj" />
   </Folder>
 </Solution>
