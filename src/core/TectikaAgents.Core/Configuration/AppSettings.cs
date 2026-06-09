@@ -23,6 +23,16 @@ public class FoundrySettings
     public bool IsOpenAiDirect { get; set; }               // true = api.openai.com, false = Azure OpenAI
     public int MaxInputTokens { get; set; } = 100_000;
     public int SummaryThresholdTokens { get; set; } = 8_000;
+
+    /// <summary>Foundry project (data-plane) endpoint for the Agent Service SDK:
+    /// https://&lt;subdomain&gt;.services.ai.azure.com/api/projects/&lt;project&gt;</summary>
+    public string ProjectEndpoint { get; set; } = string.Empty;
+
+    /// <summary>Per-turn output token cap passed to the Foundry run.</summary>
+    public int MaxCompletionTokens { get; set; } = 4096;
+
+    /// <summary>When true, use the no-Azure mock runtime/provisioner. Defaults to MockDatabase:Enabled in DI.</summary>
+    public bool UseMock { get; set; }
 }
 
 public class ServiceBusSettings
