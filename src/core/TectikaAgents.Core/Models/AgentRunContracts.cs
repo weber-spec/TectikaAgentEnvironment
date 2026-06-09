@@ -1,0 +1,26 @@
+namespace TectikaAgents.Core.Models;
+
+/// <summary>Terminal outcome of one agent turn. RequiresApproval is reserved for a later phase.</summary>
+public enum AgentRunStatus { Completed, Failed, BudgetExceeded, RequiresApproval }
+
+/// <summary>Everything an agent turn needs. UserMessage is the assembled context (no system role).</summary>
+public sealed record AgentRunRequest(
+    AgentRole Role,
+    AgentTask Task,
+    string ThreadId,
+    string UserMessage,
+    int MaxCompletionTokens,
+    string RunId,
+    int Step);
+
+public sealed record AgentRunOutcome(
+    AgentRunStatus Status,
+    string Content,
+    ArtifactContentType ContentType,
+    TokenUsage TokenUsage,
+    string CompletionId,
+    string? BriefUpdate = null,
+    string? Error = null);
+
+/// <summary>Result of ensuring a role's Foundry agent exists/updated.</summary>
+public sealed record AgentSyncResult(string? FoundryAgentId, bool Synced, string? Error = null);
