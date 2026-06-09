@@ -11,10 +11,14 @@ public class MockAgentRuntimeTests
     public async Task EnsureAgent_AssignsIdAndMarksSynced()
     {
         var p = new MockAgentProvisioner();
-        var result = await p.EnsureAgentAsync(Role());
+        var role = Role();
+        var result = await p.EnsureAgentAsync(role);
         Assert.True(result.Synced);
         Assert.False(string.IsNullOrEmpty(result.FoundryAgentId));
         Assert.Null(result.Error);
+        // Contract: EnsureAgentAsync mutates the role in place (the controller persists it).
+        Assert.Equal(result.FoundryAgentId, role.FoundryAgentId);
+        Assert.False(string.IsNullOrEmpty(role.FoundryAgentHash));
     }
 
     [Fact]

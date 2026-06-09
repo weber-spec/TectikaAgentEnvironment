@@ -4,13 +4,17 @@ using TectikaAgents.Core.Models;
 
 namespace TectikaAgents.AgentRuntime;
 
-/// <summary>Deterministic, no-Azure provisioner. Returns a fake agent id and always "synced".</summary>
+/// <summary>Deterministic, no-Azure provisioner. Mutates the role's agent id/hash in place — same
+/// contract as FoundryAgentRuntime — so the caller persists a populated FoundryAgentId.</summary>
 public sealed class MockAgentProvisioner : IAgentProvisioner
 {
     public Task<AgentSyncResult> EnsureAgentAsync(AgentRole role, CancellationToken ct = default)
-        => Task.FromResult(new AgentSyncResult(
-            FoundryAgentId: string.IsNullOrEmpty(role.FoundryAgentId) ? $"mock-agent-{role.Id}" : role.FoundryAgentId,
-            Synced: true));
+    {
+        if (string.IsNullOrEmpty(role.FoundryAgentId))
+            role.FoundryAgentId = $"mock-agent-{role.Id}";
+        role.FoundryAgentHash = AgentInstructionsHash.Compute(role.SystemPrompt, role.ModelOverride ?? "mock");
+        return Task.FromResult(new AgentSyncResult(role.FoundryAgentId, Synced: true));
+    }
 
     public Task DeleteAgentAsync(string? foundryAgentId, CancellationToken ct = default) => Task.CompletedTask;
 }
