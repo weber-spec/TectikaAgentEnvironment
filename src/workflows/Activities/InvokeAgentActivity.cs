@@ -73,7 +73,7 @@ public class InvokeAgentActivity
         }
 
         // ── 5. Parse agent sections ───────────────────────────────────────────
-        var (briefUpdate, artifactSummary) = ParseAgentSections(result.Content);
+        var (briefUpdate, artifactSummary, pendingInteraction, cleanContent) = ParseAgentSections(result.Content);
 
         // ── 6. Determine next artifact version ────────────────────────────────
         var existingArtifacts = await _cosmos.GetUpstreamArtifactsAsync([input.TaskId], ct);
@@ -88,7 +88,7 @@ public class InvokeAgentActivity
             TenantId    = input.TenantId,
             Version     = nextVersion,
             ContentType = result.ContentType,
-            Content     = result.Content,
+            Content     = cleanContent,
             Summary     = string.IsNullOrEmpty(artifactSummary) ? null : artifactSummary,
             Origin      = ArtifactOrigin.Agent,
             InternalLogs = [$"Agent: {role.DisplayName}", $"Step: {input.Step}", $"Model completion: {result.CompletionId}"],
@@ -115,22 +115,36 @@ public class InvokeAgentActivity
             await _cosmos.PatchTaskBriefAsync(input.BoardId, input.TaskId, task.TaskBrief, ct);
         }
 
+        if (!string.IsNullOrEmpty(artifactSummary))
+        {
+            var summaryText = artifactSummary;
+            try
+            {
+                var doc = System.Text.Json.JsonDocument.Parse(artifactSummary);
+                if (doc.RootElement.TryGetProperty("summary", out var s))
+                    summaryText = s.GetString() ?? summaryText;
+            }
+            catch { /* use raw */ }
+            await _cosmos.PatchTaskArtifactSummaryAsync(input.BoardId, input.TaskId, summaryText, ct);
+        }
+
         var usage = new TokenUsage { Input = result.InputTokens, Output = result.OutputTokens };
         await _events.PublishStepCompletedAsync(input.RunId, input.TaskId, input.Step, role.Id, usage, ct);
 
         return new StepResult
         {
-            Step         = input.Step,
-            Status       = RunStatus.Completed,
-            FoundryRunId = result.CompletionId,
-            ArtifactId   = savedArtifact.Id,
-            TokenUsage   = usage,
-            DurationMs   = (long)(DateTimeOffset.UtcNow - start).TotalMilliseconds,
-            CompletedAt  = DateTimeOffset.UtcNow
+            Step               = input.Step,
+            Status             = RunStatus.Completed,
+            FoundryRunId       = result.CompletionId,
+            ArtifactId         = savedArtifact.Id,
+            TokenUsage         = usage,
+            DurationMs         = (long)(DateTimeOffset.UtcNow - start).TotalMilliseconds,
+            CompletedAt        = DateTimeOffset.UtcNow,
+            PendingInteraction = pendingInteraction
         };
     }
 
-    private static (string Brief, string Summary) ParseAgentSections(string content)
+    private static (string Brief, string Summary, PendingInteractionRequest? Interaction, string CleanContent) ParseAgentSections(string content)
     {
         string ExtractFirstNonEmptyLine(string marker)
         {
@@ -154,7 +168,37 @@ public class InvokeAgentActivity
                 summary = content[jsonStart..(jsonEnd + 1)];
         }
 
-        return (brief, summary);
+        PendingInteractionRequest? interaction = null;
+        var cleanContent = content;
+        var interactionMarker = "## INTERACTION_REQUIRED";
+        var interactionIdx = content.LastIndexOf(interactionMarker, StringComparison.OrdinalIgnoreCase);
+        if (interactionIdx >= 0)
+        {
+            var jsonStart = content.IndexOf('{', interactionIdx);
+            if (jsonStart >= 0)
+            {
+                var depth = 0;
+                var jsonEnd = -1;
+                for (var k = jsonStart; k < content.Length; k++)
+                {
+                    if (content[k] == '{') depth++;
+                    else if (content[k] == '}') { depth--; if (depth == 0) { jsonEnd = k; break; } }
+                }
+                if (jsonEnd > jsonStart)
+                {
+                    var json = content[jsonStart..(jsonEnd + 1)];
+                    try
+                    {
+                        interaction = System.Text.Json.JsonSerializer.Deserialize<PendingInteractionRequest>(json,
+                            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    }
+                    catch { /* malformed JSON — ignore */ }
+                    cleanContent = content[..interactionIdx].TrimEnd();
+                }
+            }
+        }
+
+        return (brief, summary, interaction, cleanContent);
     }
 }
 
