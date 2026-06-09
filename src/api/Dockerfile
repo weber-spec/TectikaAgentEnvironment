@@ -5,15 +5,17 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS restore
 WORKDIR /src
 
-COPY src/core/TectikaAgents.Core/TectikaAgents.Core.csproj src/core/TectikaAgents.Core/
-COPY src/api/TectikaAgents.Api/TectikaAgents.Api.csproj    src/api/TectikaAgents.Api/
+COPY src/core/TectikaAgents.Core/TectikaAgents.Core.csproj             src/core/TectikaAgents.Core/
+COPY src/agentruntime/TectikaAgents.AgentRuntime.csproj                src/agentruntime/
+COPY src/api/TectikaAgents.Api/TectikaAgents.Api.csproj                src/api/TectikaAgents.Api/
 
 RUN dotnet restore src/api/TectikaAgents.Api/TectikaAgents.Api.csproj
 
 # ── Stage 2: publish ──────────────────────────────────────────────────────────
 FROM restore AS publish
-COPY src/core/ src/core/
-COPY src/api/  src/api/
+COPY src/core/         src/core/
+COPY src/agentruntime/ src/agentruntime/
+COPY src/api/          src/api/
 
 RUN dotnet publish src/api/TectikaAgents.Api/TectikaAgents.Api.csproj \
     -c Release -o /app/publish
