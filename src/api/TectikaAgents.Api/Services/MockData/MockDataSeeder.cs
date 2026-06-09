@@ -45,10 +45,12 @@ internal static class MockDataSeeder
 
         // Adds a typed edge to the graph. BoardId is required because edges are board-scoped.
         void AddEdge(string source, string target, string boardId,
-            EdgeKind kind = EdgeKind.Dependency, string? label = null) =>
-            edges[TaskEdge.MakeId(source, target)] = new TaskEdge
+            EdgeKind kind = EdgeKind.Dependency, string? label = null)
+        {
+            var id = TaskEdge.MakeId(source, target);
+            edges[id] = new TaskEdge
             {
-                Id = TaskEdge.MakeId(source, target),
+                Id = id,
                 TenantId = Tenant,
                 BoardId = boardId,
                 SourceTaskId = source,
@@ -58,6 +60,7 @@ internal static class MockDataSeeder
                 CreatedAt = now.AddDays(-9),
                 UpdatedAt = now.AddDays(-9),
             };
+        }
 
         // ── Board ────────────────────────────────────────────────────────────────
         boards[BoardId] = new Board
