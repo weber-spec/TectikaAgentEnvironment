@@ -4,6 +4,8 @@
 //  deploy.ps1 passes the live image on re-runs so a redeploy never reverts code.
 // ============================================================================
 param namePrefix string
+@description('Optional global-uniqueness suffix; empty = bare names.')
+param nameSuffix string = ''
 param location string
 param lawCustomerId string
 @secure()
@@ -28,9 +30,10 @@ param apiClientId string
 param platformClientId string
 
 var apiAudience = empty(apiClientId) ? '' : 'api://${apiClientId}'
+var sfx = empty(nameSuffix) ? '' : '-${nameSuffix}'
 
 resource env 'Microsoft.App/managedEnvironments@2024-03-01' = {
-  name: 'cae-${namePrefix}'
+  name: 'cae-${namePrefix}${sfx}'
   location: location
   properties: {
     appLogsConfiguration: {
@@ -44,7 +47,7 @@ resource env 'Microsoft.App/managedEnvironments@2024-03-01' = {
 }
 
 resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
-  name: 'ca-${namePrefix}-api'
+  name: 'ca-${namePrefix}-api${sfx}'
   location: location
   identity: {
     type: 'UserAssigned'
@@ -101,7 +104,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
 }
 
 resource webApp 'Microsoft.App/containerApps@2024-03-01' = {
-  name: 'ca-${namePrefix}-web'
+  name: 'ca-${namePrefix}-web${sfx}'
   location: location
   identity: {
     type: 'UserAssigned'

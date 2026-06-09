@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    TectikaAgents — Microsoft Entra (directory) actions, ISOLATED from ARM deploy.
+    TectikaAgents - Microsoft Entra (directory) actions, ISOLATED from ARM deploy.
 .DESCRIPTION
     Creates the three app registrations the project needs:
       1. GitHub Actions OIDC app  (+ SP + federated credential)  -> CI auth
@@ -11,7 +11,7 @@
 
     These operations require Microsoft Entra DIRECTORY permissions, which are a
     SEPARATE grant from Azure RBAC. If the running user lacks them, the script
-    stops with a clear message and exit code 10 — a directory admin should then
+    stops with a clear message and exit code 10 - a directory admin should then
     run THIS file and hand back the printed client ids.
 
     Writes results as JSON to -OutFile and prints them.
@@ -31,7 +31,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# ── az wrapper: surfaces directory-permission failures clearly ────────────────
+# -- az wrapper: surfaces directory-permission failures clearly ----------------
 function Invoke-Az {
     param([Parameter(Mandatory)][string[]]$Args, [switch]$AllowFail)
     $out = & az @Args 2>&1
@@ -68,7 +68,7 @@ function Get-AppId([string]$displayName) {
 
 Write-Host "==> Entra: ensuring app registrations (idempotent)..."
 
-# ── 1. GitHub Actions OIDC app ────────────────────────────────────────────────
+# -- 1. GitHub Actions OIDC app ------------------------------------------------
 $ghName = "sp-$NamePrefix-github"
 $ghAppId = Get-AppId $ghName
 if (-not $ghAppId) {
@@ -101,7 +101,7 @@ if (-not $existingFed) {
     Write-Host "    federated credential '$fedName' created"
 } else { Write-Host "    federated credential '$fedName' present" }
 
-# ── 2. Web / platform SPA app registration ────────────────────────────────────
+# -- 2. Web / platform SPA app registration ------------------------------------
 $webName = "$NamePrefix-platform"
 $platformClientId = Get-AppId $webName
 if (-not $platformClientId) {
@@ -113,7 +113,7 @@ $webObjId = (Invoke-Az @('ad','app','show','--id',$platformClientId,'--query','i
 $spaBody = @{ spa = @{ redirectUris = @($WebUrl, "$WebUrl/") } } | ConvertTo-Json -Depth 5 -Compress
 Invoke-Az @('rest','--method','PATCH','--uri',"https://graph.microsoft.com/v1.0/applications/$webObjId",'--headers','Content-Type=application/json','--body',$spaBody) -AllowFail | Out-Null
 
-# ── 3. API app registration (exposes api://<id>/access_as_user) ───────────────
+# -- 3. API app registration (exposes api://<id>/access_as_user) ---------------
 $apiName = "$NamePrefix-agents"
 $apiClientId = Get-AppId $apiName
 if (-not $apiClientId) {
@@ -140,7 +140,7 @@ if ($hasScope -eq '0' -or [string]::IsNullOrEmpty($hasScope)) {
     Invoke-Az @('rest','--method','PATCH','--uri',"https://graph.microsoft.com/v1.0/applications/$apiObjId",'--headers','Content-Type=application/json','--body',$scopeBody) -AllowFail | Out-Null
 }
 
-# ── Output ────────────────────────────────────────────────────────────────────
+# -- Output --------------------------------------------------------------------
 $result = [ordered]@{
     githubAppId      = $ghAppId
     apiClientId      = $apiClientId

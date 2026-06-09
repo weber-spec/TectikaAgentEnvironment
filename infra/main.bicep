@@ -14,8 +14,17 @@ targetScope = 'subscription'
 @description('Short prefix for all resource names. Pick a unique value per tenant.')
 param namePrefix string = 'agentteam'
 
+@description('Optional suffix appended to globally-unique resource names (ACR, storage, Cosmos, Key Vault, Service Bus, etc.) for multi-tenant uniqueness. Empty string = bare names (the convention this subscription uses). Set to a short token in another tenant to avoid global-name collisions.')
+param nameSuffix string = ''
+
 @description('Azure region for every resource.')
 param location string = 'westeurope'
+
+@description('Region for the Azure AI Foundry account + model deployment. Kept separate from `location` because gpt-4o quota is region-specific (this subscription has Standard gpt-4o quota in Sweden Central, none in West Europe).')
+param foundryLocation string = 'swedencentral'
+
+@description('Data region for the Cosmos DB account (the `locations` write region). Cosmos regions are immutable, so when adopting an existing account this must match its current region. Defaults to `location`; deploy.ps1 auto-detects the live value on re-runs.')
+param cosmosLocation string = location
 
 @description('Resource group to create / deploy into.')
 param resourceGroupName string = 'rg-${namePrefix}-dev-001'
@@ -58,25 +67,25 @@ resource rg 'Microsoft.Resources/resourceGroups@2024-11-01' = {
 module identities 'modules/identities.bicep' = {
   scope: rg
   name: 'identities'
-  params: { namePrefix: namePrefix, location: location }
+  params: { namePrefix: namePrefix, nameSuffix: nameSuffix, location: location }
 }
 
 module registry 'modules/registry.bicep' = {
   scope: rg
   name: 'registry'
-  params: { namePrefix: namePrefix, location: location }
+  params: { namePrefix: namePrefix, nameSuffix: nameSuffix, location: location }
 }
 
 module observability 'modules/observability.bicep' = {
   scope: rg
   name: 'observability'
-  params: { namePrefix: namePrefix, location: location }
+  params: { namePrefix: namePrefix, nameSuffix: nameSuffix, location: location }
 }
 
 module data 'modules/data.bicep' = {
   scope: rg
   name: 'data'
-  params: { namePrefix: namePrefix, location: location }
+  params: { namePrefix: namePrefix, nameSuffix: nameSuffix, location: location, cosmosLocation: cosmosLocation }
 }
 
 module foundry 'modules/foundry.bicep' = {
@@ -84,7 +93,8 @@ module foundry 'modules/foundry.bicep' = {
   name: 'foundry'
   params: {
     namePrefix: namePrefix
-    location: location
+    nameSuffix: nameSuffix
+    location: foundryLocation
     modelName: modelName
     modelVersion: modelVersion
     modelCapacity: modelCapacity
@@ -99,6 +109,7 @@ module functionApp 'modules/functionapp.bicep' = {
   dependsOn: [ rbac ]
   params: {
     namePrefix: namePrefix
+    nameSuffix: nameSuffix
     location: location
     miId: identities.outputs.workflowsMiId
     miClientId: identities.outputs.workflowsMiClientId
@@ -119,6 +130,7 @@ module containerApps 'modules/containerapps.bicep' = {
   name: 'containerApps'
   params: {
     namePrefix: namePrefix
+    nameSuffix: nameSuffix
     location: location
     lawCustomerId: observability.outputs.lawCustomerId
     lawSharedKey: observability.outputs.lawSharedKey

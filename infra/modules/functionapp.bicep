@@ -5,6 +5,8 @@
 //  Code is shipped by CI (deploy-workflows.yml) — this only provisions the host.
 // ============================================================================
 param namePrefix string
+@description('Optional global-uniqueness suffix; empty = bare names.')
+param nameSuffix string = ''
 param location string
 param miId string
 param miClientId string
@@ -18,14 +20,14 @@ param foundryEndpoint string
 param foundryProjectName string
 param modelName string
 
-var suffix = uniqueString(resourceGroup().id)
+var sfx = empty(nameSuffix) ? '' : '-${nameSuffix}'
 
 resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
   name: storageName
 }
 
 resource plan 'Microsoft.Web/serverfarms@2024-04-01' = {
-  name: 'plan-${namePrefix}-workflows'
+  name: 'plan-${namePrefix}-workflows${sfx}'
   location: location
   kind: 'functionapp'
   sku: { name: 'FC1', tier: 'FlexConsumption' }
@@ -33,7 +35,7 @@ resource plan 'Microsoft.Web/serverfarms@2024-04-01' = {
 }
 
 resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
-  name: toLower(take('func-${namePrefix}-workflows-${suffix}', 60))
+  name: toLower(take('func-${namePrefix}-workflows${sfx}', 60))
   location: location
   kind: 'functionapp,linux'
   identity: {
