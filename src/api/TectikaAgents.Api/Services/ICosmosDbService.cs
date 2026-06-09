@@ -29,6 +29,8 @@ public interface ICosmosDbService
     // ── Agent Roles ────────────────────────────────────────────────────────────
     Task<IEnumerable<AgentRole>> GetAgentRolesAsync(string tenantId, CancellationToken ct = default);
     Task<AgentRole> UpsertAgentRoleAsync(AgentRole role, CancellationToken ct = default);
+    Task<AgentRole?> GetAgentRoleAsync(string tenantId, string roleId, CancellationToken ct = default);
+    Task DeleteAgentRoleAsync(string tenantId, string roleId, CancellationToken ct = default);
 
     // ── Workflow Runs ──────────────────────────────────────────────────────────
     Task<WorkflowRun> CreateRunAsync(WorkflowRun run, CancellationToken ct = default);

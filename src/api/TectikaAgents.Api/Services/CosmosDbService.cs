@@ -151,6 +151,25 @@ public class CosmosDbService : ICosmosDbService
         return res.Resource;
     }
 
+    public async Task<AgentRole?> GetAgentRoleAsync(string tenantId, string roleId, CancellationToken ct = default)
+    {
+        try
+        {
+            var res = await GetContainer(AgentRolesContainer).ReadItemAsync<AgentRole>(roleId, new PartitionKey(tenantId), cancellationToken: ct);
+            return res.Resource;
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
+    }
+
+    public async Task DeleteAgentRoleAsync(string tenantId, string roleId, CancellationToken ct = default)
+    {
+        try
+        {
+            await GetContainer(AgentRolesContainer).DeleteItemAsync<AgentRole>(roleId, new PartitionKey(tenantId), cancellationToken: ct);
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { /* already gone */ }
+    }
+
     // ── Workflow Runs ─────────────────────────────────────────────────────────
 
     public async Task<WorkflowRun> CreateRunAsync(WorkflowRun run, CancellationToken ct = default)

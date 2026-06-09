@@ -88,7 +88,8 @@ export interface AgentRole {
   tenantId: string;
   displayName: string;
   systemPrompt: string;
-  foundryAgentId?: string;
+  foundryAgentId?: string | null;
+  foundryAgentHash?: string | null;
   tools: string[];
   mcpServers: string[];
   permissions: AgentPermissions;
@@ -96,6 +97,13 @@ export interface AgentRole {
   modelOverride?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+/** Response shape from POST /api/agentroles (upsert). */
+export interface AgentUpsertResult {
+  role: AgentRole;
+  synced: boolean;
+  error?: string | null;
 }
 
 /** A turn in the interactive agent workspace conversation. */

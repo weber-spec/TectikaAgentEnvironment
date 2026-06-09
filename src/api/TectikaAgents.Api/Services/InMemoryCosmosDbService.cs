@@ -103,6 +103,16 @@ public class InMemoryCosmosDbService : ICosmosDbService
         return Task.FromResult(role);
     }
 
+    public Task<AgentRole?> GetAgentRoleAsync(string tenantId, string roleId, CancellationToken ct = default)
+        => Task.FromResult(_agentRoles.TryGetValue(roleId, out var r) && r.TenantId == tenantId ? r : null);
+
+    public Task DeleteAgentRoleAsync(string tenantId, string roleId, CancellationToken ct = default)
+    {
+        if (_agentRoles.TryGetValue(roleId, out var r) && r.TenantId == tenantId)
+            _agentRoles.TryRemove(roleId, out _);
+        return Task.CompletedTask;
+    }
+
     // ── Workflow Runs ──────────────────────────────────────────────────────────
     public Task<WorkflowRun> CreateRunAsync(WorkflowRun run, CancellationToken ct = default)
     {

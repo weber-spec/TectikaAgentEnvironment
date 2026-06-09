@@ -4,11 +4,14 @@ using Microsoft.Azure.Cosmos;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Builder;
 using Microsoft.Azure.Functions.Worker.OpenTelemetry;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using OpenTelemetry;
 using Azure.Monitor.OpenTelemetry.Exporter;
 using TectikaAgents.Core.Configuration;
+using TectikaAgents.Core.Interfaces;
+using TectikaAgents.AgentRuntime;
 using TectikaAgents.Workflows.Services;
 
 var builder = FunctionsApplication.CreateBuilder(args);
@@ -56,8 +59,16 @@ builder.Services.AddSingleton(sp =>
 
 builder.Services.AddSingleton<WorkflowEventPublisher>();
 
-// ── Foundry Agent runner (via HTTP to Azure OpenAI) ──────────────────────────
-builder.Services.AddHttpClient<WorkflowAgentRunner>();
+// ── Agent runtime (Foundry or Mock) ──────────────────────────────────────────
+var useMockAgents = builder.Configuration.GetValue<bool>("Foundry:UseMock",
+    builder.Configuration.GetValue<bool>("MockDatabase:Enabled"));
+// Transient: Durable Functions resolves activities from the root scope, and the activity mutates
+// FoundryAgentRuntime.OnText per call — a shared instance would race across concurrent activities.
+if (useMockAgents)
+    builder.Services.AddTransient<IAgentRuntime, MockAgentRuntime>();
+else
+    builder.Services.AddTransient<IAgentRuntime, FoundryAgentRuntime>();
+
 builder.Services.AddScoped<ContextManager>();
 
 // ── OpenTelemetry ─────────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ using TectikaAgents.Core.Configuration;
 using TectikaAgents.Api.Auth;
 using TectikaAgents.Api.Services;
 using TectikaAgents.Core.Interfaces;
+using TectikaAgents.AgentRuntime;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -67,8 +68,13 @@ else
 // ── Identity Service (App Registration — MVP) ────────────────────────────────
 builder.Services.AddSingleton<IAgentIdentityService, AppRegistrationIdentityService>();
 
-// ── Foundry / Agent execution ────────────────────────────────────────────────
-builder.Services.AddHttpClient<FoundryAgentService>();
+// ── Foundry / Agent provisioning ─────────────────────────────────────────────
+// "Foundry:UseMock" selects mock vs real Foundry provisioning; defaults to the DB flag.
+var useMockAgents = builder.Configuration.GetValue<bool>("Foundry:UseMock", useMockDatabase);
+if (useMockAgents)
+    builder.Services.AddSingleton<IAgentProvisioner, MockAgentProvisioner>();
+else
+    builder.Services.AddSingleton<IAgentProvisioner, FoundryAgentRuntime>();
 
 // ── SSE + Service Bus ────────────────────────────────────────────────────────
 builder.Services.AddSingleton<SseConnectionManager>();

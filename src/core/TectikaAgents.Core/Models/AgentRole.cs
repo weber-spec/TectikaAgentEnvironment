@@ -19,6 +19,10 @@ public class AgentRole
     [JsonPropertyName("foundryAgentId")]
     public string? FoundryAgentId { get; set; }
 
+    /// <summary>SHA-256 of (systemPrompt, model) at last successful Foundry sync. Null until first sync.</summary>
+    [JsonPropertyName("foundryAgentHash")]
+    public string? FoundryAgentHash { get; set; }
+
     [JsonPropertyName("tools")]
     public List<string> Tools { get; set; } = [];
 

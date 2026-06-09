@@ -18,6 +18,7 @@ param cosmosDatabaseName string
 param serviceBusFqdn string
 param foundryEndpoint string
 param foundryProjectName string
+param foundryProjectEndpoint string
 param modelName string
 
 var sfx = empty(nameSuffix) ? '' : '-${nameSuffix}'
@@ -81,6 +82,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'ServiceBus__ApprovalsQueue', value: 'approvals' }
         { name: 'Foundry__Endpoint', value: foundryEndpoint }
         { name: 'Foundry__ProjectName', value: foundryProjectName }
+        { name: 'Foundry__ProjectEndpoint', value: foundryProjectEndpoint }
         { name: 'Foundry__DefaultModel', value: modelName }
         { name: 'Foundry__IsOpenAiDirect', value: 'false' }
         { name: 'Foundry__ApiKey', value: '' }
