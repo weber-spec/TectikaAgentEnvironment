@@ -53,16 +53,23 @@ public class RunsController : ControllerBase
         var task = await _cosmos.GetTaskAsync(req.BoardId, req.TaskId, ct);
         if (task is null) return NotFound($"Task '{req.TaskId}' not found.");
 
-        // ── 2. Validate pipeline steps ────────────────────────────────────────
-        if (req.Pipeline is null || req.Pipeline.Count == 0)
-            return BadRequest("Pipeline must have at least one step.");
+        // ── 2. Resolve pipeline (supplied or derived from task assignee) ─────────
+        List<PipelineStep> pipeline;
+        try
+        {
+            pipeline = (req.Pipeline is { Count: > 0 }) ? req.Pipeline : RunPipelineFactory.FromTask(task);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
 
         // ── 3. Create WorkflowRun in Cosmos ───────────────────────────────────
         var run = new WorkflowRun
         {
             TenantId           = TenantId,
             TaskId             = req.TaskId,
-            PipelineDefinition = req.Pipeline,
+            PipelineDefinition = pipeline,
             Status             = RunStatus.Pending
         };
 
@@ -83,7 +90,7 @@ public class RunsController : ControllerBase
             taskId   = req.TaskId,
             boardId  = req.BoardId,
             tenantId = TenantId,
-            steps    = req.Pipeline
+            steps    = pipeline
         };
 
         try
@@ -147,4 +154,4 @@ public class RunsController : ControllerBase
 public record StartRunRequest(
     string TaskId,
     string BoardId,
-    List<PipelineStep> Pipeline);
+    List<PipelineStep>? Pipeline);

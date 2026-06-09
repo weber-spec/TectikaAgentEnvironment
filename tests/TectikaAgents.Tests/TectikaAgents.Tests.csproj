@@ -14,5 +14,6 @@
     <ProjectReference Include="../../src/core/TectikaAgents.Core/TectikaAgents.Core.csproj" />
     <ProjectReference Include="../../src/agentruntime/TectikaAgents.AgentRuntime.csproj" />
     <ProjectReference Include="..\..\src\workflows\TectikaAgents.Workflows.csproj" />
+    <ProjectReference Include="..\..\src\api\TectikaAgents.Api\TectikaAgents.Api.csproj" />
   </ItemGroup>
 </Project>
