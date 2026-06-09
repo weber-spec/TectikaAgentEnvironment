@@ -16,7 +16,7 @@ COPY src/core/ src/core/
 COPY src/api/  src/api/
 
 RUN dotnet publish src/api/TectikaAgents.Api/TectikaAgents.Api.csproj \
-    -c Release -o /app/publish --no-restore
+    -c Release -o /app/publish
 
 # ── Stage 3: runtime ──────────────────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
