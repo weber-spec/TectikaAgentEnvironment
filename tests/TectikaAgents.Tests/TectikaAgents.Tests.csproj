@@ -13,5 +13,6 @@
   <ItemGroup>
     <ProjectReference Include="../../src/core/TectikaAgents.Core/TectikaAgents.Core.csproj" />
     <ProjectReference Include="../../src/agentruntime/TectikaAgents.AgentRuntime.csproj" />
+    <ProjectReference Include="..\..\src\workflows\TectikaAgents.Workflows.csproj" />
   </ItemGroup>
 </Project>
