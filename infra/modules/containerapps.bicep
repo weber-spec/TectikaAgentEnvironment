@@ -23,6 +23,7 @@ param keyVaultUri string
 param appInsightsConnectionString string
 param foundryEndpoint string
 param foundryProjectName string
+param foundryProjectEndpoint string
 param modelName string
 param functionAppUrl string
 param tenantId string
@@ -86,6 +87,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'AZURE_CLIENT_ID', value: apiMiClientId }
             { name: 'Foundry__Endpoint', value: foundryEndpoint }
             { name: 'Foundry__ProjectName', value: foundryProjectName }
+            { name: 'Foundry__ProjectEndpoint', value: foundryProjectEndpoint }
             { name: 'Foundry__DefaultModel', value: modelName }
             { name: 'Foundry__IsOpenAiDirect', value: 'false' }
             { name: 'Foundry__ApiKey', value: '' }

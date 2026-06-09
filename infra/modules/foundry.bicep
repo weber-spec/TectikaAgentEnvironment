@@ -60,3 +60,5 @@ output accountName string = account.name
 output projectName string = project.name
 // Azure OpenAI data-plane endpoint the app appends `/openai/deployments/...` to.
 output endpoint string = 'https://${customSubDomain}.openai.azure.com/'
+// Agent Service (data-plane) project endpoint for Azure.AI.Agents.Persistent.
+output projectEndpoint string = 'https://${customSubDomain}.services.ai.azure.com/api/projects/${project.name}'

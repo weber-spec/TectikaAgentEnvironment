@@ -121,6 +121,7 @@ module functionApp 'modules/functionapp.bicep' = {
     serviceBusFqdn: data.outputs.serviceBusFqdn
     foundryEndpoint: foundry.outputs.endpoint
     foundryProjectName: foundry.outputs.projectName
+    foundryProjectEndpoint: foundry.outputs.projectEndpoint
     modelName: modelName
   }
 }
@@ -147,6 +148,7 @@ module containerApps 'modules/containerapps.bicep' = {
     appInsightsConnectionString: observability.outputs.appInsightsConnectionString
     foundryEndpoint: foundry.outputs.endpoint
     foundryProjectName: foundry.outputs.projectName
+    foundryProjectEndpoint: foundry.outputs.projectEndpoint
     modelName: modelName
     functionAppUrl: functionApp.outputs.defaultUrl
     tenantId: tenantId
