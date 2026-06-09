@@ -11,17 +11,24 @@ import { toast } from '@/lib/toast';
 
 const MODELS = ['gpt-4o', 'claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5', 'o3'];
 
+/** Per-role sync state set after a successful upsert. */
+type SyncState = { synced: boolean; error?: string | null };
+
 export default function AgentsPage() {
   const [roles, setRoles] = useState<AgentRole[] | null>(null);
   const [editing, setEditing] = useState<AgentRole | null>(null);
+  const [syncStates, setSyncStates] = useState<Record<string, SyncState>>({});
 
   useEffect(() => { api.agentRoles.list().then(setRoles).catch(() => setRoles([])); }, []);
 
   const save = async (role: AgentRole) => {
     try {
-      const saved = await api.agentRoles.upsert(role);
+      const result = await api.agentRoles.upsertFull(role);
+      const saved = result.role;
       setRoles(prev => { const list = prev ?? []; return list.some(r => r.id === saved.id) ? list.map(r => r.id === saved.id ? saved : r) : [...list, saved]; });
-      setEditing(null); toast('Agent saved', 'success');
+      setSyncStates(prev => ({ ...prev, [saved.id]: { synced: result.synced, error: result.error } }));
+      setEditing(null);
+      toast('Agent saved', 'success');
     } catch { toast('Could not save agent', 'error'); }
   };
 
@@ -48,7 +55,7 @@ export default function AgentsPage() {
           <EmptyState icon={<Icon.robot size={48} />} title="No agents yet" description="Create your first agent configuration." action={<Button variant="primary" onClick={() => setEditing(newAgent())}>New agent</Button>} />
         ) : (
           <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
-            {roles.map(r => <RoleCard key={r.id} role={r} onEdit={() => setEditing(r)} />)}
+            {roles.map(r => <RoleCard key={r.id} role={r} syncState={syncStates[r.id]} onEdit={() => setEditing(r)} />)}
           </div>
         )}
       </div>
@@ -57,13 +64,26 @@ export default function AgentsPage() {
   );
 }
 
-function RoleCard({ role, onEdit }: { role: AgentRole; onEdit: () => void }) {
+function RoleCard({ role, syncState, onEdit }: { role: AgentRole; syncState?: SyncState; onEdit: () => void }) {
+  // Derive a synced indicator: explicit syncState from last save takes priority,
+  // otherwise fall back to presence of foundryAgentId as a passive indicator.
+  const isSynced = syncState ? syncState.synced : !!role.foundryAgentId;
+  const syncError = syncState?.error;
+  const showSyncBadge = syncState !== undefined || !!role.foundryAgentId;
+
   return (
     <div className="bg-[var(--background)] rounded-xl border border-[var(--border)] p-4 hover:shadow-md transition-shadow flex flex-col">
       <div className="flex items-center gap-3 mb-3">
         <Avatar person={{ id: role.id, name: role.displayName, kind: 'Agent', hex: colorFor(role.id) }} size={40} />
         <div className="min-w-0 flex-1">
-          <h3 className="font-semibold text-[var(--foreground)] truncate">{role.displayName}</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold text-[var(--foreground)] truncate">{role.displayName}</h3>
+            {showSyncBadge && (
+              isSynced
+                ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 shrink-0">&#10003; synced</span>
+                : <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-600 dark:text-red-400 shrink-0" title={syncError ?? undefined}>&#9888; not synced{syncError ? `: ${syncError}` : ''}</span>
+            )}
+          </div>
           <span className="text-[11px] text-[var(--muted)] inline-flex items-center gap-1"><Icon.bolt size={11} /> {role.modelOverride ?? 'default model'}</span>
         </div>
         <button onClick={onEdit} className="text-[var(--muted)] hover:text-[var(--primary)] w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--surface)]"><Icon.edit size={16} /></button>

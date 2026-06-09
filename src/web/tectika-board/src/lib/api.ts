@@ -1,7 +1,7 @@
 // API client — all calls to the .NET backend.
 
 import type {
-  Board, AgentTask, AgentRole, Artifact, Approval, WorkflowRun, AgentEvent, TaskEdge, EdgeKind,
+  Board, AgentTask, AgentRole, AgentUpsertResult, Artifact, Approval, WorkflowRun, AgentEvent, TaskEdge, EdgeKind,
 } from './types';
 
 // Strip any trailing slash so `${API_BASE}${path}` (paths start with /api) never doubles up.
@@ -78,8 +78,14 @@ export const api = {
   agentRoles: {
     list: () => fetchApi<AgentRole[]>('/api/agentroles'),
     get: (roleId: string) => fetchApi<AgentRole>(`/api/agentroles/${roleId}`),
-    upsert: (role: AgentRole) =>
-      fetchApi<AgentRole>('/api/agentroles', { method: 'POST', body: JSON.stringify(role) }),
+    /** Upserts an agent role. Returns the saved AgentRole directly (unwraps the wrapper). */
+    upsert: async (role: AgentRole): Promise<AgentRole> => {
+      const result = await fetchApi<AgentUpsertResult>('/api/agentroles', { method: 'POST', body: JSON.stringify(role) });
+      return result.role;
+    },
+    /** Upserts an agent role and returns the full {role, synced, error} response. */
+    upsertFull: (role: AgentRole): Promise<AgentUpsertResult> =>
+      fetchApi<AgentUpsertResult>('/api/agentroles', { method: 'POST', body: JSON.stringify(role) }),
   },
 
   artifacts: {
