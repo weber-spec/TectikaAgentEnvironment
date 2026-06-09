@@ -62,10 +62,12 @@ builder.Services.AddSingleton<WorkflowEventPublisher>();
 // ── Agent runtime (Foundry or Mock) ──────────────────────────────────────────
 var useMockAgents = builder.Configuration.GetValue<bool>("Foundry:UseMock",
     builder.Configuration.GetValue<bool>("MockDatabase:Enabled"));
+// Transient: Durable Functions resolves activities from the root scope, and the activity mutates
+// FoundryAgentRuntime.OnText per call — a shared instance would race across concurrent activities.
 if (useMockAgents)
-    builder.Services.AddScoped<IAgentRuntime, MockAgentRuntime>();
+    builder.Services.AddTransient<IAgentRuntime, MockAgentRuntime>();
 else
-    builder.Services.AddScoped<IAgentRuntime, FoundryAgentRuntime>();
+    builder.Services.AddTransient<IAgentRuntime, FoundryAgentRuntime>();
 
 builder.Services.AddScoped<ContextManager>();
 

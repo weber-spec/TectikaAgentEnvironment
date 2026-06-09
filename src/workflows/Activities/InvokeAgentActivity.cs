@@ -69,34 +69,40 @@ public class InvokeAgentActivity
         try
         {
             var threadId = await _runtime.EnsureThreadAsync(task, ct);
-            await _cosmos.PatchTaskThreadIdAsync(input.BoardId, input.TaskId, threadId, ct);
+            // Persist only when a new thread was created (EnsureThreadAsync sets it in-place); avoids a
+            // redundant write on reuse and an orphan thread if a prior patch failed before commit.
+            if (task.FoundryThreadId != threadId)
+                await _cosmos.PatchTaskThreadIdAsync(input.BoardId, input.TaskId, threadId, ct);
 
             var userContent = await _contextManager.BuildUserContentAsync(role, task, board, upstreamArtifacts, ct);
 
-            // Stream thinking text → agent_thinking SSE. Real runtime streams (once, for the poll impl);
-            // ensure at least one event in mock mode too.
-            bool publishedThinking = false;
+            // Stream thinking text → agent_thinking SSE. Collect the publish tasks and await them AFTER the
+            // turn — never block inside the synchronous OnText callback (deadlock risk). FoundryAgentRuntime
+            // invokes OnText synchronously before RunTurnAsync returns, so all tasks are queued by then.
+            var thinkingTasks = new List<Task>();
             if (_runtime is TectikaAgents.AgentRuntime.FoundryAgentRuntime fr)
             {
                 fr.OnText = delta =>
                 {
                     if (string.IsNullOrEmpty(delta)) return;
-                    publishedThinking = true;
-                    _events.PublishAgentThinkingAsync(input.RunId, input.TaskId, input.Step, delta, ct).GetAwaiter().GetResult();
+                    thinkingTasks.Add(_events.PublishAgentThinkingAsync(input.RunId, input.TaskId, input.Step, delta, ct));
                 };
             }
 
             outcome = await _runtime.RunTurnAsync(
                 new AgentRunRequest(role, task, threadId, userContent, _maxCompletionTokens, input.RunId, input.Step), ct);
 
-            if (!publishedThinking && !string.IsNullOrEmpty(outcome.Content))
+            if (thinkingTasks.Count > 0)
+                await Task.WhenAll(thinkingTasks);
+            else if (!string.IsNullOrEmpty(outcome.Content)) // mock / no-stream: emit one thinking event
             {
                 var preview = outcome.Content.Length > 400 ? outcome.Content[..400] : outcome.Content;
                 await _events.PublishAgentThinkingAsync(input.RunId, input.TaskId, input.Step, preview, ct);
             }
 
-            if (outcome.Status == AgentRunStatus.Failed)
-                throw new Exception(outcome.Error ?? "Agent run failed.");
+            // BudgetExceeded means truncated output — fail rather than save partial content as success.
+            if (outcome.Status is AgentRunStatus.Failed or AgentRunStatus.BudgetExceeded)
+                throw new Exception(outcome.Error ?? $"Agent run ended with status {outcome.Status}.");
         }
         catch (Exception ex)
         {
