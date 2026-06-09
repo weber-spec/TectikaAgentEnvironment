@@ -84,6 +84,9 @@ public class StepResult
 
     [JsonPropertyName("error")]
     public string? Error { get; set; }
+
+    [JsonPropertyName("pendingInteraction")]
+    public PendingInteractionRequest? PendingInteraction { get; set; }
 }
 
 public class TokenUsage
@@ -98,5 +101,5 @@ public class TokenUsage
     public int Total => Input + Output;
 }
 
-public enum RunStatus { Pending, Running, PausedApproval, Completed, Failed, Cancelled }
+public enum RunStatus { Pending, Running, PausedApproval, AwaitingInteraction, Completed, Failed, Cancelled }
 public enum StepType { AgentExecution, ApprovalGate, CliBridge }

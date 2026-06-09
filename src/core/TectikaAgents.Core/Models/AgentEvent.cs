@@ -32,6 +32,12 @@ public class AgentEvent
     [JsonPropertyName("approvalId")]
     public string? ApprovalId { get; set; }
 
+    [JsonPropertyName("interactionId")]
+    public string? InteractionId { get; set; }
+
+    [JsonPropertyName("interactionType")]
+    public string? InteractionType { get; set; }
+
     [JsonPropertyName("timestamp")]
     public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.UtcNow;
 
@@ -43,6 +49,7 @@ public class AgentEvent
         public const string ToolCall = "tool_call";
         public const string ArtifactUpdated = "artifact_updated";
         public const string ApprovalRequired = "approval_required";
+        public const string InteractionRequired = "interaction_required";
         public const string StepCompleted = "step_completed";
         public const string RunCompleted = "run_completed";
         public const string RunFailed = "run_failed";
