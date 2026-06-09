@@ -52,6 +52,17 @@ public class WorkflowEventPublisher
     public Task PublishApprovalRequiredAsync(string runId, string taskId, int step, string approvalId, CancellationToken ct = default) =>
         PublishAsync(new AgentEvent { Type = AgentEvent.Types.ApprovalRequired, RunId = runId, TaskId = taskId, Step = step, ApprovalId = approvalId }, ct);
 
+    public Task PublishInteractionRequiredAsync(string runId, string taskId, int step, string interactionId, string interactionType, CancellationToken ct = default) =>
+        PublishAsync(new AgentEvent
+        {
+            Type = AgentEvent.Types.InteractionRequired,
+            RunId = runId,
+            TaskId = taskId,
+            Step = step,
+            InteractionId = interactionId,
+            InteractionType = interactionType
+        }, ct);
+
     public Task PublishRunCompletedAsync(string runId, string taskId, CancellationToken ct = default) =>
         PublishAsync(new AgentEvent { Type = AgentEvent.Types.RunCompleted, RunId = runId, TaskId = taskId }, ct);
 
