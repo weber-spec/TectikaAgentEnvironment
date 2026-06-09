@@ -1,7 +1,7 @@
 // API client — all calls to the .NET backend.
 
 import type {
-  Board, AgentTask, AgentRole, Artifact, Approval, WorkflowRun, AgentEvent,
+  Board, AgentTask, AgentRole, Artifact, Approval, WorkflowRun, AgentEvent, HumanInteraction,
 } from './types';
 
 // Strip any trailing slash so `${API_BASE}${path}` (paths start with /api) never doubles up.
@@ -93,6 +93,19 @@ export const api = {
       fetchApi<Approval>(`/api/approvals/${approvalId}/respond`, {
         method: 'POST',
         body: JSON.stringify({ runId, approved, notes }),
+      }),
+  },
+
+  interactions: {
+    pending: () => fetchApi<HumanInteraction[]>('/api/interactions/pending'),
+    respond: (
+      interactionId: string,
+      runId: string,
+      opts: { selectedIndex?: number; answer?: string; approved?: boolean; notes?: string }
+    ) =>
+      fetchApi<HumanInteraction>(`/api/interactions/${interactionId}/respond`, {
+        method: 'POST',
+        body: JSON.stringify({ runId, ...opts }),
       }),
   },
 

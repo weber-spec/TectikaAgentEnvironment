@@ -3,15 +3,17 @@
 // (Enums are serialized as their string names by the API; see JsonStringEnumConverter.)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type AgentTaskStatus = 'Backlog' | 'InProgress' | 'AwaitingApproval' | 'Blocked' | 'Review' | 'Done' | 'Failed';
+export type AgentTaskStatus = 'Backlog' | 'InProgress' | 'AwaitingApproval' | 'AwaitingInteraction' | 'Blocked' | 'Review' | 'Done' | 'Failed';
 export type TaskPriority = 'Critical' | 'High' | 'Medium' | 'Low';
 export type AssigneeType = 'Agent' | 'Human';
 export type ArtifactContentType = 'Code' | 'Markdown' | 'Json' | 'Data';
 export type ArtifactOrigin = 'Agent' | 'HumanEdit' | 'CliBridge';
-export type RunStatus = 'Pending' | 'Running' | 'PausedApproval' | 'Completed' | 'Failed' | 'Cancelled';
+export type RunStatus = 'Pending' | 'Running' | 'PausedApproval' | 'AwaitingInteraction' | 'Completed' | 'Failed' | 'Cancelled';
 export type TriggerSource = 'Manual' | 'Supervisor' | 'WebhookGitHub' | 'WebhookJira' | 'Schedule' | 'CliBridge';
 export type StepType = 'AgentExecution' | 'ApprovalGate' | 'CliBridge';
 export type ApprovalStatus = 'Pending' | 'Approved' | 'Rejected' | 'Expired';
+export type InteractionType = 'Approval' | 'Selection' | 'Question';
+export type InteractionStatus = 'Pending' | 'Responded' | 'Expired';
 
 export interface Board {
   id: string;
@@ -53,6 +55,7 @@ export interface AgentTask {
   downstreamTaskIds: string[];
   humanAuditorId?: string;
   taskBrief?: string;
+  artifactSummary?: string;
   foundryThreadId?: string;
   createdAt: string;
   dueAt?: string;
@@ -184,6 +187,44 @@ export interface Approval {
   approvedAt?: string;
   notes?: string;
   actionDescription: string;
+  identityToBeUsed?: string;
+}
+
+export interface SearchResultItem {
+  title: string;
+  subtitle?: string;
+  price?: string;
+  details?: string[];
+  link?: string;
+  imageUrl?: string;
+  metadata?: Record<string, string>;
+}
+
+export interface HumanInteraction {
+  id: string;
+  tenantId: string;
+  runId: string;
+  taskId: string;
+  boardId: string;
+  stepIndex: number;
+  type: InteractionType;
+  status: InteractionStatus;
+  actionDescription: string;
+  requestedFrom: string[];
+  requestedAt: string;
+  expiresAt: string;
+  respondedBy?: string;
+  respondedAt?: string;
+  // Selection
+  items?: SearchResultItem[];
+  selectedIndex?: number;
+  // Question
+  question?: string;
+  questionOptions?: string[];
+  answer?: string;
+  // Approval
+  notes?: string;
+  approved?: boolean;
   identityToBeUsed?: string;
 }
 
