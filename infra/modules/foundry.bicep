@@ -4,17 +4,20 @@
 //  Keyless: local auth disabled; callers use managed identity + RBAC.
 // ============================================================================
 param namePrefix string
+@description('Optional global-uniqueness suffix; empty = bare names.')
+param nameSuffix string = ''
 param location string
 param modelName string
 param modelVersion string
 param modelCapacity int
 
-var suffix = uniqueString(resourceGroup().id)
-// Custom subdomain must be globally unique (required for AAD/token auth).
-var customSubDomain = toLower(take('aif-${replace(namePrefix, '-', '')}-${suffix}', 63))
+var sfx = empty(nameSuffix) ? '' : '-${nameSuffix}'
+// Custom subdomain must be globally unique (required for AAD/token auth). uniqueString
+// keeps the data-plane endpoint globally unique regardless of nameSuffix.
+var customSubDomain = toLower(take('aif-${replace(namePrefix, '-', '')}-${uniqueString(resourceGroup().id)}', 63))
 
 resource account 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = {
-  name: 'aif-${namePrefix}'
+  name: 'aif-${namePrefix}${sfx}'
   location: location
   kind: 'AIServices'
   sku: { name: 'S0' }
@@ -29,7 +32,7 @@ resource account 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = {
 
 resource project 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-preview' = {
   parent: account
-  name: 'proj-${namePrefix}'
+  name: 'proj-${namePrefix}${sfx}'
   location: location
   identity: { type: 'SystemAssigned' }
   properties: {
@@ -42,7 +45,10 @@ resource project 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-previ
 resource deployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
   parent: account
   name: modelName
-  sku: { name: 'GlobalStandard', capacity: modelCapacity }
+  // Standard (regional) deployment: this subscription has Standard gpt-4o quota in
+  // Sweden Central but zero GlobalStandard quota. Account region (foundryLocation)
+  // must be one with Standard quota for `modelName`.
+  sku: { name: 'Standard', capacity: modelCapacity }
   properties: {
     model: { format: 'OpenAI', name: modelName, version: modelVersion }
     versionUpgradeOption: 'OnceCurrentVersionExpired'

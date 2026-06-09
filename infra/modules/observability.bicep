@@ -1,9 +1,13 @@
 // Log Analytics workspace + Application Insights (workspace-based).
 param namePrefix string
+@description('Optional global-uniqueness suffix; empty = bare names.')
+param nameSuffix string = ''
 param location string
 
+var sfx = empty(nameSuffix) ? '' : '-${nameSuffix}'
+
 resource law 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
-  name: 'law-${namePrefix}'
+  name: 'law-${namePrefix}${sfx}'
   location: location
   properties: {
     sku: { name: 'PerGB2018' }
@@ -12,7 +16,7 @@ resource law 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
 }
 
 resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
-  name: 'ai-${namePrefix}'
+  name: 'ai-${namePrefix}${sfx}'
   location: location
   kind: 'web'
   properties: {
