@@ -40,6 +40,9 @@ public class AgentRolesController : ControllerBase
         role.TenantId = TenantId;
         role.UpdatedAt = DateTimeOffset.UtcNow;
         var sync = await _provisioner.EnsureAgentAsync(role, ct);  // mutates role.FoundryAgentId/Hash on success
+        // Intentional: persist the role even when sync fails (EnsureAgentAsync returns Synced=false rather
+        // than throwing). The user keeps their edits and sees a "not synced" indicator; because the stored
+        // hash still won't match, the next save retries provisioning. Returns the saved role + sync state.
         var saved = await _cosmos.UpsertAgentRoleAsync(role, ct);
         return Ok(new { role = saved, synced = sync.Synced, error = sync.Error });
     }
