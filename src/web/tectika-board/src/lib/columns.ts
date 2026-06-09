@@ -15,6 +15,9 @@ export interface CellContext {
   /** customCells[taskId][columnId] = raw string value. */
   customCells: Record<string, Record<string, string>>;
   tasksById: Record<string, AgentTask>;
+  /** Dependency-edge upstream/downstream ids per taskId (derived from TaskEdge[]). */
+  upstreamIds: Record<string, string[]>;
+  downstreamIds: Record<string, string[]>;
 }
 
 export interface KindMeta {
@@ -136,9 +139,9 @@ export function cellText(task: AgentTask, col: ColumnDef, ctx: CellContext): str
     case 'createdAt': return formatDate(task.createdAt);
     case 'lastUpdated': return formatDate(task.createdAt);
     case 'timeline': return task.dueAt ? `${formatDate(task.createdAt)} – ${formatDate(task.dueAt)}` : '';
-    case 'dependency': return `${task.upstreamTaskIds.length}↑ ${task.downstreamTaskIds.length}↓`;
-    case 'upstream': return task.upstreamTaskIds.map(id => ctx.tasksById[id]?.title ?? id).join(', ');
-    case 'downstream': return task.downstreamTaskIds.map(id => ctx.tasksById[id]?.title ?? id).join(', ');
+    case 'dependency': return `${(ctx.upstreamIds[task.id]?.length ?? 0)}↑ ${(ctx.downstreamIds[task.id]?.length ?? 0)}↓`;
+    case 'upstream': return (ctx.upstreamIds[task.id] ?? []).map(id => ctx.tasksById[id]?.title ?? id).join(', ');
+    case 'downstream': return (ctx.downstreamIds[task.id] ?? []).map(id => ctx.tasksById[id]?.title ?? id).join(', ');
     case 'tokens': return String(runFor(task, ctx)?.totalTokens ?? '');
     case 'cost': { const c = runFor(task, ctx)?.estimatedCostUsd; return c != null ? `$${c.toFixed(2)}` : ''; }
     case 'trigger': return task.triggerSource ?? 'Manual';

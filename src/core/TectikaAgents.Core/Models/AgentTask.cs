@@ -49,12 +49,6 @@ public class AgentTask
     [JsonPropertyName("canvasPosition")]
     public CanvasPosition? CanvasPosition { get; set; }
 
-    [JsonPropertyName("upstreamTaskIds")]
-    public List<string> UpstreamTaskIds { get; set; } = [];
-
-    [JsonPropertyName("downstreamTaskIds")]
-    public List<string> DownstreamTaskIds { get; set; } = [];
-
     [JsonPropertyName("humanAuditorId")]
     public string? HumanAuditorId { get; set; }
 

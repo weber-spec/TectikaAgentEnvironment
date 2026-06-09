@@ -16,6 +16,7 @@ namespace TectikaAgents.Api.Services;
 public class InMemoryCosmosDbService : ICosmosDbService
 {
     private readonly ConcurrentDictionary<string, Board> _boards = new();
+    private readonly ConcurrentDictionary<string, TaskEdge> _edges = new();
     private readonly ConcurrentDictionary<string, AgentTask> _tasks = new();
     private readonly ConcurrentDictionary<string, AgentRole> _agentRoles = new();
     private readonly ConcurrentDictionary<string, WorkflowRun> _runs = new();
@@ -28,11 +29,11 @@ public class InMemoryCosmosDbService : ICosmosDbService
     public InMemoryCosmosDbService(ILogger<InMemoryCosmosDbService> logger)
     {
         _logger = logger;
-        MockDataSeeder.Seed(_boards, _tasks, _agentRoles, _runs, _artifacts, _approvals);
+        MockDataSeeder.Seed(_boards, _tasks, _agentRoles, _runs, _artifacts, _approvals, _edges);
         _logger.LogWarning(
             "MockDatabase enabled — serving {Boards} boards, {Tasks} tasks, {Roles} agent roles, " +
-            "{Runs} runs, {Artifacts} artifacts, {Approvals} approvals from in-memory store (no Cosmos DB).",
-            _boards.Count, _tasks.Count, _agentRoles.Count, _runs.Count, _artifacts.Count, _approvals.Count);
+            "{Runs} runs, {Artifacts} artifacts, {Approvals} approvals, {Edges} edges from in-memory store (no Cosmos DB).",
+            _boards.Count, _tasks.Count, _agentRoles.Count, _runs.Count, _artifacts.Count, _approvals.Count, _edges.Count);
     }
 
     // ── Bootstrap ──────────────────────────────────────────────────────────────
@@ -155,6 +156,37 @@ public class InMemoryCosmosDbService : ICosmosDbService
     public Task AppendAuditAsync(AuditEntry entry, CancellationToken ct = default)
     {
         _audit[entry.Id] = entry;
+        return Task.CompletedTask;
+    }
+
+    // ── Edges ──────────────────────────────────────────────────────────────────
+    public Task<TaskEdge> CreateEdgeAsync(TaskEdge edge, CancellationToken ct = default)
+    { _edges[edge.Id] = edge; return Task.FromResult(edge); }
+
+    public Task<IEnumerable<TaskEdge>> GetEdgesByBoardAsync(string boardId, CancellationToken ct = default)
+    => Task.FromResult(_edges.Values.Where(e => e.BoardId == boardId).AsEnumerable());
+
+    public Task<TaskEdge?> GetEdgeAsync(string boardId, string edgeId, CancellationToken ct = default)
+    => Task.FromResult(_edges.TryGetValue(edgeId, out var e) && e.BoardId == boardId ? e : null);
+
+    public Task<TaskEdge> UpdateEdgeAsync(TaskEdge edge, CancellationToken ct = default)
+    { edge.UpdatedAt = DateTimeOffset.UtcNow; _edges[edge.Id] = edge; return Task.FromResult(edge); }
+
+    public Task DeleteEdgeAsync(string boardId, string edgeId, CancellationToken ct = default)
+    {
+        if (_edges.TryGetValue(edgeId, out var e) && e.BoardId == boardId)
+            _edges.TryRemove(edgeId, out _);
+        return Task.CompletedTask;
+    }
+
+    public Task DeleteEdgesForTaskAsync(string boardId, string taskId, CancellationToken ct = default)
+    {
+        foreach (var e in _edges.Values
+            .Where(e => e.BoardId == boardId && (e.SourceTaskId == taskId || e.TargetTaskId == taskId))
+            .ToList())
+        {
+            _edges.TryRemove(e.Id, out _);
+        }
         return Task.CompletedTask;
     }
 }

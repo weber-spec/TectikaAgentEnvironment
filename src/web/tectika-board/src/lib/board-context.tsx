@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { api, type TaskPatch } from './api';
 import type {
-  Board, AgentTask, AgentRole, WorkflowRun, Person,
+  Board, AgentTask, AgentRole, WorkflowRun, Person, TaskEdge,
   ColumnDef, ColumnKind, ViewDef, ViewKind, FilterGroup, SortRule,
   Comment, ActivityEntry, AutomationRecipe, AgentTaskStatus, ChatTurn,
 } from './types';
@@ -25,8 +25,6 @@ interface BoardConfig {
   activity: ActivityEntry[];
   automations: AutomationRecipe[];
   collapsedGroups: string[];
-  /** Flow-canvas edge labels, keyed by `${source}->${target}`. */
-  edgeLabels: Record<string, string>;
   /** Interactive agent-workspace conversations, keyed by taskId. */
   chatThreads: Record<string, ChatTurn[]>;
 }
@@ -53,7 +51,6 @@ function defaultConfig(): BoardConfig {
     activity: [],
     automations: [],
     collapsedGroups: [],
-    edgeLabels: {},
     chatThreads: {},
   };
 }
@@ -139,11 +136,17 @@ interface BoardContextValue {
   setCustomCell: (taskId: string, colId: string, value: string) => void;
   addTask: (partial: Partial<AgentTask> & { title: string }, groupValue?: { colId: string; key: string }) => Promise<AgentTask | null>;
   deleteTasks: (ids: string[]) => Promise<void>;
-  connectTasks: (upstreamId: string, downstreamId: string) => Promise<void>;
-  disconnectTasks: (upstreamId: string, downstreamId: string) => Promise<void>;
   moveCanvas: (id: string, x: number, y: number) => void;
-  edgeLabels: Record<string, string>;
-  setEdgeLabel: (source: string, target: string, label: string) => void;
+
+  // typed edges (server-persisted source of truth for the task graph)
+  edges: TaskEdge[];
+  /** Dependency-edge upstream ids per taskId (sources feeding INTO the task). */
+  upstreamIds: Record<string, string[]>;
+  /** Dependency-edge downstream ids per taskId (targets the task routes output TO). */
+  downstreamIds: Record<string, string[]>;
+  connectEdge: (source: string, target: string) => Promise<TaskEdge | undefined>;
+  disconnectEdge: (edgeId: string) => Promise<void>;
+  updateEdge: (edgeId: string, patch: Partial<Pick<TaskEdge, 'kind' | 'label'>>) => Promise<void>;
 
   // agent config + interactive workspace chat
   saveRole: (role: AgentRole) => Promise<void>;
@@ -187,6 +190,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   const [error, setError] = useState<string>();
   const [board, setBoard] = useState<Board>();
   const [tasks, setTasks] = useState<AgentTask[]>([]);
+  const [edges, setEdges] = useState<TaskEdge[]>([]);
   const [roles, setRoles] = useState<AgentRole[]>([]);
   const [runsById, setRunsById] = useState<Record<string, WorkflowRun>>({});
 
@@ -209,14 +213,16 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     setLoading(true);
     (async () => {
       try {
-        const [b, t, r] = await Promise.all([
+        const [b, t, e, r] = await Promise.all([
           api.boards.get(boardId).catch(() => undefined),
           api.tasks.list(boardId),
+          api.edges.list(boardId).catch(() => [] as TaskEdge[]),
           api.agentRoles.list().catch(() => []),
         ]);
         if (cancelled) return;
         setBoard(b);
         setTasks(t);
+        setEdges(e);
         setRoles(r);
 
         // fetch runs for tasks that have one
@@ -279,7 +285,10 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
       if (cancelled) return;
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') { timer = setTimeout(tick, 7000); return; }
       try {
-        const fresh = await api.tasks.list(boardId);
+        const [fresh, freshEdges] = await Promise.all([
+          api.tasks.list(boardId),
+          api.edges.list(boardId).catch(() => null),
+        ]);
         if (cancelled) return;
         setLiveState('live');
         if (Date.now() - lastEditRef.current > 5000) {
@@ -293,6 +302,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
             const added = fresh.filter(t => !localIds.has(t.id));
             return added.length ? [...updated, ...added] : updated;
           });
+          if (freshEdges) setEdges(freshEdges);
         }
       } catch { if (!cancelled) setLiveState('reconnecting'); }
       if (!cancelled) timer = setTimeout(tick, 7000);
@@ -310,9 +320,21 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   const people = useMemo(() => Object.values(peopleById), [peopleById]);
   const tasksById = useMemo(() => Object.fromEntries(tasks.map(t => [t.id, t])), [tasks]);
 
+  // Derive the upstream/downstream relationships from Dependency edges only.
+  const { upstreamIds, downstreamIds } = useMemo(() => {
+    const up: Record<string, string[]> = {};
+    const down: Record<string, string[]> = {};
+    for (const e of edges) {
+      if (e.kind !== 'Dependency') continue;
+      (down[e.sourceTaskId] ??= []).push(e.targetTaskId);
+      (up[e.targetTaskId] ??= []).push(e.sourceTaskId);
+    }
+    return { upstreamIds: up, downstreamIds: down };
+  }, [edges]);
+
   const cellContext: CellContext = useMemo(
-    () => ({ roles, peopleById, runsById, customCells: cfg.customCells, tasksById }),
-    [roles, peopleById, runsById, cfg.customCells, tasksById],
+    () => ({ roles, peopleById, runsById, customCells: cfg.customCells, tasksById, upstreamIds, downstreamIds }),
+    [roles, peopleById, runsById, cfg.customCells, tasksById, upstreamIds, downstreamIds],
   );
 
   const activeView = useMemo(
@@ -481,55 +503,53 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     lastEditRef.current = Date.now();
     const set = new Set(ids);
     const removed = tasks.filter(t => set.has(t.id));
+    let removedEdges: TaskEdge[] = [];
     setTasks(prev => prev.filter(t => !set.has(t.id)));
+    setEdges(prev => {
+      removedEdges = prev.filter(e => set.has(e.sourceTaskId) || set.has(e.targetTaskId));
+      return prev.filter(e => !set.has(e.sourceTaskId) && !set.has(e.targetTaskId));
+    });
     setSelectedIds([]);
     try {
       await Promise.all(ids.map(id => api.tasks.remove(boardId, id)));
       toast(`${ids.length} item${ids.length > 1 ? 's' : ''} deleted`, 'success');
     } catch {
       setTasks(prev => [...prev, ...removed]);
+      setEdges(prev => [...prev, ...removedEdges]);
       toast('Could not delete items', 'error');
     }
   }, [boardId, tasks]);
-
-  const connectTasks = useCallback(async (upstreamId: string, downstreamId: string) => {
-    if (upstreamId === downstreamId) return;
-    setTasks(prev => prev.map(t => {
-      if (t.id === upstreamId && !t.downstreamTaskIds.includes(downstreamId)) return { ...t, downstreamTaskIds: [...t.downstreamTaskIds, downstreamId] };
-      if (t.id === downstreamId && !t.upstreamTaskIds.includes(upstreamId)) return { ...t, upstreamTaskIds: [...t.upstreamTaskIds, upstreamId] };
-      return t;
-    }));
-    try { await api.tasks.connect(boardId, upstreamId, downstreamId); logActivity({ taskId: downstreamId, kind: 'connected', actorId: CURRENT_USER.id, from: upstreamId }); }
-    catch { toast('Could not connect items', 'error'); }
-  }, [boardId, logActivity]);
-
-  const disconnectTasks = useCallback(async (upstreamId: string, downstreamId: string) => {
-    setTasks(prev => prev.map(t => {
-      if (t.id === upstreamId) return { ...t, downstreamTaskIds: t.downstreamTaskIds.filter(d => d !== downstreamId) };
-      if (t.id === downstreamId) return { ...t, upstreamTaskIds: t.upstreamTaskIds.filter(u => u !== upstreamId) };
-      return t;
-    }));
-    const up = tasksById[upstreamId];
-    const down = tasksById[downstreamId];
-    try {
-      if (up) await api.tasks.update(boardId, upstreamId, { downstreamTaskIds: up.downstreamTaskIds.filter(d => d !== downstreamId) });
-      if (down) await api.tasks.update(boardId, downstreamId, { upstreamTaskIds: down.upstreamTaskIds.filter(u => u !== upstreamId) });
-    } catch { toast('Could not update connection', 'error'); }
-  }, [boardId, tasksById]);
 
   const moveCanvas = useCallback((id: string, x: number, y: number) => {
     setTasks(prev => prev.map(t => t.id === id ? { ...t, canvasPosition: { x, y } } : t));
     api.tasks.updatePosition(boardId, id, x, y).catch(() => {});
   }, [boardId]);
 
-  const setEdgeLabel = useCallback((source: string, target: string, label: string) => {
-    const key = `${source}->${target}`;
-    setCfg(prev => {
-      const next = { ...prev.edgeLabels };
-      if (label.trim()) next[key] = label.trim(); else delete next[key];
-      return { ...prev, edgeLabels: next };
-    });
-  }, []);
+  // ── typed edges (server-persisted) ────────────────────────────────────────────
+  const connectEdge = useCallback(async (source: string, target: string): Promise<TaskEdge | undefined> => {
+    if (source === target) return undefined;
+    lastEditRef.current = Date.now();
+    try {
+      const e = await api.edges.create(boardId, { sourceTaskId: source, targetTaskId: target });
+      setEdges(p => [...p.filter(x => x.id !== e.id), e]);
+      logActivity({ taskId: target, kind: 'connected', actorId: CURRENT_USER.id, from: source });
+      return e;
+    } catch { toast('Could not connect items', 'error'); return undefined; }
+  }, [boardId, logActivity]);
+
+  const disconnectEdge = useCallback(async (edgeId: string) => {
+    lastEditRef.current = Date.now();
+    let removed: TaskEdge | undefined;
+    setEdges(p => { removed = p.find(e => e.id === edgeId); return p.filter(e => e.id !== edgeId); });
+    try { await api.edges.remove(boardId, edgeId); }
+    catch { if (removed) setEdges(p => p.some(e => e.id === removed!.id) ? p : [...p, removed!]); toast('Could not remove connection', 'error'); }
+  }, [boardId]);
+
+  const updateEdge = useCallback(async (edgeId: string, patch: Partial<Pick<TaskEdge, 'kind' | 'label'>>) => {
+    lastEditRef.current = Date.now();
+    setEdges(p => p.map(e => e.id === edgeId ? { ...e, ...patch } : e));
+    try { await api.edges.update(boardId, edgeId, patch); } catch { toast('Could not update edge', 'error'); }
+  }, [boardId]);
 
   const saveRole = useCallback(async (role: AgentRole) => {
     setRoles(prev => prev.map(r => r.id === role.id ? role : r));
@@ -549,8 +569,8 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     groups, visibleTasks,
     collapsedGroups: cfg.collapsedGroups, toggleGroup,
     selectedIds, toggleSelect, selectAll, clearSelection,
-    updateTask, setStatus, setCustomCell, addTask, deleteTasks, connectTasks, disconnectTasks, moveCanvas,
-    edgeLabels: cfg.edgeLabels, setEdgeLabel,
+    updateTask, setStatus, setCustomCell, addTask, deleteTasks, moveCanvas,
+    edges, upstreamIds, downstreamIds, connectEdge, disconnectEdge, updateEdge,
     saveRole, chatThreads: cfg.chatThreads, pushChatTurns,
     liveEnabled, liveState, toggleLive,
     openTaskId, openTask: setOpenTaskId,

@@ -81,8 +81,9 @@ function DraggableCard({ task, onOpen }: { task: AgentTask; onOpen: (id: string)
 }
 
 function Card({ task, onOpen, dragging }: { task: AgentTask; onOpen: (id: string) => void; dragging?: boolean }) {
-  const { peopleById } = useBoard();
+  const { peopleById, upstreamIds, downstreamIds } = useBoard();
   const person = peopleById[task.assignee.id];
+  const linkCount = (upstreamIds[task.id]?.length ?? 0) + (downstreamIds[task.id]?.length ?? 0);
   const dd = daysUntil(task.dueAt);
   const overdue = dd != null && dd < 0 && task.status !== 'Done';
   return (
@@ -96,8 +97,8 @@ function Card({ task, onOpen, dragging }: { task: AgentTask; onOpen: (id: string
       </div>
       <div className="flex items-center justify-between">
         <Avatar person={person} name={task.assignee.id} size={22} />
-        {(task.upstreamTaskIds.length > 0 || task.downstreamTaskIds.length > 0) && (
-          <span className="text-[11px] text-[var(--primary)] inline-flex items-center gap-0.5"><Icon.link size={11} />{task.upstreamTaskIds.length + task.downstreamTaskIds.length}</span>
+        {linkCount > 0 && (
+          <span className="text-[11px] text-[var(--primary)] inline-flex items-center gap-0.5"><Icon.link size={11} />{linkCount}</span>
         )}
       </div>
     </div>

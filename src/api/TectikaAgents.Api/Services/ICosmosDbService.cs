@@ -47,4 +47,12 @@ public interface ICosmosDbService
 
     // ── Audit Log ──────────────────────────────────────────────────────────────
     Task AppendAuditAsync(AuditEntry entry, CancellationToken ct = default);
+
+    // ── Edges ──────────────────────────────────────────────────────────────────
+    Task<TaskEdge> CreateEdgeAsync(TaskEdge edge, CancellationToken ct = default);
+    Task<IEnumerable<TaskEdge>> GetEdgesByBoardAsync(string boardId, CancellationToken ct = default);
+    Task<TaskEdge?> GetEdgeAsync(string boardId, string edgeId, CancellationToken ct = default);
+    Task<TaskEdge> UpdateEdgeAsync(TaskEdge edge, CancellationToken ct = default);
+    Task DeleteEdgeAsync(string boardId, string edgeId, CancellationToken ct = default);
+    Task DeleteEdgesForTaskAsync(string boardId, string taskId, CancellationToken ct = default);
 }

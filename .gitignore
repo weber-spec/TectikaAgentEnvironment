@@ -31,3 +31,6 @@ local.settings.json
 # OS
 .DS_Store
 Thumbs.db
+
+# local secrets
+.monday_tkn
