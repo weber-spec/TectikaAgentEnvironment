@@ -58,6 +58,9 @@ public class UpdateRunStatusActivity
 
         await _cosmos.UpdateTaskStatusAsync(input.BoardId, input.TaskId, taskStatus, input.RunId, ct);
 
+        if (taskStatus is AgentTaskStatus.Done or AgentTaskStatus.Failed)
+            await _cosmos.PatchTaskBriefAsync(input.BoardId, input.TaskId, "", ct);
+
         if (input.Status == RunStatus.Completed)
             await _events.PublishRunCompletedAsync(input.RunId, input.TaskId, ct);
         else if (input.Status == RunStatus.Failed)

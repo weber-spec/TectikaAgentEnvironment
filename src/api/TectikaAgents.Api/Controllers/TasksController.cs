@@ -88,6 +88,8 @@ public class TasksController : ControllerBase
         if (task is null) return NotFound();
 
         task.Status = req.Status;
+        if (req.Status is AgentTaskStatus.Done or AgentTaskStatus.Failed)
+            task.TaskBrief = "";
         var updated = await _cosmos.UpdateTaskAsync(task, ct);
         return Ok(updated);
     }

@@ -44,7 +44,7 @@ export function CommandPalette() {
     ];
     const actions: Command[] = [
       { id: 'theme', label: `Switch to ${settings.theme === 'dark' ? 'light' : 'dark'} mode`, icon: 'bolt', run: () => { updateSettings({ theme: settings.theme === 'dark' ? 'light' : 'dark' }); setOpen(false); }, group: 'Actions' },
-      { id: 'newboard', label: 'Create new board', icon: 'plus', run: async () => { const name = prompt('Board name?'); if (name) { const b = await api.boards.create(name); router.push(`/boards/${b.id}`); } setOpen(false); }, group: 'Actions' },
+      { id: 'newboard', label: 'Create new board', icon: 'plus', run: () => { router.push('/boards?new=1'); setOpen(false); }, group: 'Actions' },
     ];
     const boardCmds: Command[] = boards.map(b => ({ id: `b-${b.id}`, label: b.name, hint: 'Open board', icon: 'board', run: go(`/boards/${b.id}`), group: 'Boards' }));
     return [...boardCmds, ...nav, ...actions];

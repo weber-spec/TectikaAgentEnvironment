@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useSettings } from '@/lib/settings-context';
 import type { Board, AgentTask } from '@/lib/types';
 import { STATUS_CONFIG, colorFor } from '@/lib/palette';
 import { Button, Skeleton, EmptyState, Avatar } from '@/components/ui/primitives';
+import { Modal } from '@/components/ui/overlays';
 import { Icon } from '@/components/ui/icons';
 import { relativeTime, displayName } from '@/lib/format';
 import { toast } from '@/lib/toast';
@@ -15,9 +17,14 @@ interface BoardSummary { board: Board; tasks: AgentTask[] }
 
 export default function BoardsPage() {
   const { t } = useSettings();
+  const searchParams = useSearchParams();
   const [summaries, setSummaries] = useState<BoardSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const load = () => {
     api.boards.list().then(async boards => {
@@ -27,11 +34,21 @@ export default function BoardsPage() {
   };
   useEffect(load, []);
 
-  const handleNew = async () => {
-    const name = prompt(t('newBoard') + '?');
-    if (!name) return;
-    try { const b = await api.boards.create(name); setSummaries(prev => [...prev, { board: b, tasks: [] }]); toast('Board created', 'success'); }
-    catch { toast('Could not create board', 'error'); }
+  useEffect(() => { if (searchParams.get('new') === '1') { setNewName(''); setNewDesc(''); setModalOpen(true); } }, [searchParams]);
+
+  const openModal = () => { setNewName(''); setNewDesc(''); setModalOpen(true); };
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    setSaving(true);
+    try {
+      const b = await api.boards.create(newName.trim(), newDesc.trim() || undefined);
+      setSummaries(prev => [...prev, { board: b, tasks: [] }]);
+      setModalOpen(false);
+      toast('Board created', 'success');
+    } catch { toast('Could not create board', 'error'); }
+    finally { setSaving(false); }
   };
 
   const filtered = summaries.filter(s => s.board.name.toLowerCase().includes(q.toLowerCase()));
@@ -48,7 +65,7 @@ export default function BoardsPage() {
             <Icon.search size={15} className="text-[var(--muted)]" />
             <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search boards" className="bg-transparent outline-none text-sm w-40 text-[var(--foreground)]" />
           </div>
-          <Button variant="primary" onClick={handleNew}><Icon.plus size={16} /> {t('newBoard')}</Button>
+          <Button variant="primary" onClick={openModal}><Icon.plus size={16} /> {t('newBoard')}</Button>
         </div>
       </div>
 
@@ -59,13 +76,51 @@ export default function BoardsPage() {
           </div>
         ) : filtered.length === 0 ? (
           <EmptyState icon={<Icon.board size={48} />} title={t('noBoardsYet')} description={t('noBoardsDesc')}
-            action={<Button variant="primary" onClick={handleNew}><Icon.plus size={16} /> {t('newBoard')}</Button>} />
+            action={<Button variant="primary" onClick={openModal}><Icon.plus size={16} /> {t('newBoard')}</Button>} />
         ) : (
           <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
             {filtered.map(s => <BoardCard key={s.board.id} summary={s} />)}
           </div>
         )}
       </div>
+
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title="New board"
+        width={480}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setModalOpen(false)}>Cancel</Button>
+            <Button variant="primary" onClick={handleCreate} disabled={!newName.trim() || saving}>
+              {saving ? 'Creating…' : 'Create board'}
+            </Button>
+          </>
+        }
+      >
+        <form onSubmit={handleCreate} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-[var(--muted)]">Board name <span className="text-[#e2445c]">*</span></label>
+            <input
+              autoFocus
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              placeholder="e.g. Checkout Service"
+              className="w-full h-9 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)] transition-colors"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-[var(--muted)]">Description</label>
+            <textarea
+              value={newDesc}
+              onChange={e => setNewDesc(e.target.value)}
+              placeholder="What is this board for? Agents will use this as project context."
+              rows={3}
+              className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)] transition-colors resize-none"
+            />
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

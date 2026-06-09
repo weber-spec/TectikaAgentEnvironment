@@ -58,6 +58,7 @@ builder.Services.AddSingleton<WorkflowEventPublisher>();
 
 // ── Foundry Agent runner (via HTTP to Azure OpenAI) ──────────────────────────
 builder.Services.AddHttpClient<WorkflowAgentRunner>();
+builder.Services.AddScoped<ContextManager>();
 
 // ── OpenTelemetry ─────────────────────────────────────────────────────────────
 var aiConnStr = Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING");

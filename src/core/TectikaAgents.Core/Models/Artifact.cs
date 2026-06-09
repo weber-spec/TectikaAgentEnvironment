@@ -31,6 +31,9 @@ public class Artifact
     [JsonPropertyName("internalLogs")]
     public List<string> InternalLogs { get; set; } = [];
 
+    [JsonPropertyName("summary")]
+    public string? Summary { get; set; }
+
     [JsonPropertyName("origin")]
     public ArtifactOrigin Origin { get; set; } = ArtifactOrigin.Agent;
 
