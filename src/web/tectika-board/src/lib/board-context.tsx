@@ -503,13 +503,19 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     lastEditRef.current = Date.now();
     const set = new Set(ids);
     const removed = tasks.filter(t => set.has(t.id));
+    let removedEdges: TaskEdge[] = [];
     setTasks(prev => prev.filter(t => !set.has(t.id)));
+    setEdges(prev => {
+      removedEdges = prev.filter(e => set.has(e.sourceTaskId) || set.has(e.targetTaskId));
+      return prev.filter(e => !set.has(e.sourceTaskId) && !set.has(e.targetTaskId));
+    });
     setSelectedIds([]);
     try {
       await Promise.all(ids.map(id => api.tasks.remove(boardId, id)));
       toast(`${ids.length} item${ids.length > 1 ? 's' : ''} deleted`, 'success');
     } catch {
       setTasks(prev => [...prev, ...removed]);
+      setEdges(prev => [...prev, ...removedEdges]);
       toast('Could not delete items', 'error');
     }
   }, [boardId, tasks]);
