@@ -128,6 +128,43 @@ public class TaskPipelineOrchestrator
                 new WriteAuditInput(input.TenantId, input.RunId, input.TaskId,
                     step.AgentRoleId, $"step.{step.Step}.completed", AuditOutcome.Success,
                     TokenUsage: stepResult.TokenUsage, DurationMs: stepResult.DurationMs));
+
+            // ── Interaction Gate (agent-requested) ────────────────────────────
+            if (stepResult.PendingInteraction is not null)
+            {
+                logger.LogInformation("Interaction gate at step {Step} type={Type}", step.Step, stepResult.PendingInteraction.Type);
+
+                await context.CallActivityAsync(nameof(UpdateRunStatusActivity),
+                    new UpdateRunStatusInput(input.RunId, input.TaskId, input.BoardId, RunStatus.AwaitingInteraction, step.Step));
+
+                var interactionId = await context.CallActivityAsync<string>(
+                    nameof(WriteInteractionActivity),
+                    new WriteInteractionInput(
+                        input.RunId,
+                        input.TaskId,
+                        input.BoardId,
+                        input.TenantId,
+                        step.Step,
+                        step.Approvers,
+                        stepResult.PendingInteraction));
+
+                var response = await context.WaitForExternalEvent<InteractionResponsePayload>(
+                    $"interaction-{step.Step}",
+                    TimeSpan.FromHours(48));
+
+                var briefEntry = response.InteractionType switch
+                {
+                    "Selection" => $"[Human, {response.InteractionId[..Math.Min(6, response.InteractionId.Length)]}, Selection]: Selected \"{response.SelectedTitle}\" — {response.SelectedPrice}",
+                    "Question"  => $"[Human, {response.InteractionId[..Math.Min(6, response.InteractionId.Length)]}, Question]: \"{response.Answer}\"",
+                    _           => $"[Human, {response.InteractionId[..Math.Min(6, response.InteractionId.Length)]}, Approval]: {(response.Approved == true ? "Approved" : "Rejected")}{(string.IsNullOrEmpty(response.Notes) ? "" : $" — {response.Notes}")}",
+                };
+
+                await context.CallActivityAsync(nameof(AppendTaskBriefActivity),
+                    new AppendTaskBriefInput(input.BoardId, input.TaskId, briefEntry));
+
+                await context.CallActivityAsync(nameof(UpdateRunStatusActivity),
+                    new UpdateRunStatusInput(input.RunId, input.TaskId, input.BoardId, RunStatus.Running, step.Step));
+            }
         }
 
         // All steps done
