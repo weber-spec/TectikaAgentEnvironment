@@ -41,8 +41,6 @@ public class TasksController : ControllerBase
             Assignee = req.Assignee,
             CreatedBy = UserId,
             Dependencies = req.Dependencies ?? [],
-            UpstreamTaskIds = req.UpstreamTaskIds ?? [],
-            DownstreamTaskIds = req.DownstreamTaskIds ?? [],
             CanvasPosition = req.CanvasPosition,
             TriggerSource = TriggerSource.Manual
         };
@@ -110,8 +108,6 @@ public record CreateTaskRequest(
     TaskPriority Priority,
     TaskAssignee Assignee,
     List<string>? Dependencies,
-    List<string>? UpstreamTaskIds,
-    List<string>? DownstreamTaskIds,
     CanvasPosition? CanvasPosition);
 
 public record UpdateStatusRequest(AgentTaskStatus Status);

@@ -38,9 +38,26 @@ internal static class MockDataSeeder
         ConcurrentDictionary<string, AgentRole> agentRoles,
         ConcurrentDictionary<string, WorkflowRun> runs,
         ConcurrentDictionary<string, Artifact> artifacts,
-        ConcurrentDictionary<string, Approval> approvals)
+        ConcurrentDictionary<string, Approval> approvals,
+        ConcurrentDictionary<string, TaskEdge> edges)
     {
         var now = DateTimeOffset.UtcNow;
+
+        // Adds a typed edge to the graph. BoardId is required because edges are board-scoped.
+        void AddEdge(string source, string target, string boardId,
+            EdgeKind kind = EdgeKind.Dependency, string? label = null) =>
+            edges[TaskEdge.MakeId(source, target)] = new TaskEdge
+            {
+                Id = TaskEdge.MakeId(source, target),
+                TenantId = Tenant,
+                BoardId = boardId,
+                SourceTaskId = source,
+                TargetTaskId = target,
+                Kind = kind,
+                Label = label,
+                CreatedAt = now.AddDays(-9),
+                UpdatedAt = now.AddDays(-9),
+            };
 
         // ── Board ────────────────────────────────────────────────────────────────
         boards[BoardId] = new Board
@@ -113,7 +130,6 @@ internal static class MockDataSeeder
             CreatedBy = Owner,
             CurrentArtifactId = "art-spec-v1",
             CanvasPosition = new CanvasPosition { X = 80, Y = 80 },
-            DownstreamTaskIds = [TaskImpl],
             CreatedAt = now.AddDays(-10),
         };
         tasks[TaskImpl] = new AgentTask
@@ -130,8 +146,6 @@ internal static class MockDataSeeder
             WorkflowRunId = RunImpl,
             CurrentArtifactId = "art-impl-v2",
             CanvasPosition = new CanvasPosition { X = 380, Y = 80 },
-            UpstreamTaskIds = [TaskSpec],
-            DownstreamTaskIds = [TaskReview],
             CreatedAt = now.AddDays(-6),
             DueAt = now.AddDays(2),
         };
@@ -148,8 +162,6 @@ internal static class MockDataSeeder
             CreatedBy = Owner,
             HumanAuditorId = Owner,
             CanvasPosition = new CanvasPosition { X = 680, Y = 80 },
-            UpstreamTaskIds = [TaskImpl],
-            DownstreamTaskIds = [TaskDeploy],
             CreatedAt = now.AddDays(-3),
         };
         tasks[TaskDeploy] = new AgentTask
@@ -165,7 +177,6 @@ internal static class MockDataSeeder
             CreatedBy = Owner,
             WorkflowRunId = RunDeploy,
             CanvasPosition = new CanvasPosition { X = 980, Y = 80 },
-            UpstreamTaskIds = [TaskReview],
             CreatedAt = now.AddDays(-1),
         };
         tasks[TaskBacklog] = new AgentTask
@@ -182,6 +193,11 @@ internal static class MockDataSeeder
             CanvasPosition = new CanvasPosition { X = 380, Y = 320 },
             CreatedAt = now.AddDays(-1),
         };
+
+        // ── Edges (dependency chain that the upstream/downstream arrays used to express) ──
+        AddEdge(TaskSpec, TaskImpl, BoardId);
+        AddEdge(TaskImpl, TaskReview, BoardId);
+        AddEdge(TaskReview, TaskDeploy, BoardId);
 
         // ── Artifacts ──────────────────────────────────────────────────────────────
         artifacts["art-spec-v1"] = new Artifact
