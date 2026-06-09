@@ -12,7 +12,7 @@ interface SearchResultItemCardProps {
 export function SearchResultItemCard({ item, index, selected, onSelect }: SearchResultItemCardProps) {
   return (
     <div
-      role="button"
+      role="radio"
       tabIndex={0}
       onClick={() => onSelect(index)}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(index); } }}
@@ -20,20 +20,19 @@ export function SearchResultItemCard({ item, index, selected, onSelect }: Search
         'relative flex gap-3 rounded-xl border bg-[var(--background)] p-3.5 cursor-pointer transition-all select-none',
         'hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]',
         selected
-          ? 'border-[#0073ea] ring-2 ring-[#0073ea] shadow-sm'
+          ? 'border-[var(--primary)] ring-2 ring-[var(--primary)] shadow-sm'
           : 'border-[var(--border)] hover:border-[var(--muted-2)]',
       ].join(' ')}
-      aria-pressed={selected}
+      aria-checked={selected}
+      aria-label={item.title}
     >
       {/* Radio indicator */}
       <div className="shrink-0 mt-0.5">
         <div
-          aria-label={`Select ${item.title}`}
-          role="radio"
-          aria-checked={selected}
+          aria-hidden="true"
           className={[
             'w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors',
-            selected ? 'border-[#0073ea] bg-[#0073ea]' : 'border-[var(--muted-2)] bg-transparent',
+            selected ? 'border-[var(--primary)] bg-[var(--primary)]' : 'border-[var(--muted-2)] bg-transparent',
           ].join(' ')}
         >
           {selected && (
@@ -95,7 +94,7 @@ export function SearchResultItemCard({ item, index, selected, onSelect }: Search
             target="_blank"
             rel="noopener noreferrer"
             onClick={e => e.stopPropagation()}
-            className="inline-flex items-center gap-1 mt-2.5 text-xs font-medium text-[#0073ea] hover:underline"
+            className="inline-flex items-center gap-1 mt-2.5 text-xs font-medium text-[var(--primary)] hover:underline"
             aria-label={`View ${item.title} (opens in new tab)`}
           >
             View
