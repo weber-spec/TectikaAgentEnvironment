@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { api, type TaskPatch } from './api';
 import type {
-  Board, AgentTask, AgentRole, WorkflowRun, Person, TaskEdge, EdgeKind,
+  Board, AgentTask, AgentRole, WorkflowRun, Person, TaskEdge,
   ColumnDef, ColumnKind, ViewDef, ViewKind, FilterGroup, SortRule,
   Comment, ActivityEntry, AutomationRecipe, AgentTaskStatus, ChatTurn,
 } from './types';

@@ -11,7 +11,7 @@ const LABEL_W = 240;
 const DAY = 86400000;
 
 export function TimelineView() {
-  const { groups, openTask } = useBoard();
+  const { groups, openTask, downstreamIds } = useBoard();
   const [pxPerDay, setPxPerDay] = useState(26);
   const [now] = useState(() => Date.now());
 
@@ -50,7 +50,7 @@ export function TimelineView() {
   const arrows: { x1: number; y1: number; x2: number; y2: number }[] = [];
   for (const t of allTasks) {
     const fromEnd = xFor((t.dueAt ? new Date(t.dueAt) : new Date(new Date(t.createdAt).getTime() + 3 * DAY)).getTime());
-    for (const downId of t.downstreamTaskIds) {
+    for (const downId of downstreamIds[t.id] ?? []) {
       if (taskY[downId] == null) continue;
       const down = allTasks.find(x => x.id === downId)!;
       const toStart = xFor(new Date(down.createdAt).getTime());
