@@ -75,6 +75,25 @@ public class CosmosDbService : ICosmosDbService
         catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
     }
 
+    public async Task<Board> UpdateBoardAsync(Board board, CancellationToken ct = default)
+    {
+        var res = await GetContainer(BoardsContainer).ReplaceItemAsync(board, board.Id, new PartitionKey(board.TenantId), cancellationToken: ct);
+        return res.Resource;
+    }
+
+    public async Task DeleteBoardAsync(string tenantId, string boardId, CancellationToken ct = default)
+    {
+        var tasks = await GetTasksByBoardAsync(boardId, ct);
+        await System.Threading.Tasks.Task.WhenAll(tasks.Select(t =>
+            GetContainer(TasksContainer).DeleteItemAsync<AgentTask>(t.Id, new PartitionKey(boardId), cancellationToken: ct)));
+
+        try
+        {
+            await GetContainer(BoardsContainer).DeleteItemAsync<Board>(boardId, new PartitionKey(tenantId), cancellationToken: ct);
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { /* already gone */ }
+    }
+
     // ── Tasks ────────────────────────────────────────────────────────────────
 
     public async Task<AgentTask> CreateTaskAsync(AgentTask task, CancellationToken ct = default)

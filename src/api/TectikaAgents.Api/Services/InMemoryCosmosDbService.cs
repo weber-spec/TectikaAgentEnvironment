@@ -51,6 +51,20 @@ public class InMemoryCosmosDbService : ICosmosDbService
     public Task<Board?> GetBoardAsync(string tenantId, string boardId, CancellationToken ct = default) =>
         Task.FromResult(_boards.TryGetValue(boardId, out var b) && b.TenantId == tenantId ? b : null);
 
+    public Task<Board> UpdateBoardAsync(Board board, CancellationToken ct = default)
+    {
+        _boards[board.Id] = board;
+        return Task.FromResult(board);
+    }
+
+    public Task DeleteBoardAsync(string tenantId, string boardId, CancellationToken ct = default)
+    {
+        foreach (var key in _tasks.Keys.Where(k => _tasks.TryGetValue(k, out var t) && t.BoardId == boardId).ToList())
+            _tasks.TryRemove(key, out _);
+        _boards.TryRemove(boardId, out _);
+        return Task.CompletedTask;
+    }
+
     // ── Tasks ──────────────────────────────────────────────────────────────────
     public Task<AgentTask> CreateTaskAsync(AgentTask task, CancellationToken ct = default)
     {

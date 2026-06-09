@@ -27,6 +27,29 @@ public class BoardsController : ControllerBase
         return board is null ? NotFound() : Ok(board);
     }
 
+    [HttpPut("{boardId}")]
+    public async Task<IActionResult> Update(string boardId, [FromBody] UpdateBoardRequest req, CancellationToken ct)
+    {
+        var board = await _cosmos.GetBoardAsync(TenantId, boardId, ct);
+        if (board is null) return NotFound();
+        var currentUser = User.FindFirst("preferred_username")?.Value;
+        if (board.OwnerId != currentUser) return Forbid();
+        board.Name = req.Name;
+        board.Description = req.Description ?? board.Description;
+        return Ok(await _cosmos.UpdateBoardAsync(board, ct));
+    }
+
+    [HttpDelete("{boardId}")]
+    public async Task<IActionResult> Delete(string boardId, CancellationToken ct)
+    {
+        var board = await _cosmos.GetBoardAsync(TenantId, boardId, ct);
+        if (board is null) return NotFound();
+        var currentUser = User.FindFirst("preferred_username")?.Value;
+        if (board.OwnerId != currentUser) return Forbid();
+        await _cosmos.DeleteBoardAsync(TenantId, boardId, ct);
+        return NoContent();
+    }
+
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateBoardRequest req, CancellationToken ct)
     {
@@ -44,3 +67,4 @@ public class BoardsController : ControllerBase
 }
 
 public record CreateBoardRequest(string Name, string? Description);
+public record UpdateBoardRequest(string Name, string? Description);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -16,6 +16,10 @@ import { toast } from '@/lib/toast';
 interface BoardSummary { board: Board; tasks: AgentTask[] }
 
 export default function BoardsPage() {
+  return <Suspense><BoardsPageContent /></Suspense>;
+}
+
+function BoardsPageContent() {
   const { t } = useSettings();
   const searchParams = useSearchParams();
   const [summaries, setSummaries] = useState<BoardSummary[]>([]);
