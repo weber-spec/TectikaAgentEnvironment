@@ -75,17 +75,18 @@ export interface LabelConfig {
 }
 
 export const STATUS_CONFIG: Record<AgentTaskStatus, LabelConfig> = {
-  Backlog:          { label: 'Backlog',           hex: '#c4c4c4' },
-  InProgress:       { label: 'Working on it',     hex: '#fdab3d' },
-  AwaitingApproval: { label: 'Awaiting Approval', hex: '#a25ddc' },
-  Blocked:          { label: 'Stuck',             hex: '#ff642e' },
-  Review:           { label: 'In Review',         hex: '#66ccff' },
-  Done:             { label: 'Done',              hex: '#00c875' },
-  Failed:           { label: 'Failed',            hex: '#e2445c' },
+  Backlog:               { label: 'Backlog',               hex: '#c4c4c4' },
+  InProgress:            { label: 'Working on it',         hex: '#fdab3d' },
+  AwaitingApproval:      { label: 'Awaiting Approval',     hex: '#a25ddc' },
+  AwaitingInteraction:   { label: 'Awaiting Interaction',  hex: '#66ccff' },
+  Blocked:               { label: 'Stuck',                 hex: '#ff642e' },
+  Review:                { label: 'In Review',             hex: '#579bfc' },
+  Done:                  { label: 'Done',                  hex: '#00c875' },
+  Failed:                { label: 'Failed',                hex: '#e2445c' },
 };
 
 export const STATUS_ORDER: AgentTaskStatus[] = [
-  'Backlog', 'InProgress', 'AwaitingApproval', 'Review', 'Blocked', 'Done', 'Failed',
+  'Backlog', 'InProgress', 'AwaitingApproval', 'AwaitingInteraction', 'Review', 'Blocked', 'Done', 'Failed',
 ];
 
 export const PRIORITY_CONFIG: Record<TaskPriority, LabelConfig> = {
