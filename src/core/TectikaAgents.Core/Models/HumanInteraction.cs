@@ -101,23 +101,32 @@ public class SearchResultItem
 // Embedded in StepResult to signal the orchestrator
 public class PendingInteractionRequest
 {
+    [JsonPropertyName("type")]
     public InteractionType Type { get; set; }
+
+    [JsonPropertyName("actionDescription")]
     public string ActionDescription { get; set; } = string.Empty;
+
+    [JsonPropertyName("items")]
     public List<SearchResultItem>? Items { get; set; }
+
+    [JsonPropertyName("question")]
     public string? Question { get; set; }
+
+    [JsonPropertyName("questionOptions")]
     public List<string>? QuestionOptions { get; set; }
 }
 
 // Payload raised as Durable Functions external event
 public record InteractionResponsePayload(
-    string InteractionId,
-    string InteractionType,
-    int? SelectedIndex,
-    string? SelectedTitle,
-    string? SelectedPrice,
-    string? Answer,
-    bool? Approved,
-    string? Notes);
+    [property: JsonPropertyName("interactionId")] string InteractionId,
+    [property: JsonPropertyName("interactionType")] string InteractionType,
+    [property: JsonPropertyName("selectedIndex")] int? SelectedIndex,
+    [property: JsonPropertyName("selectedTitle")] string? SelectedTitle,
+    [property: JsonPropertyName("selectedPrice")] string? SelectedPrice,
+    [property: JsonPropertyName("answer")] string? Answer,
+    [property: JsonPropertyName("approved")] bool? Approved,
+    [property: JsonPropertyName("notes")] string? Notes);
 
 public enum InteractionType { Approval, Selection, Question }
 public enum InteractionStatus { Pending, Responded, Expired }
