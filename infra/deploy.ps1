@@ -1,362 +1,154 @@
 <#
 .SYNOPSIS
-    TectikaAgents — Azure Infrastructure Deployment
+    TectikaAgents — one-command, idempotent deployment to a fresh subscription.
 .DESCRIPTION
-    Run once to provision all Azure resources.
-    Prerequisites: az cli logged in, correct subscription accessible.
-    After running, copy the printed values into GitHub Secrets.
+    1. Resolves the live container images (so a re-run never reverts CI-deployed
+       code back to the placeholder).
+    2. Deploys ALL Azure resources via Bicep (main.bicep) — pass 1.
+    3. Runs entra.ps1 for the directory app registrations (or prints a clear
+       "directory admin required" message and continues).
+    4. Re-deploys (pass 2, idempotent) with the Entra client ids so the API gets
+       its AzureAd config.
+    5. If `gh` is authenticated, pushes the GitHub Actions secrets + variables CI
+       needs; otherwise prints them.
+    Code itself is shipped by the GitHub Actions workflows on push to main.
+
+    Re-runnable any number of times — every step converges.
+.NOTES
+    Prereq: az CLI logged in (Owner/Contributor + ability to assign roles).
+            pwsh, and optionally gh (GitHub CLI) for secret automation.
 #>
 param(
     [Parameter(Mandatory)][string]$SubscriptionId,
-    [Parameter(Mandatory)][string]$TenantId,
     [Parameter(Mandatory)][string]$GitHubOrg,
-    [Parameter(Mandatory)][string]$GitHubRepo
+    [Parameter(Mandatory)][string]$GitHubRepo,
+    [string]$NamePrefix = 'agentteam',
+    [string]$Location = 'westeurope',
+    [string]$TenantId,
+    [switch]$SkipEntra,
+    [switch]$SkipGitHubSecrets
 )
 
 Set-StrictMode -Version Latest
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = 'Stop'
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# ── Resource names ─────────────────────────────────────────────────────────────
-$LOCATION          = "westeurope"
-$RG                = "rg-agentteam-dev-001"
-$ACR_NAME          = "tacragentteam"
-$KV_NAME           = "kv-agentteam"
-$COSMOS_ACCOUNT    = "cosmos-agentteam"
-$SB_NAMESPACE      = "sb-agentteam"
-$LOG_WORKSPACE     = "law-agentteam"
-$AI_NAME           = "ai-agentteam"
-$STORAGE_ACCOUNT   = "stagentteamflows"
-$CAE_NAME          = "cae-agentteam"
-$CA_API_NAME       = "ca-agentteam-api"
-$CA_WORKFLOWS_NAME = "ca-agentteam-workflows"
-$CA_WEB_NAME       = "ca-agentteam-web"
-$MI_API_NAME       = "mi-agentteam-api"
-$MI_WORKFLOWS_NAME = "mi-agentteam-workflows"
+$RG          = "rg-$NamePrefix-dev-001"
+$apiCaName   = "ca-$NamePrefix-api"
+$webCaName   = "ca-$NamePrefix-web"
+$placeholder = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 
-# ── 0. Subscription ────────────────────────────────────────────────────────────
-Write-Host "`n==> Setting subscription..."
-az account set --subscription $SubscriptionId
+Write-Host "==> Setting subscription $SubscriptionId..."
+az account set --subscription $SubscriptionId | Out-Null
+if (-not $TenantId) { $TenantId = (az account show --query tenantId -o tsv).Trim() }
 
-# ── 1. Resource Group ──────────────────────────────────────────────────────────
-Write-Host "==> Creating resource group $RG..."
-az group create --name $RG --location $LOCATION
+# ── Resolve live images (idempotency: don't clobber CI-deployed code) ─────────
+function Get-LiveImage([string]$app) {
+    $img = az containerapp show -n $app -g $RG --query 'properties.template.containers[0].image' -o tsv 2>$null
+    if ($LASTEXITCODE -eq 0 -and $img -and $img.Trim() -ne '') { return $img.Trim() }
+    return $placeholder
+}
+$apiImage = Get-LiveImage $apiCaName
+$webImage = Get-LiveImage $webCaName
+Write-Host "    api image: $apiImage"
+Write-Host "    web image: $webImage"
 
-# ── 2. Container Registry ──────────────────────────────────────────────────────
-Write-Host "==> Creating ACR $ACR_NAME..."
-az acr create `
-    --resource-group $RG `
-    --name           $ACR_NAME `
-    --sku            Basic `
-    --admin-enabled  false
-
-$ACR_LOGIN_SERVER = (az acr show --name $ACR_NAME --query loginServer -o tsv)
-$ACR_ID           = (az acr show --name $ACR_NAME --query id -o tsv)
-Write-Host "    ACR: $ACR_LOGIN_SERVER"
-
-# ── 3. Log Analytics + Application Insights ────────────────────────────────────
-Write-Host "==> Creating Log Analytics workspace..."
-az monitor log-analytics workspace create `
-    --resource-group $RG `
-    --workspace-name $LOG_WORKSPACE `
-    --location       $LOCATION
-
-$LAW_ID = (az monitor log-analytics workspace show `
-    --resource-group $RG --workspace-name $LOG_WORKSPACE --query id -o tsv)
-
-Write-Host "==> Creating Application Insights..."
-az monitor app-insights component create `
-    --app              $AI_NAME `
-    --resource-group   $RG `
-    --location         $LOCATION `
-    --workspace        $LAW_ID `
-    --application-type web
-
-$AI_CONN_STR = (az monitor app-insights component show `
-    --app $AI_NAME --resource-group $RG --query connectionString -o tsv)
-
-# ── 4. Storage Account (Durable Functions) ─────────────────────────────────────
-Write-Host "==> Creating Storage Account $STORAGE_ACCOUNT..."
-az storage account create `
-    --name                      $STORAGE_ACCOUNT `
-    --resource-group            $RG `
-    --location                  $LOCATION `
-    --sku                       Standard_LRS `
-    --kind                      StorageV2 `
-    --allow-blob-public-access  false `
-    --min-tls-version           TLS1_2
-
-$STORAGE_CONN_STR = (az storage account show-connection-string `
-    --name $STORAGE_ACCOUNT --resource-group $RG --query connectionString -o tsv)
-
-# ── 5. Key Vault ───────────────────────────────────────────────────────────────
-Write-Host "==> Creating Key Vault $KV_NAME..."
-az keyvault create `
-    --name                      $KV_NAME `
-    --resource-group            $RG `
-    --location                  $LOCATION `
-    --sku                       standard `
-    --enable-rbac-authorization true
-
-$KV_URI = "https://${KV_NAME}.vault.azure.net/"
-$KV_ID  = (az keyvault show --name $KV_NAME --resource-group $RG --query id -o tsv)
-
-# ── 6. Cosmos DB (Serverless) ──────────────────────────────────────────────────
-Write-Host "==> Creating Cosmos DB account $COSMOS_ACCOUNT (serverless)..."
-az cosmosdb create `
-    --name                      $COSMOS_ACCOUNT `
-    --resource-group            $RG `
-    --locations                 regionName=$LOCATION failoverPriority=0 isZoneRedundant=false `
-    --capabilities              EnableServerless `
-    --default-consistency-level Session
-
-$COSMOS_ENDPOINT = (az cosmosdb show `
-    --name $COSMOS_ACCOUNT --resource-group $RG --query documentEndpoint -o tsv)
-$COSMOS_ID = (az cosmosdb show `
-    --name $COSMOS_ACCOUNT --resource-group $RG --query id -o tsv)
-
-Write-Host "==> Creating Cosmos DB database and containers..."
-az cosmosdb sql database create `
-    --account-name   $COSMOS_ACCOUNT `
-    --resource-group $RG `
-    --name           "tectikaagents"
-
-$containers = @(
-    @{ name = "tasks";     partition = "/id"     },
-    @{ name = "agents";    partition = "/id"     },
-    @{ name = "runs";      partition = "/taskId" },
-    @{ name = "approvals"; partition = "/runId"  },
-    @{ name = "audit";     partition = "/runId"  }
-)
-foreach ($c in $containers) {
-    az cosmosdb sql container create `
-        --account-name       $COSMOS_ACCOUNT `
-        --resource-group     $RG `
-        --database-name      "tectikaagents" `
-        --name               $c.name `
-        --partition-key-path $c.partition 2>$null
-    Write-Host "    Container: $($c.name)"
+function Invoke-Deploy([string]$apiClientId, [string]$platformClientId) {
+    # NOTE: az forbids combining a .bicepparam file with inline overrides, so the
+    # orchestrator passes everything inline. Model settings use main.bicep defaults
+    # (which match main.bicepparam). main.bicepparam is for manual `az deployment`.
+    $raw = az deployment sub create `
+        --name          'tectika-main' `
+        --location      $Location `
+        --template-file (Join-Path $here 'main.bicep') `
+        --parameters    namePrefix=$NamePrefix location=$Location `
+                        apiImage=$apiImage webImage=$webImage `
+                        apiClientId=$apiClientId platformClientId=$platformClientId `
+        -o json
+    if ($LASTEXITCODE -ne 0) { throw 'Bicep deployment failed.' }
+    return ($raw | ConvertFrom-Json).properties.outputs
 }
 
-# ── 7. Service Bus (Standard — required for Topics) ────────────────────────────
-Write-Host "==> Creating Service Bus namespace $SB_NAMESPACE (Standard)..."
-az servicebus namespace create `
-    --name           $SB_NAMESPACE `
-    --resource-group $RG `
-    --location       $LOCATION `
-    --sku            Standard
+# ── Pass 1: all ARM resources (Entra ids empty for now) ───────────────────────
+Write-Host "`n==> Deploying infrastructure (pass 1)..."
+$out = Invoke-Deploy '' ''
+$webUrl         = $out.webUrl.value
+$apiUrl         = $out.apiUrl.value
+$acrLoginServer = $out.acrLoginServer.value
+$functionApp    = $out.functionAppName.value
+$apiCaName      = $out.apiContainerAppName.value
+$webCaName      = $out.webContainerAppName.value
+Write-Host "    web: $webUrl"
+Write-Host "    api: $apiUrl"
 
-$SB_FQDN = "${SB_NAMESPACE}.servicebus.windows.net"
-$SB_ID   = (az servicebus namespace show `
-    --name $SB_NAMESPACE --resource-group $RG --query id -o tsv)
+# ── Entra (isolated; may require a directory admin) ───────────────────────────
+$apiClientId = ''; $platformClientId = ''; $githubAppId = ''
+if (-not $SkipEntra) {
+    Write-Host "`n==> Running Entra app registrations..."
+    $entraOut = Join-Path $here 'entra-outputs.json'
+    & pwsh (Join-Path $here 'entra.ps1') `
+        -GitHubOrg $GitHubOrg -GitHubRepo $GitHubRepo `
+        -SubscriptionId $SubscriptionId -ResourceGroup $RG `
+        -WebUrl $webUrl -NamePrefix $NamePrefix -OutFile $entraOut
+    $entraExit = $LASTEXITCODE
+    if ($entraExit -eq 10) {
+        Write-Host "    Entra step skipped (insufficient directory permissions). Continuing." -ForegroundColor Yellow
+    } elseif ($entraExit -ne 0) {
+        throw "entra.ps1 failed with exit code $entraExit"
+    } elseif (Test-Path $entraOut) {
+        $e = Get-Content $entraOut -Raw | ConvertFrom-Json
+        $apiClientId = $e.apiClientId; $platformClientId = $e.platformClientId; $githubAppId = $e.githubAppId
+    }
+} else { Write-Host "`n==> Skipping Entra (per -SkipEntra)." }
 
-az servicebus topic create `
-    --name                        "agent-events" `
-    --namespace-name              $SB_NAMESPACE `
-    --resource-group              $RG `
-    --default-message-time-to-live P14D
-
-az servicebus topic subscription create `
-    --name           "api-sub" `
-    --topic-name     "agent-events" `
-    --namespace-name $SB_NAMESPACE `
-    --resource-group $RG
-
-az servicebus queue create `
-    --name           "task-trigger" `
-    --namespace-name $SB_NAMESPACE `
-    --resource-group $RG
-
-az servicebus queue create `
-    --name           "approvals" `
-    --namespace-name $SB_NAMESPACE `
-    --resource-group $RG
-
-# ── 8. Managed Identities ──────────────────────────────────────────────────────
-Write-Host "==> Creating Managed Identities..."
-az identity create --name $MI_API_NAME       --resource-group $RG --location $LOCATION
-az identity create --name $MI_WORKFLOWS_NAME --resource-group $RG --location $LOCATION
-
-$MI_API_CLIENT_ID = (az identity show --name $MI_API_NAME       --resource-group $RG --query clientId    -o tsv)
-$MI_API_PRINCIPAL = (az identity show --name $MI_API_NAME       --resource-group $RG --query principalId -o tsv)
-$MI_WF_CLIENT_ID  = (az identity show --name $MI_WORKFLOWS_NAME --resource-group $RG --query clientId    -o tsv)
-$MI_WF_PRINCIPAL  = (az identity show --name $MI_WORKFLOWS_NAME --resource-group $RG --query principalId -o tsv)
-
-$MI_API_RESOURCE_ID = (az identity show --name $MI_API_NAME       --resource-group $RG --query id -o tsv)
-$MI_WF_RESOURCE_ID  = (az identity show --name $MI_WORKFLOWS_NAME --resource-group $RG --query id -o tsv)
-
-# ── 9. RBAC Role Assignments ───────────────────────────────────────────────────
-Write-Host "==> Assigning roles..."
-
-$COSMOS_DATA_CONTRIBUTOR = "/subscriptions/$SubscriptionId/resourceGroups/$RG/providers/Microsoft.DocumentDB/databaseAccounts/$COSMOS_ACCOUNT/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002"
-$COSMOS_SCOPE            = "/subscriptions/$SubscriptionId/resourceGroups/$RG/providers/Microsoft.DocumentDB/databaseAccounts/$COSMOS_ACCOUNT"
-
-foreach ($principal in @($MI_API_PRINCIPAL, $MI_WF_PRINCIPAL)) {
-    # Cosmos DB data plane
-    az cosmosdb sql role assignment create `
-        --account-name       $COSMOS_ACCOUNT `
-        --resource-group     $RG `
-        --role-definition-id $COSMOS_DATA_CONTRIBUTOR `
-        --principal-id       $principal `
-        --scope              $COSMOS_SCOPE
-
-    # Service Bus
-    az role assignment create `
-        --assignee   $principal `
-        --role       "Azure Service Bus Data Owner" `
-        --scope      $SB_ID
-
-    # Key Vault
-    az role assignment create `
-        --assignee   $principal `
-        --role       "Key Vault Secrets User" `
-        --scope      $KV_ID
-
-    # ACR Pull (Container Apps pull images)
-    az role assignment create `
-        --assignee   $principal `
-        --role       "AcrPull" `
-        --scope      $ACR_ID
+# ── Pass 2: re-deploy with Entra client ids (idempotent; only if we got them) ──
+if ($apiClientId -and $platformClientId) {
+    Write-Host "`n==> Deploying infrastructure (pass 2, wiring AzureAd)..."
+    $out = Invoke-Deploy $apiClientId $platformClientId
 }
 
-# ── 10. Container Apps Environment ─────────────────────────────────────────────
-Write-Host "==> Creating Container Apps Environment $CAE_NAME..."
-az containerapp env create `
-    --name               $CAE_NAME `
-    --resource-group     $RG `
-    --location           $LOCATION `
-    --logs-workspace-id  $LAW_ID
+# ── GitHub Actions secrets + variables ────────────────────────────────────────
+$ghAvailable = $false
+if (-not $SkipGitHubSecrets) {
+    if (Get-Command gh -ErrorAction SilentlyContinue) {
+        gh auth status 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { $ghAvailable = $true }
+    }
+}
+if ($ghAvailable) {
+    Write-Host "`n==> Setting GitHub Actions secrets + variables..."
+    $repo = "$GitHubOrg/$GitHubRepo"
+    function Set-GhSecret($n,$v)   { if ($v) { gh secret   set $n   -R $repo --body "$v" | Out-Null; Write-Host "    secret   $n" } }
+    function Set-GhVariable($n,$v) { if ($v) { gh variable set $n   -R $repo --body "$v" | Out-Null; Write-Host "    variable $n" } }
+    Set-GhSecret   'AZURE_CLIENT_ID'       $githubAppId
+    Set-GhSecret   'AZURE_TENANT_ID'       $TenantId
+    Set-GhSecret   'AZURE_SUBSCRIPTION_ID' $SubscriptionId
+    Set-GhSecret   'ACR_LOGIN_SERVER'      $acrLoginServer
+    Set-GhSecret   'NEXT_PUBLIC_API_URL'   $apiUrl
+    Set-GhSecret   'NEXT_PUBLIC_CLIENT_ID' $platformClientId
+    Set-GhVariable 'RESOURCE_GROUP'        $RG
+    Set-GhVariable 'API_CONTAINER_APP'     $apiCaName
+    Set-GhVariable 'WEB_CONTAINER_APP'     $webCaName
+    Set-GhVariable 'FUNCTION_APP_NAME'     $functionApp
+} else {
+    Write-Host "`n==> gh not authenticated — set these GitHub Actions values manually:" -ForegroundColor Yellow
+    Write-Host "    secret   AZURE_CLIENT_ID       = $githubAppId"
+    Write-Host "    secret   AZURE_TENANT_ID       = $TenantId"
+    Write-Host "    secret   AZURE_SUBSCRIPTION_ID = $SubscriptionId"
+    Write-Host "    secret   ACR_LOGIN_SERVER      = $acrLoginServer"
+    Write-Host "    secret   NEXT_PUBLIC_API_URL   = $apiUrl"
+    Write-Host "    secret   NEXT_PUBLIC_CLIENT_ID = $platformClientId"
+    Write-Host "    variable RESOURCE_GROUP        = $RG"
+    Write-Host "    variable API_CONTAINER_APP     = $apiCaName"
+    Write-Host "    variable WEB_CONTAINER_APP     = $webCaName"
+    Write-Host "    variable FUNCTION_APP_NAME     = $functionApp"
+}
 
-# ── 11. Container Apps (placeholder image — CI/CD will update) ─────────────────
-Write-Host "==> Creating Container App: API..."
-az containerapp create `
-    --name             $CA_API_NAME `
-    --resource-group   $RG `
-    --environment      $CAE_NAME `
-    --image            "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest" `
-    --target-port      8080 `
-    --ingress          external `
-    --min-replicas     1 `
-    --max-replicas     5 `
-    --cpu              0.5 `
-    --memory           "1Gi" `
-    --user-assigned    $MI_API_RESOURCE_ID `
-    --registry-server  $ACR_LOGIN_SERVER `
-    --registry-identity $MI_API_RESOURCE_ID `
-    --env-vars `
-        "ASPNETCORE_ENVIRONMENT=Production" `
-        "MockDatabase__Enabled=false" `
-        "CosmosDb__AccountEndpoint=$COSMOS_ENDPOINT" `
-        "CosmosDb__DatabaseName=tectikaagents" `
-        "ServiceBus__Namespace=$SB_FQDN" `
-        "ServiceBus__AgentEventsTopic=agent-events" `
-        "ServiceBus__TaskTriggerQueue=task-trigger" `
-        "ServiceBus__ApprovalsQueue=approvals" `
-        "KeyVault__VaultUri=$KV_URI" `
-        "APPLICATIONINSIGHTS_CONNECTION_STRING=$AI_CONN_STR" `
-        "AZURE_CLIENT_ID=$MI_API_CLIENT_ID" `
-        "AzureAd__Instance=https://login.microsoftonline.com/" `
-        "AzureAd__TenantId=$TenantId"
-
-Write-Host "==> Creating Container App: Workflows (internal)..."
-az containerapp create `
-    --name             $CA_WORKFLOWS_NAME `
-    --resource-group   $RG `
-    --environment      $CAE_NAME `
-    --image            "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest" `
-    --target-port      80 `
-    --ingress          internal `
-    --min-replicas     1 `
-    --max-replicas     3 `
-    --cpu              0.5 `
-    --memory           "1Gi" `
-    --user-assigned    $MI_WF_RESOURCE_ID `
-    --registry-server  $ACR_LOGIN_SERVER `
-    --registry-identity $MI_WF_RESOURCE_ID `
-    --env-vars `
-        "AzureWebJobsStorage=$STORAGE_CONN_STR" `
-        "FUNCTIONS_WORKER_RUNTIME=dotnet-isolated" `
-        "CosmosDb__AccountEndpoint=$COSMOS_ENDPOINT" `
-        "CosmosDb__DatabaseName=tectikaagents" `
-        "ServiceBus__Namespace=$SB_FQDN" `
-        "ServiceBus__AgentEventsTopic=agent-events" `
-        "ServiceBus__TaskTriggerQueue=task-trigger" `
-        "ServiceBus__ApprovalsQueue=approvals" `
-        "APPLICATIONINSIGHTS_CONNECTION_STRING=$AI_CONN_STR" `
-        "AZURE_CLIENT_ID=$MI_WF_CLIENT_ID"
-
-$WF_FQDN = (az containerapp show `
-    --name $CA_WORKFLOWS_NAME --resource-group $RG `
-    --query properties.configuration.ingress.fqdn -o tsv)
-
-# Wire Workflows URL into API
-az containerapp update `
-    --name           $CA_API_NAME `
-    --resource-group $RG `
-    --set-env-vars   "DurableFunctions__StartUrl=https://${WF_FQDN}/api/pipelines/start"
-
-Write-Host "==> Creating Container App: Web..."
-az containerapp create `
-    --name           $CA_WEB_NAME `
-    --resource-group $RG `
-    --environment    $CAE_NAME `
-    --image          "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest" `
-    --target-port    3000 `
-    --ingress        external `
-    --min-replicas   1 `
-    --max-replicas   3 `
-    --cpu            0.25 `
-    --memory         "0.5Gi" `
-    --env-vars       "NODE_ENV=production"
-
-# ── 12. OIDC App Registration for GitHub Actions ───────────────────────────────
-Write-Host "==> Creating App Registration for GitHub Actions OIDC..."
-$GH_APP_ID = (az ad app create --display-name "sp-agentteam-github" --query appId -o tsv)
-$GH_SP_OID = (az ad sp create --id $GH_APP_ID --query id -o tsv)
-
-az role assignment create `
-    --assignee-object-id       $GH_SP_OID `
-    --assignee-principal-type  ServicePrincipal `
-    --role                     "Contributor" `
-    --scope                    "/subscriptions/$SubscriptionId/resourceGroups/$RG"
-
-az role assignment create `
-    --assignee-object-id       $GH_SP_OID `
-    --assignee-principal-type  ServicePrincipal `
-    --role                     "AcrPush" `
-    --scope                    $ACR_ID
-
-$fedCred = @{
-    name        = "github-main"
-    issuer      = "https://token.actions.githubusercontent.com"
-    subject     = "repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/main"
-    audiences   = @("api://AzureADTokenExchange")
-    description = "GitHub Actions main branch"
-} | ConvertTo-Json -Compress
-
-az ad app federated-credential create --id $GH_APP_ID --parameters $fedCred
-
-# ── Done ───────────────────────────────────────────────────────────────────────
-$API_FQDN = (az containerapp show `
-    --name $CA_API_NAME --resource-group $RG `
-    --query properties.configuration.ingress.fqdn -o tsv)
-$WEB_FQDN = (az containerapp show `
-    --name $CA_WEB_NAME --resource-group $RG `
-    --query properties.configuration.ingress.fqdn -o tsv)
-
+Write-Host "`n============================================================"
+Write-Host " DEPLOYMENT COMPLETE"
+Write-Host "   API : $apiUrl"
+Write-Host "   Web : $webUrl"
+Write-Host "   Fn  : $functionApp"
 Write-Host ""
-Write-Host "============================================================"
-Write-Host "DEPLOYMENT COMPLETE"
-Write-Host ""
-Write-Host "GitHub Secrets to set:"
-Write-Host "  AZURE_CLIENT_ID       = $GH_APP_ID"
-Write-Host "  AZURE_TENANT_ID       = $TenantId"
-Write-Host "  AZURE_SUBSCRIPTION_ID = $SubscriptionId"
-Write-Host "  ACR_LOGIN_SERVER      = $ACR_LOGIN_SERVER"
-Write-Host ""
-Write-Host "After first CI/CD deploy, set:"
-Write-Host "  NEXT_PUBLIC_API_URL   = https://$API_FQDN"
-Write-Host ""
-Write-Host "App URLs (placeholder image until CI/CD runs):"
-Write-Host "  API  https://$API_FQDN"
-Write-Host "  Web  https://$WEB_FQDN"
+Write-Host " Next: push to 'main' (or run the workflows) to build + deploy code."
 Write-Host "============================================================"
