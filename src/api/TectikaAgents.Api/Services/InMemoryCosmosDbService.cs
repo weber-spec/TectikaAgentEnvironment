@@ -159,8 +159,20 @@ public class InMemoryCosmosDbService : ICosmosDbService
     { edge.UpdatedAt = DateTimeOffset.UtcNow; _edges[edge.Id] = edge; return Task.FromResult(edge); }
 
     public Task DeleteEdgeAsync(string boardId, string edgeId, CancellationToken ct = default)
-    { _edges.TryRemove(edgeId, out _); return Task.CompletedTask; }
+    {
+        if (_edges.TryGetValue(edgeId, out var e) && e.BoardId == boardId)
+            _edges.TryRemove(edgeId, out _);
+        return Task.CompletedTask;
+    }
 
     public Task DeleteEdgesForTaskAsync(string boardId, string taskId, CancellationToken ct = default)
-    { foreach (var e in _edges.Values.Where(e => e.BoardId == boardId && (e.SourceTaskId == taskId || e.TargetTaskId == taskId)).ToList()) _edges.TryRemove(e.Id, out _); return Task.CompletedTask; }
+    {
+        foreach (var e in _edges.Values
+            .Where(e => e.BoardId == boardId && (e.SourceTaskId == taskId || e.TargetTaskId == taskId))
+            .ToList())
+        {
+            _edges.TryRemove(e.Id, out _);
+        }
+        return Task.CompletedTask;
+    }
 }

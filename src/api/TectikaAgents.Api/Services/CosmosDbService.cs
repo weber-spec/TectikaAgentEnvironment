@@ -215,8 +215,8 @@ public class CosmosDbService : ICosmosDbService
 
     public async Task<IEnumerable<TaskEdge>> GetEdgesByBoardAsync(string boardId, CancellationToken ct = default)
     {
-        var q = new QueryDefinition("SELECT * FROM c WHERE c.boardId = @b").WithParameter("@b", boardId);
-        return await QueryAsync<TaskEdge>(TaskEdgesContainer, q, boardId, ct);
+        var query = new QueryDefinition("SELECT * FROM c WHERE c.boardId = @boardId").WithParameter("@boardId", boardId);
+        return await QueryAsync<TaskEdge>(TaskEdgesContainer, query, boardId, ct);
     }
 
     public async Task<TaskEdge?> GetEdgeAsync(string boardId, string edgeId, CancellationToken ct = default)
@@ -246,9 +246,9 @@ public class CosmosDbService : ICosmosDbService
 
     public async Task DeleteEdgesForTaskAsync(string boardId, string taskId, CancellationToken ct = default)
     {
-        var q = new QueryDefinition("SELECT * FROM c WHERE c.boardId=@b AND (c.sourceTaskId=@t OR c.targetTaskId=@t)")
-            .WithParameter("@b", boardId).WithParameter("@t", taskId);
-        foreach (var e in await QueryAsync<TaskEdge>(TaskEdgesContainer, q, boardId, ct))
+        var query = new QueryDefinition("SELECT * FROM c WHERE c.boardId = @boardId AND (c.sourceTaskId = @taskId OR c.targetTaskId = @taskId)")
+            .WithParameter("@boardId", boardId).WithParameter("@taskId", taskId);
+        foreach (var e in await QueryAsync<TaskEdge>(TaskEdgesContainer, query, boardId, ct))
             await DeleteEdgeAsync(boardId, e.Id, ct);
     }
 
