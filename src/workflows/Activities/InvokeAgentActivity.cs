@@ -1,5 +1,6 @@
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
+using TectikaAgents.Core.Interfaces;
 using TectikaAgents.Core.Models;
 using TectikaAgents.Workflows.Services;
 
@@ -13,22 +14,25 @@ namespace TectikaAgents.Workflows.Activities;
 public class InvokeAgentActivity
 {
     private readonly WorkflowCosmosService _cosmos;
-    private readonly WorkflowAgentRunner _runner;
+    private readonly IAgentRuntime _runtime;
     private readonly ContextManager _contextManager;
     private readonly WorkflowEventPublisher _events;
     private readonly ILogger<InvokeAgentActivity> _logger;
+    private readonly int _maxCompletionTokens;
 
     public InvokeAgentActivity(
         WorkflowCosmosService cosmos,
-        WorkflowAgentRunner runner,
+        IAgentRuntime runtime,
         ContextManager contextManager,
         WorkflowEventPublisher events,
+        Microsoft.Extensions.Options.IOptions<TectikaAgents.Core.Configuration.FoundrySettings> foundry,
         ILogger<InvokeAgentActivity> logger)
     {
         _cosmos = cosmos;
-        _runner = runner;
+        _runtime = runtime;
         _contextManager = contextManager;
         _events = events;
+        _maxCompletionTokens = foundry.Value.MaxCompletionTokens;
         _logger = logger;
     }
 
@@ -60,12 +64,39 @@ public class InvokeAgentActivity
 
         await _events.PublishStepStartedAsync(input.RunId, input.TaskId, input.Step, role.Id, ct);
 
-        // ── 4. Build context + invoke LLM ────────────────────────────────────
-        AgentInvocationResult result;
+        // ── 4. Build context + invoke agent runtime ──────────────────────────
+        AgentRunOutcome outcome;
         try
         {
-            var messages = await _contextManager.BuildContextAsync(role, task, board, upstreamArtifacts, ct);
-            result = await _runner.InvokeWithMessagesAsync(messages, role, ct);
+            var threadId = await _runtime.EnsureThreadAsync(task, ct);
+            await _cosmos.PatchTaskThreadIdAsync(input.BoardId, input.TaskId, threadId, ct);
+
+            var userContent = await _contextManager.BuildUserContentAsync(role, task, board, upstreamArtifacts, ct);
+
+            // Stream thinking text → agent_thinking SSE. Real runtime streams (once, for the poll impl);
+            // ensure at least one event in mock mode too.
+            bool publishedThinking = false;
+            if (_runtime is TectikaAgents.AgentRuntime.FoundryAgentRuntime fr)
+            {
+                fr.OnText = delta =>
+                {
+                    if (string.IsNullOrEmpty(delta)) return;
+                    publishedThinking = true;
+                    _events.PublishAgentThinkingAsync(input.RunId, input.TaskId, input.Step, delta, ct).GetAwaiter().GetResult();
+                };
+            }
+
+            outcome = await _runtime.RunTurnAsync(
+                new AgentRunRequest(role, task, threadId, userContent, _maxCompletionTokens, input.RunId, input.Step), ct);
+
+            if (!publishedThinking && !string.IsNullOrEmpty(outcome.Content))
+            {
+                var preview = outcome.Content.Length > 400 ? outcome.Content[..400] : outcome.Content;
+                await _events.PublishAgentThinkingAsync(input.RunId, input.TaskId, input.Step, preview, ct);
+            }
+
+            if (outcome.Status == AgentRunStatus.Failed)
+                throw new Exception(outcome.Error ?? "Agent run failed.");
         }
         catch (Exception ex)
         {
@@ -74,7 +105,9 @@ public class InvokeAgentActivity
         }
 
         // ── 5. Parse agent sections ───────────────────────────────────────────
-        var (briefUpdate, artifactSummary) = ParseAgentSections(result.Content);
+        var (briefUpdate, artifactSummary) = ParseAgentSections(outcome.Content);
+        if (!string.IsNullOrEmpty(outcome.BriefUpdate))
+            briefUpdate = outcome.BriefUpdate;
 
         // ── 6. Determine next artifact version ────────────────────────────────
         var existingArtifacts = await _cosmos.GetUpstreamArtifactsAsync([input.TaskId], ct);
@@ -88,11 +121,11 @@ public class InvokeAgentActivity
             RunId       = input.RunId,
             TenantId    = input.TenantId,
             Version     = nextVersion,
-            ContentType = result.ContentType,
-            Content     = result.Content,
+            ContentType = outcome.ContentType,
+            Content     = outcome.Content,
             Summary     = string.IsNullOrEmpty(artifactSummary) ? null : artifactSummary,
             Origin      = ArtifactOrigin.Agent,
-            InternalLogs = [$"Agent: {role.DisplayName}", $"Step: {input.Step}", $"Model completion: {result.CompletionId}"],
+            InternalLogs = [$"Agent: {role.DisplayName}", $"Step: {input.Step}", $"Model completion: {outcome.CompletionId}"],
             InputContext = new ArtifactInputContext
             {
                 UpstreamArtifacts = upstreamArtifacts.Select(a => new UpstreamArtifactRef
@@ -116,14 +149,14 @@ public class InvokeAgentActivity
             await _cosmos.PatchTaskBriefAsync(input.BoardId, input.TaskId, task.TaskBrief, ct);
         }
 
-        var usage = new TokenUsage { Input = result.InputTokens, Output = result.OutputTokens };
+        var usage = new TokenUsage { Input = outcome.TokenUsage.Input, Output = outcome.TokenUsage.Output };
         await _events.PublishStepCompletedAsync(input.RunId, input.TaskId, input.Step, role.Id, usage, ct);
 
         return new StepResult
         {
             Step         = input.Step,
             Status       = RunStatus.Completed,
-            FoundryRunId = result.CompletionId,
+            FoundryRunId = outcome.CompletionId,
             ArtifactId   = savedArtifact.Id,
             TokenUsage   = usage,
             DurationMs   = (long)(DateTimeOffset.UtcNow - start).TotalMilliseconds,

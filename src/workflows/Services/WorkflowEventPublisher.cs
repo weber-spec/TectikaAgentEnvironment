@@ -46,6 +46,9 @@ public class WorkflowEventPublisher
     public Task PublishStepStartedAsync(string runId, string taskId, int step, string agentRole, CancellationToken ct = default) =>
         PublishAsync(new AgentEvent { Type = AgentEvent.Types.StepStarted, RunId = runId, TaskId = taskId, Step = step, AgentRole = agentRole }, ct);
 
+    public Task PublishAgentThinkingAsync(string runId, string taskId, int step, string text, CancellationToken ct = default) =>
+        PublishAsync(new AgentEvent { Type = AgentEvent.Types.AgentThinking, RunId = runId, TaskId = taskId, Step = step, Content = text }, ct);
+
     public Task PublishStepCompletedAsync(string runId, string taskId, int step, string agentRole, TokenUsage usage, CancellationToken ct = default) =>
         PublishAsync(new AgentEvent { Type = AgentEvent.Types.StepCompleted, RunId = runId, TaskId = taskId, Step = step, AgentRole = agentRole, TokenUsage = usage }, ct);
 
