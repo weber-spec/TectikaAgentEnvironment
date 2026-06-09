@@ -15,7 +15,7 @@ export default function ApprovalsPage() {
   const [interactions, setInteractions] = useState<HumanInteraction[] | null>(null);
   const [approvalsError, setApprovalsError] = useState(false);
   const [interactionsError, setInteractionsError] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busy, setBusy] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     api.approvals.pending()
@@ -27,13 +27,13 @@ export default function ApprovalsPage() {
   }, []);
 
   const respondApproval = async (a: Approval, approved: boolean) => {
-    setBusy(a.id);
+    setBusy(prev => new Set(prev).add(a.id));
     try {
       await api.approvals.respond(a.id, a.runId, approved);
       setApprovals(prev => (prev ?? []).filter(x => x.id !== a.id));
       toast(approved ? 'Approved' : 'Rejected', approved ? 'success' : 'info');
     } catch { toast('Could not submit decision', 'error'); }
-    finally { setBusy(null); }
+    finally { setBusy(prev => { const s = new Set(prev); s.delete(a.id); return s; }); }
   };
 
   const removeInteraction = (id: string) => {
@@ -81,9 +81,9 @@ export default function ApprovalsPage() {
             {(approvals ?? []).map(a => {
               const expiry = daysUntil(a.expiresAt);
               return (
-                <div key={a.id} className="bg-[var(--background)] rounded-xl border border-[var(--border)] p-4 flex flex-col gap-3" style={{ borderLeft: '4px solid #a25ddc' }}>
+                <div key={a.id} className="bg-[var(--background)] rounded-xl border border-[var(--border)] p-4 flex flex-col gap-3" style={{ borderLeft: '4px solid var(--primary)' }}>
                   <div className="flex items-start gap-3">
-                    <span className="w-9 h-9 rounded-lg bg-[#a25ddc22] text-[#a25ddc] flex items-center justify-center shrink-0"><Icon.warning size={18} /></span>
+                    <span className="w-9 h-9 rounded-lg bg-[var(--primary)22] text-[var(--primary)] flex items-center justify-center shrink-0"><Icon.warning size={18} /></span>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-[var(--foreground)]">{a.actionDescription}</p>
                       <div className="flex items-center gap-3 mt-1.5 text-[11px] text-[var(--muted)] flex-wrap">
@@ -97,8 +97,8 @@ export default function ApprovalsPage() {
                     </div>
                   </div>
                   <div className="flex items-center justify-end gap-2">
-                    <Button variant="danger" size="sm" disabled={busy === a.id} onClick={() => respondApproval(a, false)}><Icon.x size={15} /> Reject</Button>
-                    <Button variant="primary" size="sm" disabled={busy === a.id} onClick={() => respondApproval(a, true)}><Icon.check size={15} /> Approve</Button>
+                    <Button variant="danger" size="sm" disabled={busy.has(a.id)} onClick={() => respondApproval(a, false)}><Icon.x size={15} /> Reject</Button>
+                    <Button variant="primary" size="sm" disabled={busy.has(a.id)} onClick={() => respondApproval(a, true)}><Icon.check size={15} /> Approve</Button>
                   </div>
                 </div>
               );
