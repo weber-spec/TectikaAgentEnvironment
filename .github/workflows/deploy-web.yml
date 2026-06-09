@@ -12,10 +12,9 @@ permissions:
   id-token: write
   contents: read
 
+# Resource names come from repo Variables set by infra/deploy.ps1 (tenant-portable).
 env:
-  IMAGE_NAME:         agentteam-web
-  CONTAINER_APP_NAME: ca-agentteam-web
-  RESOURCE_GROUP:     rg-agentteam-dev-001
+  IMAGE_NAME: agentteam-web
 
 jobs:
   build-and-deploy:
@@ -56,6 +55,6 @@ jobs:
       - name: Update Container App
         run: |
           az containerapp update \
-            --name           ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name           ${{ vars.WEB_CONTAINER_APP }} \
+            --resource-group ${{ vars.RESOURCE_GROUP }} \
             --image          ${{ steps.tag.outputs.tag }}

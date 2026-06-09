@@ -22,6 +22,7 @@ public class CosmosDbService : ICosmosDbService
     public const string ApprovalsContainer = "approvals";
     public const string AuditLogContainer = "auditLog";
     public const string HumanInteractionsContainer = "humanInteractions";
+    public const string TaskEdgesContainer = "taskEdges";
 
     public CosmosDbService(CosmosClient client, IOptions<CosmosDbSettings> settings)
     {
@@ -47,6 +48,7 @@ public class CosmosDbService : ICosmosDbService
             (ApprovalsContainer,          "/runId"),
             (AuditLogContainer,           "/tenantId"),
             (HumanInteractionsContainer,  "/runId"),
+            (TaskEdgesContainer,          "/boardId"),
         };
 
         foreach (var (name, pk) in containers)
@@ -254,6 +256,54 @@ public class CosmosDbService : ICosmosDbService
 
     public async Task AppendAuditAsync(AuditEntry entry, CancellationToken ct = default) =>
         await GetContainer(AuditLogContainer).CreateItemAsync(entry, new PartitionKey(entry.TenantId), cancellationToken: ct);
+
+    // ── Edges ─────────────────────────────────────────────────────────────────
+
+    public async Task<TaskEdge> CreateEdgeAsync(TaskEdge edge, CancellationToken ct = default)
+    {
+        var res = await GetContainer(TaskEdgesContainer)
+            .CreateItemAsync(edge, new PartitionKey(edge.BoardId), cancellationToken: ct);
+        return res.Resource;
+    }
+
+    public async Task<IEnumerable<TaskEdge>> GetEdgesByBoardAsync(string boardId, CancellationToken ct = default)
+    {
+        var query = new QueryDefinition("SELECT * FROM c WHERE c.boardId = @boardId").WithParameter("@boardId", boardId);
+        return await QueryAsync<TaskEdge>(TaskEdgesContainer, query, boardId, ct);
+    }
+
+    public async Task<TaskEdge?> GetEdgeAsync(string boardId, string edgeId, CancellationToken ct = default)
+    {
+        try
+        {
+            var res = await GetContainer(TaskEdgesContainer)
+                .ReadItemAsync<TaskEdge>(edgeId, new PartitionKey(boardId), cancellationToken: ct);
+            return res.Resource;
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
+    }
+
+    public async Task<TaskEdge> UpdateEdgeAsync(TaskEdge edge, CancellationToken ct = default)
+    {
+        edge.UpdatedAt = DateTimeOffset.UtcNow;
+        var res = await GetContainer(TaskEdgesContainer)
+            .ReplaceItemAsync(edge, edge.Id, new PartitionKey(edge.BoardId), cancellationToken: ct);
+        return res.Resource;
+    }
+
+    public async Task DeleteEdgeAsync(string boardId, string edgeId, CancellationToken ct = default)
+    {
+        try { await GetContainer(TaskEdgesContainer).DeleteItemAsync<TaskEdge>(edgeId, new PartitionKey(boardId), cancellationToken: ct); }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { }
+    }
+
+    public async Task DeleteEdgesForTaskAsync(string boardId, string taskId, CancellationToken ct = default)
+    {
+        var query = new QueryDefinition("SELECT * FROM c WHERE c.boardId = @boardId AND (c.sourceTaskId = @taskId OR c.targetTaskId = @taskId)")
+            .WithParameter("@boardId", boardId).WithParameter("@taskId", taskId);
+        foreach (var e in await QueryAsync<TaskEdge>(TaskEdgesContainer, query, boardId, ct))
+            await DeleteEdgeAsync(boardId, e.Id, ct);
+    }
 
     // ── Generic query helper ──────────────────────────────────────────────────
 

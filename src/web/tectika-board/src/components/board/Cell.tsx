@@ -201,15 +201,16 @@ function TimelineCell({ task }: { task: AgentTask }) {
 }
 
 function DependencyCell({ task }: { task: AgentTask }) {
-  const { openTask } = useBoard();
-  const total = task.upstreamTaskIds.length + task.downstreamTaskIds.length;
-  if (total === 0) return <CellWrap><span className="text-xs text-[var(--muted-2)]">—</span></CellWrap>;
+  const { openTask, upstreamIds, downstreamIds } = useBoard();
+  const up = upstreamIds[task.id]?.length ?? 0;
+  const down = downstreamIds[task.id]?.length ?? 0;
+  if (up + down === 0) return <CellWrap><span className="text-xs text-[var(--muted-2)]">—</span></CellWrap>;
   return (
     <CellWrap onClick={() => openTask(task.id)}>
       <span className="inline-flex items-center gap-1.5 text-xs text-[var(--primary)] font-medium cursor-pointer">
         <Icon.link size={13} />
-        {task.upstreamTaskIds.length > 0 && <span title="upstream">↑{task.upstreamTaskIds.length}</span>}
-        {task.downstreamTaskIds.length > 0 && <span title="downstream">↓{task.downstreamTaskIds.length}</span>}
+        {up > 0 && <span title="upstream">↑{up}</span>}
+        {down > 0 && <span title="downstream">↓{down}</span>}
       </span>
     </CellWrap>
   );
@@ -219,14 +220,15 @@ function DependencyCell({ task }: { task: AgentTask }) {
 // `up`  = tasks that feed INTO this task (Upstream Input)
 // `down` = tasks this task routes its output TO (Downstream Target)
 function DependencyChipsCell({ task, dir }: { task: AgentTask; dir: 'up' | 'down' }) {
-  const { tasks, openTask, connectTasks, disconnectTasks } = useBoard();
+  const { tasks, openTask, upstreamIds, downstreamIds, connectEdge, disconnectEdge } = useBoard();
   const addRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const ids = dir === 'up' ? task.upstreamTaskIds : task.downstreamTaskIds;
+  const ids = (dir === 'up' ? upstreamIds[task.id] : downstreamIds[task.id]) ?? [];
   const linked = ids.map(id => tasks.find(t => t.id === id)).filter((t): t is AgentTask => !!t);
   const candidates = tasks.filter(t => t.id !== task.id && !ids.includes(t.id));
-  const remove = (otherId: string) => dir === 'up' ? disconnectTasks(otherId, task.id) : disconnectTasks(task.id, otherId);
-  const add = (otherId: string) => { if (dir === 'up') connectTasks(otherId, task.id); else connectTasks(task.id, otherId); setOpen(false); };
+  // `up`: edge other->task; `down`: edge task->other. Edge id is `${source}->${target}`.
+  const remove = (otherId: string) => disconnectEdge(dir === 'up' ? `${otherId}->${task.id}` : `${task.id}->${otherId}`);
+  const add = (otherId: string) => { if (dir === 'up') connectEdge(otherId, task.id); else connectEdge(task.id, otherId); setOpen(false); };
 
   return (
     <div className="h-full w-full flex items-center gap-1 px-1.5 overflow-hidden group/dep">

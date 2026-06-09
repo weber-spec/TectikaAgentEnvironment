@@ -41,8 +41,6 @@ public class TasksController : ControllerBase
             Assignee = req.Assignee,
             CreatedBy = UserId,
             Dependencies = req.Dependencies ?? [],
-            UpstreamTaskIds = req.UpstreamTaskIds ?? [],
-            DownstreamTaskIds = req.DownstreamTaskIds ?? [],
             CanvasPosition = req.CanvasPosition,
             TriggerSource = TriggerSource.Manual
         };
@@ -64,8 +62,6 @@ public class TasksController : ControllerBase
         if (req.Assignee is not null) task.Assignee = req.Assignee;
         if (req.DueAt is not null) task.DueAt = req.DueAt.Value.UtcDateTime == default ? null : req.DueAt;
         if (req.HumanAuditorId is not null) task.HumanAuditorId = req.HumanAuditorId;
-        if (req.UpstreamTaskIds is not null) task.UpstreamTaskIds = req.UpstreamTaskIds;
-        if (req.DownstreamTaskIds is not null) task.DownstreamTaskIds = req.DownstreamTaskIds;
         if (req.CanvasPosition is not null) task.CanvasPosition = req.CanvasPosition;
 
         var updated = await _cosmos.UpdateTaskAsync(task, ct);
@@ -77,6 +73,7 @@ public class TasksController : ControllerBase
     {
         var task = await _cosmos.GetTaskAsync(boardId, taskId, ct);
         if (task is null) return NotFound();
+        await _cosmos.DeleteEdgesForTaskAsync(boardId, taskId, ct);
         await _cosmos.DeleteTaskAsync(boardId, taskId, ct);
         return NoContent();
     }
@@ -105,25 +102,6 @@ public class TasksController : ControllerBase
         return Ok(updated);
     }
 
-    [HttpPost("{taskId}/connect")]
-    public async Task<IActionResult> ConnectTasks(string boardId, string taskId, [FromBody] ConnectTaskRequest req, CancellationToken ct)
-    {
-        var upstream = await _cosmos.GetTaskAsync(boardId, taskId, ct);
-        var downstream = await _cosmos.GetTaskAsync(boardId, req.DownstreamTaskId, ct);
-
-        if (upstream is null || downstream is null) return NotFound();
-
-        if (!upstream.DownstreamTaskIds.Contains(req.DownstreamTaskId))
-            upstream.DownstreamTaskIds.Add(req.DownstreamTaskId);
-
-        if (!downstream.UpstreamTaskIds.Contains(taskId))
-            downstream.UpstreamTaskIds.Add(taskId);
-
-        await _cosmos.UpdateTaskAsync(upstream, ct);
-        await _cosmos.UpdateTaskAsync(downstream, ct);
-
-        return Ok(new { upstream = upstream.Id, downstream = downstream.Id });
-    }
 }
 
 public record CreateTaskRequest(
@@ -132,12 +110,9 @@ public record CreateTaskRequest(
     TaskPriority Priority,
     TaskAssignee Assignee,
     List<string>? Dependencies,
-    List<string>? UpstreamTaskIds,
-    List<string>? DownstreamTaskIds,
     CanvasPosition? CanvasPosition);
 
 public record UpdateStatusRequest(AgentTaskStatus Status);
-public record ConnectTaskRequest(string DownstreamTaskId);
 
 public record UpdateTaskRequest(
     string? Title,
@@ -147,6 +122,4 @@ public record UpdateTaskRequest(
     TaskAssignee? Assignee,
     DateTimeOffset? DueAt,
     string? HumanAuditorId,
-    List<string>? UpstreamTaskIds,
-    List<string>? DownstreamTaskIds,
     CanvasPosition? CanvasPosition);

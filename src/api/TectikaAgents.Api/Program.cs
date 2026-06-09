@@ -128,6 +128,19 @@ using (var scope = app.Services.CreateScope())
 if (args.Contains("--seed-only"))
     return;
 
+// One-time backfill: read old downstreamTaskIds from task docs and create TaskEdge documents.
+// Real-DB only — the mock store is already seeded with edges by MockDataSeeder.
+if (!useMockDatabase && args.Contains("--backfill-edges"))
+{
+    using var scope = app.Services.CreateScope();
+    var cosmos = scope.ServiceProvider.GetRequiredService<ICosmosDbService>();
+    var client = scope.ServiceProvider.GetRequiredService<CosmosClient>();
+    var dbName = builder.Configuration["CosmosDb:DatabaseName"] ?? "tectikaagents";
+    var log = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("EdgeBackfill");
+    await TectikaAgents.Api.Services.MockData.EdgeBackfill.RunAsync(client, dbName, cosmos, log);
+    return;
+}
+
 if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 

@@ -55,7 +55,8 @@ public class InvokeAgentActivity
             ?? throw new Exception($"Board '{input.BoardId}' not found");
 
         // ── 3. Load upstream artifacts ────────────────────────────────────────
-        var upstreamArtifacts = await _cosmos.GetUpstreamArtifactsAsync(task.UpstreamTaskIds, ct);
+        var upstreamTaskIds = await _cosmos.GetUpstreamTaskIdsAsync(task.BoardId, input.TaskId, ct);
+        var upstreamArtifacts = await _cosmos.GetUpstreamArtifactsAsync(upstreamTaskIds, ct);
 
         await _events.PublishStepStartedAsync(input.RunId, input.TaskId, input.Step, role.Id, ct);
 

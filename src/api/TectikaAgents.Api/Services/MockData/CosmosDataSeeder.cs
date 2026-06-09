@@ -32,7 +32,8 @@ internal static class CosmosDataSeeder
         var runs = new ConcurrentDictionary<string, WorkflowRun>();
         var artifacts = new ConcurrentDictionary<string, Artifact>();
         var approvals = new ConcurrentDictionary<string, Approval>();
-        MockDataSeeder.Seed(boards, tasks, roles, runs, artifacts, approvals);
+        var edges = new ConcurrentDictionary<string, TaskEdge>();
+        MockDataSeeder.Seed(boards, tasks, roles, runs, artifacts, approvals, edges);
 
         // ── Write through the real service (no Cosmos FK enforcement, but seed in
         //    dependency order for readability: boards → roles → tasks → runs → artifacts → approvals) ──
@@ -42,10 +43,11 @@ internal static class CosmosDataSeeder
         foreach (var run in runs.Values) await cosmos.CreateRunAsync(run, ct);
         foreach (var a in artifacts.Values) await cosmos.CreateArtifactAsync(a, ct);
         foreach (var ap in approvals.Values) await cosmos.CreateApprovalAsync(ap, ct);
+        foreach (var e in edges.Values) await cosmos.CreateEdgeAsync(e, ct);
 
         logger.LogInformation(
             "Cosmos seed complete — {Boards} boards, {Roles} roles, {Tasks} tasks, {Runs} runs, " +
-            "{Artifacts} artifacts, {Approvals} approvals written to Cosmos.",
-            boards.Count, roles.Count, tasks.Count, runs.Count, artifacts.Count, approvals.Count);
+            "{Artifacts} artifacts, {Approvals} approvals, {Edges} edges written to Cosmos.",
+            boards.Count, roles.Count, tasks.Count, runs.Count, artifacts.Count, approvals.Count, edges.Count);
     }
 }

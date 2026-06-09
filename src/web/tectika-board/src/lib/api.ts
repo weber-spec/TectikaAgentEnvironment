@@ -1,7 +1,7 @@
 // API client — all calls to the .NET backend.
 
 import type {
-  Board, AgentTask, AgentRole, Artifact, Approval, WorkflowRun, AgentEvent, HumanInteraction,
+  Board, AgentTask, AgentRole, Artifact, Approval, WorkflowRun, AgentEvent, HumanInteraction, TaskEdge, EdgeKind,
 } from './types';
 
 // Strip any trailing slash so `${API_BASE}${path}` (paths start with /api) never doubles up.
@@ -33,7 +33,7 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
 /** Fields the backend's PUT /tasks/{id} accepts. */
 export type TaskPatch = Partial<
   Pick<AgentTask, 'title' | 'description' | 'status' | 'priority' | 'assignee' |
-    'dueAt' | 'humanAuditorId' | 'upstreamTaskIds' | 'downstreamTaskIds' | 'canvasPosition'>
+    'dueAt' | 'humanAuditorId' | 'canvasPosition'>
 >;
 
 export const api = {
@@ -63,8 +63,16 @@ export const api = {
       fetchApi<AgentTask>(`/api/boards/${boardId}/tasks/${taskId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
     updatePosition: (boardId: string, taskId: string, x: number, y: number) =>
       fetchApi<AgentTask>(`/api/boards/${boardId}/tasks/${taskId}/canvas-position`, { method: 'PATCH', body: JSON.stringify({ x, y }) }),
-    connect: (boardId: string, upstreamId: string, downstreamId: string) =>
-      fetchApi(`/api/boards/${boardId}/tasks/${upstreamId}/connect`, { method: 'POST', body: JSON.stringify({ downstreamTaskId: downstreamId }) }),
+  },
+
+  edges: {
+    list: (boardId: string) => fetchApi<TaskEdge[]>(`/api/boards/${boardId}/edges`),
+    create: (boardId: string, body: { sourceTaskId: string; targetTaskId: string; kind?: EdgeKind; label?: string }) =>
+      fetchApi<TaskEdge>(`/api/boards/${boardId}/edges`, { method: 'POST', body: JSON.stringify(body) }),
+    update: (boardId: string, edgeId: string, patch: Partial<Pick<TaskEdge, 'kind' | 'label' | 'condition' | 'maxIterations'>>) =>
+      fetchApi<TaskEdge>(`/api/boards/${boardId}/edges/${encodeURIComponent(edgeId)}`, { method: 'PUT', body: JSON.stringify(patch) }),
+    remove: (boardId: string, edgeId: string) =>
+      fetchApi<void>(`/api/boards/${boardId}/edges/${encodeURIComponent(edgeId)}`, { method: 'DELETE' }),
   },
 
   agentRoles: {
