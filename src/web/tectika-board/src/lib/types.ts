@@ -239,7 +239,7 @@ export type ColumnKind =
   | 'title' | 'status' | 'priority' | 'people' | 'date' | 'timeline'
   | 'number' | 'text' | 'tags' | 'dropdown' | 'progress' | 'rating'
   | 'checkbox' | 'link' | 'dependency' | 'upstream' | 'downstream' | 'tokens' | 'cost' | 'trigger'
-  | 'createdAt' | 'lastUpdated' | 'itemId' | 'autoNumber' | 'formula';
+  | 'createdAt' | 'lastUpdated' | 'itemId' | 'autoNumber' | 'formula' | 'result';
 
 export type ColumnAggregation =
   | 'none' | 'sum' | 'avg' | 'min' | 'max' | 'median' | 'count' | 'countEmpty' | 'distribution';

@@ -51,6 +51,7 @@ export const KIND_META: Record<ColumnKind, KindMeta> = {
   itemId:      { label: 'Item ID',      defaultWidth: 120, defaultAgg: 'none',         domain: 'meta' },
   autoNumber:  { label: 'Auto №',       defaultWidth: 90,  defaultAgg: 'none',         domain: 'meta' },
   formula:     { label: 'Formula',      defaultWidth: 130, defaultAgg: 'sum',          domain: 'number' },
+  result:      { label: 'Result',       defaultWidth: 260, defaultAgg: 'none',         domain: 'text' },
 };
 
 /** The columns shown on a fresh board, in order. */
@@ -142,6 +143,7 @@ export function cellText(task: AgentTask, col: ColumnDef, ctx: CellContext): str
     case 'tokens': return String(runFor(task, ctx)?.totalTokens ?? '');
     case 'cost': { const c = runFor(task, ctx)?.estimatedCostUsd; return c != null ? `$${c.toFixed(2)}` : ''; }
     case 'trigger': return task.triggerSource ?? 'Manual';
+    case 'result': return task.artifactSummary ?? '';
     case 'itemId': return task.id;
     case 'tags':
     case 'dropdown':

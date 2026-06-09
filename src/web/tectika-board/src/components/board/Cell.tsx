@@ -32,6 +32,7 @@ export function Cell({ task, col }: { task: AgentTask; col: ColumnDef }) {
     case 'tags': return <TagsCell task={task} col={col} />;
     case 'dropdown': return <DropdownCell task={task} col={col} />;
     case 'formula': return <FormulaCell task={task} col={col} />;
+    case 'result': return <ResultCell task={task} />;
     default: return <ReadonlyCell task={task} col={col} />;
   }
 }
@@ -410,6 +411,23 @@ function FormulaCell({ task, col }: { task: AgentTask; col: ColumnDef }) {
   const { cellContext } = useBoard();
   const n = evalFormula(col, task, cellContext);
   return <CellWrap center><span className="text-sm text-[var(--foreground)] font-medium">{n == null ? '—' : n}</span></CellWrap>;
+}
+
+// ── Result (artifactSummary) ──────────────────────────────────────────────────
+const MAX_RESULT_CHARS = 80;
+function ResultCell({ task }: { task: AgentTask }) {
+  const summary = task.artifactSummary;
+  if (!summary) {
+    return <CellWrap><span className="text-xs text-[var(--muted-2)]">—</span></CellWrap>;
+  }
+  const display = summary.length > MAX_RESULT_CHARS
+    ? summary.slice(0, MAX_RESULT_CHARS) + '…'
+    : summary;
+  return (
+    <CellWrap>
+      <span className="text-xs text-[var(--foreground)] truncate" title={summary}>{display}</span>
+    </CellWrap>
+  );
 }
 
 function ReadonlyCell({ task, col }: { task: AgentTask; col: ColumnDef }) {
