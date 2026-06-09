@@ -49,11 +49,26 @@ export interface AgentTask {
   triggerMeta?: Record<string, string>;
   currentArtifactId?: string;
   canvasPosition?: CanvasPosition;
-  upstreamTaskIds: string[];
-  downstreamTaskIds: string[];
   humanAuditorId?: string;
   createdAt: string;
   dueAt?: string;
+}
+
+// ── Typed edges — server-persisted source of truth for the task graph ──────────
+export type EdgeKind = 'Dependency' | 'QaFeedback';
+
+export interface TaskEdge {
+  id: string;            // "{sourceTaskId}->{targetTaskId}"
+  tenantId: string;
+  boardId: string;
+  sourceTaskId: string;
+  targetTaskId: string;
+  kind: EdgeKind;
+  label?: string;
+  condition?: string;
+  maxIterations: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface AgentPermissions {
