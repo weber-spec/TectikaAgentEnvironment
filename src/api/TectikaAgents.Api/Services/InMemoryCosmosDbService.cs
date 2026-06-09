@@ -16,6 +16,7 @@ namespace TectikaAgents.Api.Services;
 public class InMemoryCosmosDbService : ICosmosDbService
 {
     private readonly ConcurrentDictionary<string, Board> _boards = new();
+    private readonly ConcurrentDictionary<string, TaskEdge> _edges = new();
     private readonly ConcurrentDictionary<string, AgentTask> _tasks = new();
     private readonly ConcurrentDictionary<string, AgentRole> _agentRoles = new();
     private readonly ConcurrentDictionary<string, WorkflowRun> _runs = new();
@@ -143,4 +144,23 @@ public class InMemoryCosmosDbService : ICosmosDbService
         _audit[entry.Id] = entry;
         return Task.CompletedTask;
     }
+
+    // ── Edges ──────────────────────────────────────────────────────────────────
+    public Task<TaskEdge> CreateEdgeAsync(TaskEdge edge, CancellationToken ct = default)
+    { _edges[edge.Id] = edge; return Task.FromResult(edge); }
+
+    public Task<IEnumerable<TaskEdge>> GetEdgesByBoardAsync(string boardId, CancellationToken ct = default)
+    => Task.FromResult(_edges.Values.Where(e => e.BoardId == boardId).AsEnumerable());
+
+    public Task<TaskEdge?> GetEdgeAsync(string boardId, string edgeId, CancellationToken ct = default)
+    => Task.FromResult(_edges.TryGetValue(edgeId, out var e) && e.BoardId == boardId ? e : null);
+
+    public Task<TaskEdge> UpdateEdgeAsync(TaskEdge edge, CancellationToken ct = default)
+    { edge.UpdatedAt = DateTimeOffset.UtcNow; _edges[edge.Id] = edge; return Task.FromResult(edge); }
+
+    public Task DeleteEdgeAsync(string boardId, string edgeId, CancellationToken ct = default)
+    { _edges.TryRemove(edgeId, out _); return Task.CompletedTask; }
+
+    public Task DeleteEdgesForTaskAsync(string boardId, string taskId, CancellationToken ct = default)
+    { foreach (var e in _edges.Values.Where(e => e.BoardId == boardId && (e.SourceTaskId == taskId || e.TargetTaskId == taskId)).ToList()) _edges.TryRemove(e.Id, out _); return Task.CompletedTask; }
 }
