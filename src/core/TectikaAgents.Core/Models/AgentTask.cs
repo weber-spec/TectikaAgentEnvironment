@@ -52,6 +52,12 @@ public class AgentTask
     [JsonPropertyName("humanAuditorId")]
     public string? HumanAuditorId { get; set; }
 
+    [JsonPropertyName("taskBrief")]
+    public string TaskBrief { get; set; } = "";
+
+    [JsonPropertyName("foundryThreadId")]
+    public string? FoundryThreadId { get; set; }
+
     [JsonPropertyName("createdAt")]
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 

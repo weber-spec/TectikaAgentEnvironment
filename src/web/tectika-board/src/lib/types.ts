@@ -50,6 +50,8 @@ export interface AgentTask {
   currentArtifactId?: string;
   canvasPosition?: CanvasPosition;
   humanAuditorId?: string;
+  taskBrief?: string;
+  foundryThreadId?: string;
   createdAt: string;
   dueAt?: string;
 }
@@ -165,6 +167,7 @@ export interface Artifact {
   inputContext: ArtifactInputContext;
   internalLogs: string[];
   origin: ArtifactOrigin;
+  summary?: string;
   createdAt: string;
   updatedAt: string;
 }

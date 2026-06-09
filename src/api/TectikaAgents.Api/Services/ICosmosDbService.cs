@@ -16,6 +16,8 @@ public interface ICosmosDbService
     Task<Board> CreateBoardAsync(Board board, CancellationToken ct = default);
     Task<IEnumerable<Board>> GetBoardsAsync(string tenantId, CancellationToken ct = default);
     Task<Board?> GetBoardAsync(string tenantId, string boardId, CancellationToken ct = default);
+    Task<Board> UpdateBoardAsync(Board board, CancellationToken ct = default);
+    Task DeleteBoardAsync(string tenantId, string boardId, CancellationToken ct = default);
 
     // ── Tasks ──────────────────────────────────────────────────────────────────
     Task<AgentTask> CreateTaskAsync(AgentTask task, CancellationToken ct = default);

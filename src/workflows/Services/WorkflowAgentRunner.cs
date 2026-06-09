@@ -88,6 +88,58 @@ public class WorkflowAgentRunner
             OutputTokens: completion.Usage?.CompletionTokens ?? 0);
     }
 
+    public async Task<AgentInvocationResult> InvokeWithMessagesAsync(
+        List<object> messages,
+        AgentRole role,
+        CancellationToken ct = default)
+    {
+        var model = role.ModelOverride ?? _foundry.DefaultModel;
+
+        string url, bearerToken;
+
+        if (!string.IsNullOrEmpty(_foundry.ApiKey))
+        {
+            bearerToken = _foundry.ApiKey;
+            url = _foundry.IsOpenAiDirect
+                ? "https://api.openai.com/v1/chat/completions"
+                : $"{_foundry.Endpoint.TrimEnd('/')}/openai/deployments/{model}/chat/completions?api-version=2024-05-01-preview";
+        }
+        else
+        {
+            var tokenCtx = new TokenRequestContext(["https://cognitiveservices.azure.com/.default"]);
+            var token = await _credential!.GetTokenAsync(tokenCtx, ct);
+            bearerToken = token.Token;
+            url = $"{_foundry.Endpoint.TrimEnd('/')}/openai/deployments/{model}/chat/completions?api-version=2024-05-01-preview";
+        }
+
+        var bodyObj = _foundry.IsOpenAiDirect
+            ? (object)new { model, messages, max_tokens = 4096, temperature = 0.3 }
+            : new { messages, max_tokens = 4096, temperature = 0.3 };
+        var body = JsonSerializer.Serialize(bodyObj);
+        var req = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json")
+        };
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
+
+        var res = await _http.SendAsync(req, ct);
+        res.EnsureSuccessStatusCode();
+
+        var json = await res.Content.ReadAsStringAsync(ct);
+        var completion = JsonSerializer.Deserialize<OpenAiCompletion>(json)
+            ?? throw new Exception("Empty response from Azure OpenAI");
+
+        var content = completion.Choices?.FirstOrDefault()?.Message?.Content
+            ?? throw new Exception("No content in Azure OpenAI response");
+
+        return new AgentInvocationResult(
+            CompletionId: completion.Id ?? Guid.NewGuid().ToString(),
+            Content: content,
+            ContentType: DetectType(content, role),
+            InputTokens: completion.Usage?.PromptTokens ?? 0,
+            OutputTokens: completion.Usage?.CompletionTokens ?? 0);
+    }
+
     private static List<object> BuildMessages(AgentRole role, AgentTask task, List<Artifact> upstream)
     {
         var msgs = new List<object> { new { role = "system", content = role.SystemPrompt } };

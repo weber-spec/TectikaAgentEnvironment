@@ -120,7 +120,7 @@ function GroupSection({ group, collapsed, grouped }: { group: TaskGroup; collaps
 }
 
 function Row({ task, accent }: { task: AgentTask; accent: string }) {
-  const { visibleColumns, selectedIds, toggleSelect, openTask } = useBoard();
+  const { visibleColumns, selectedIds, toggleSelect, openTask, deleteTasks } = useBoard();
   const selected = selectedIds.includes(task.id);
   void accent;
   return (
@@ -128,7 +128,8 @@ function Row({ task, accent }: { task: AgentTask; accent: string }) {
       <div style={{ width: GUTTER }} className="shrink-0 flex items-center gap-1 pl-1 border-r border-[var(--border)]">
         <span className="w-4 text-[var(--muted-2)] opacity-0 group-hover/row:opacity-100 cursor-grab"><Icon.drag size={14} /></span>
         <input type="checkbox" checked={selected} onChange={e => toggleSelect(task.id, (e.nativeEvent as MouseEvent).shiftKey)} className="w-4 h-4 rounded accent-[var(--primary)] cursor-pointer" />
-        <button onClick={() => openTask(task.id)} className="w-5 text-[var(--muted-2)] opacity-0 group-hover/row:opacity-100 hover:text-[var(--primary)]" title="Open"><Icon.edit size={12} /></button>
+        <button onClick={() => openTask(task.id)} className="w-4 text-[var(--muted-2)] opacity-0 group-hover/row:opacity-100 hover:text-[var(--primary)]" title="Open"><Icon.edit size={12} /></button>
+        <button onClick={() => deleteTasks([task.id])} className="w-4 text-[var(--muted-2)] opacity-0 group-hover/row:opacity-100 hover:text-[#e2445c]" title="Delete"><Icon.trash size={12} /></button>
       </div>
       {visibleColumns.map(col => (
         <div key={col.id} style={{ width: col.width }} className="shrink-0 border-r border-[var(--border)] overflow-hidden">

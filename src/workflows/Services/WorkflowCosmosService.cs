@@ -109,6 +109,45 @@ public class WorkflowCosmosService
         return results;
     }
 
+    // ── Board ─────────────────────────────────────────────────────────────────
+
+    public async Task<Board?> GetBoardAsync(string boardId, CancellationToken ct = default)
+    {
+        try
+        {
+            var res = await C("boards").ReadItemAsync<Board>(boardId, new PartitionKey(boardId), cancellationToken: ct);
+            return res.Resource;
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
+    }
+
+    public async Task<List<AgentTask>> GetBoardTasksAsync(string boardId, CancellationToken ct = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT c.id, c.title, c.status, c.taskBrief FROM c WHERE c.boardId = @boardId")
+            .WithParameter("@boardId", boardId);
+
+        var iter = C("tasks").GetItemQueryIterator<AgentTask>(query,
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(boardId) });
+
+        var results = new List<AgentTask>();
+        while (iter.HasMoreResults)
+            results.AddRange(await iter.ReadNextAsync(ct));
+        return results;
+    }
+
+    public async Task PatchTaskBriefAsync(string boardId, string taskId, string brief, CancellationToken ct = default)
+    {
+        var patchOps = new List<PatchOperation> { PatchOperation.Set("/taskBrief", brief) };
+        await C("tasks").PatchItemAsync<AgentTask>(taskId, new PartitionKey(boardId), patchOps, cancellationToken: ct);
+    }
+
+    public async Task PatchArtifactSummaryAsync(string taskId, string artifactId, string summary, CancellationToken ct = default)
+    {
+        var patchOps = new List<PatchOperation> { PatchOperation.Set("/summary", summary) };
+        await C("artifacts").PatchItemAsync<Artifact>(artifactId, new PartitionKey(taskId), patchOps, cancellationToken: ct);
+    }
+
     // ── Approval ──────────────────────────────────────────────────────────────
 
     public async Task<Approval> CreateApprovalAsync(Approval approval, CancellationToken ct = default)

@@ -44,6 +44,10 @@ export const api = {
     get: (boardId: string) => fetchApi<Board>(`/api/boards/${boardId}`),
     create: (name: string, description?: string) =>
       fetchApi<Board>('/api/boards', { method: 'POST', body: JSON.stringify({ name, description }) }),
+    update: (boardId: string, name: string, description?: string) =>
+      fetchApi<Board>(`/api/boards/${boardId}`, { method: 'PUT', body: JSON.stringify({ name, description }) }),
+    remove: (boardId: string) =>
+      fetchApi<void>(`/api/boards/${boardId}`, { method: 'DELETE' }),
   },
 
   tasks: {

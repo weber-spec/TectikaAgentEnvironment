@@ -21,6 +21,8 @@ public class FoundrySettings
     public string DefaultModel { get; set; } = "gpt-4o";
     public string? ApiKey { get; set; }                    // אם מוגדר — משתמש ב-API key ולא ב-MSI
     public bool IsOpenAiDirect { get; set; }               // true = api.openai.com, false = Azure OpenAI
+    public int MaxInputTokens { get; set; } = 100_000;
+    public int SummaryThresholdTokens { get; set; } = 8_000;
 }
 
 public class ServiceBusSettings
