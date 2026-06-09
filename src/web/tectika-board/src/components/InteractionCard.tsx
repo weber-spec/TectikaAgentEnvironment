@@ -60,19 +60,19 @@ function ErrorBanner({ message }: { message: string }) {
 
 function ApprovalVariant({ interaction, onResponded }: InteractionCardProps) {
   const [notes, setNotes] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitting, setSubmitting] = useState<'approve' | 'reject' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const submit = async (approved: boolean) => {
-    setIsSubmitting(true);
+  const submit = async (action: 'approve' | 'reject') => {
+    setSubmitting(action);
     setError(null);
     try {
-      await api.interactions.respond(interaction.id, interaction.runId, { approved, notes: notes || undefined });
+      await api.interactions.respond(interaction.id, interaction.runId, { approved: action === 'approve', notes: notes || undefined });
       onResponded();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to submit decision. Please try again.');
     } finally {
-      setIsSubmitting(false);
+      setSubmitting(null);
     }
   };
 
@@ -87,7 +87,7 @@ function ApprovalVariant({ interaction, onResponded }: InteractionCardProps) {
           id={`notes-${interaction.id}`}
           value={notes}
           onChange={e => setNotes(e.target.value)}
-          disabled={isSubmitting}
+          disabled={submitting !== null}
           placeholder="Optional notes..."
           rows={2}
           className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-[var(--primary)] disabled:opacity-50"
@@ -101,19 +101,19 @@ function ApprovalVariant({ interaction, onResponded }: InteractionCardProps) {
         <Button
           variant="danger"
           size="sm"
-          disabled={isSubmitting}
-          onClick={() => submit(false)}
+          disabled={submitting !== null}
+          onClick={() => submit('reject')}
         >
-          {isSubmitting ? <Spinner size={13} /> : <Icon.x size={15} />}
+          {submitting === 'reject' ? <Spinner size={13} /> : <Icon.x size={15} />}
           Reject
         </Button>
         <Button
           variant="primary"
           size="sm"
-          disabled={isSubmitting}
-          onClick={() => submit(true)}
+          disabled={submitting !== null}
+          onClick={() => submit('approve')}
         >
-          {isSubmitting ? <Spinner size={13} /> : <Icon.check size={15} />}
+          {submitting === 'approve' ? <Spinner size={13} /> : <Icon.check size={15} />}
           Approve
         </Button>
       </div>
@@ -260,14 +260,20 @@ function QuestionVariant({ interaction, onResponded }: InteractionCardProps) {
           })}
         </div>
       ) : (
-        <textarea
-          value={answer}
-          onChange={e => setAnswer(e.target.value)}
-          disabled={isSubmitting}
-          placeholder="Type your answer..."
-          rows={3}
-          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-[var(--primary)] disabled:opacity-50"
-        />
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-medium text-[var(--muted)]" htmlFor={`answer-${interaction.id}`}>
+            Your answer
+          </label>
+          <textarea
+            id={`answer-${interaction.id}`}
+            value={answer}
+            onChange={e => setAnswer(e.target.value)}
+            disabled={isSubmitting}
+            placeholder="Type your answer..."
+            rows={3}
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-[var(--primary)] disabled:opacity-50"
+          />
+        </div>
       )}
 
       {error && <ErrorBanner message={error} />}
