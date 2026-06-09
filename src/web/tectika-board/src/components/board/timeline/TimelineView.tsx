@@ -46,7 +46,7 @@ export function TimelineView() {
   }
   const todayX = xFor(now);
 
-  // dependency arrows
+  // dependency arrows — downstreamIds contains only Dependency edges (QaFeedback loops excluded by design)
   const arrows: { x1: number; y1: number; x2: number; y2: number }[] = [];
   for (const t of allTasks) {
     const fromEnd = xFor((t.dueAt ? new Date(t.dueAt) : new Date(new Date(t.createdAt).getTime() + 3 * DAY)).getTime());

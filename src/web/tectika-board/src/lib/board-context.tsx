@@ -533,8 +533,10 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
 
   const disconnectEdge = useCallback(async (edgeId: string) => {
     lastEditRef.current = Date.now();
-    setEdges(p => p.filter(e => e.id !== edgeId));
-    try { await api.edges.remove(boardId, edgeId); } catch { toast('Could not remove connection', 'error'); }
+    let removed: TaskEdge | undefined;
+    setEdges(p => { removed = p.find(e => e.id === edgeId); return p.filter(e => e.id !== edgeId); });
+    try { await api.edges.remove(boardId, edgeId); }
+    catch { if (removed) setEdges(p => p.some(e => e.id === removed!.id) ? p : [...p, removed!]); toast('Could not remove connection', 'error'); }
   }, [boardId]);
 
   const updateEdge = useCallback(async (edgeId: string, patch: Partial<Pick<TaskEdge, 'kind' | 'label'>>) => {

@@ -69,24 +69,26 @@ function Inner() {
   const edgeUi = useMemo(() => ({ hoveredId, setHovered, editingId, setEditingId, onDelete, saveLabel, setFeedback }), [hoveredId, editingId, onDelete, saveLabel, setFeedback]);
 
   // Rebuild canvas nodes/edges from server state (tasks + typed edges).
+  // Depend on full `tasks` (not just tasks.length) so status changes re-derive animated-edge flags.
   const statusById = useMemo(() => Object.fromEntries(tasks.map(t => [t.id, t.status])), [tasks]);
   const taskIds = useMemo(() => new Set(tasks.map(t => t.id)), [tasks]);
   useEffect(() => {
-    const ns: Node[] = tasks.map(t => ({ id: t.id, type: 'agent', position: t.canvasPosition ?? { x: 0, y: 0 }, data: { taskId: t.id } }));
     const es: Edge[] = taskEdges
       .filter(e => taskIds.has(e.sourceTaskId) && taskIds.has(e.targetTaskId))
       .map(e => buildEdge(e.sourceTaskId, e.targetTaskId, statusById[e.sourceTaskId] === 'InProgress', e.kind === 'QaFeedback', e.label ?? ''));
-    const hasPos = tasks.some(t => t.canvasPosition);
-    setNodes(hasPos ? ns : layout(ns, es));
+    setNodes(prev => {
+      // Preserve existing node positions (from drag) unless the task has an explicit canvasPosition.
+      const prevById = new Map(prev.map(n => [n.id, n]));
+      const ns: Node[] = tasks.map(t => ({
+        id: t.id, type: 'agent',
+        position: t.canvasPosition ?? prevById.get(t.id)?.position ?? { x: 0, y: 0 },
+        data: { taskId: t.id },
+      }));
+      const hasPos = tasks.some(t => t.canvasPosition) || prev.length > 0;
+      return hasPos ? ns : layout(ns, es);
+    });
     setEdges(es);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks.length, taskEdges]);
-
-  // Display edges carry kind-driven styling straight from the edge data.
-  const styledEdges = useMemo(() => edges.map(e => {
-    const feedback = !!(e.data as { feedback?: boolean })?.feedback;
-    return { ...e, markerEnd: feedback ? FEEDBACK_MARKER : FORWARD_MARKER };
-  }), [edges]);
+  }, [tasks, taskEdges, taskIds, statusById, setNodes, setEdges]);
 
   // Feedback loops are allowed (PRD); only block self-links and exact duplicates.
   const isValidConnection = useCallback((c: Connection | Edge) => {
@@ -96,21 +98,25 @@ function Inner() {
 
   const onConnect = useCallback(async (c: Connection) => {
     if (!c.source || !c.target) return;
-    if (c.source === c.target) { toast('A task can’t depend on itself', 'info'); return; }
-    if (edges.some(e => e.source === c.source && e.target === c.target)) { toast('These tasks are already linked', 'info'); return; }
+    if (c.source === c.target) { toast("A task can't depend on itself", "info"); return; }
+    if (edges.some(e => e.source === c.source && e.target === c.target)) { toast("These tasks are already linked", "info"); return; }
+    // Add an optimistic canvas edge immediately so the link appears without waiting for the API.
+    const optimisticId = `${c.source}->${c.target}`;
+    setEdges(prev => prev.some(e => e.id === optimisticId) ? prev : [...prev, buildEdge(c.source!, c.target!, false, false, '')]);
     const created = await connectEdge(c.source, c.target);
-    // The server auto-detects kind; reflect feedback styling + nudge labelling.
+    // The context taskEdges change will reconcile/replace the optimistic edge (same id).
+    // Reflect feedback styling + nudge labelling if the server detected a feedback loop.
     if (created?.kind === 'QaFeedback') {
-      toast('Feedback loop created — double-click it to label the route', 'info');
+      toast("Feedback loop created — double-click it to label the route", "info");
       setEditingId(created.id);
     }
-  }, [edges, connectEdge]);
+  }, [edges, connectEdge, setEdges]);
 
   // Reconnection: drag an edge endpoint onto another node; carry the label across.
   const onReconnectStart = useCallback(() => { reconnectDone.current = false; }, []);
   const onReconnect = useCallback(async (oldEdge: Edge, c: Connection) => {
     const unchanged = c.source === oldEdge.source && c.target === oldEdge.target;
-    if (!unchanged && !isValidConnection(c)) { toast('Can’t move the link there', 'error'); return; }
+    if (!unchanged && !isValidConnection(c)) { toast("Can't move the link there", 'error'); return; }
     reconnectDone.current = true;
     if (unchanged || !c.source || !c.target) { setEdges(els => reconnectEdge(oldEdge, c, els)); return; }
     const label = (oldEdge.data as { label?: string })?.label;
@@ -124,7 +130,7 @@ function Inner() {
   }, [onDelete]);
 
   const onEdgesDelete = useCallback((deleted: Edge[]) => {
-    deleted.forEach(e => { disconnectEdge(`${e.source}->${e.target}`); });
+    deleted.forEach(e => { disconnectEdge(e.id); });
   }, [disconnectEdge]);
 
   const handleNodesChange = useCallback((changes: NodeChange[]) => {
@@ -136,7 +142,7 @@ function Inner() {
     <BoardCanvasCtx.Provider value={{ tasks, roles, runsById, openTask }}>
     <EdgeUiCtx.Provider value={edgeUi}>
       <ReactFlow
-        nodes={nodes} edges={styledEdges}
+        nodes={nodes} edges={edges}
         onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange}
         onConnect={onConnect} isValidConnection={isValidConnection}
         onReconnect={onReconnect} onReconnectStart={onReconnectStart} onReconnectEnd={onReconnectEnd}
