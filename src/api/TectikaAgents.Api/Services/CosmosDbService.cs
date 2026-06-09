@@ -21,6 +21,7 @@ public class CosmosDbService : ICosmosDbService
     public const string ArtifactsContainer = "artifacts";
     public const string ApprovalsContainer = "approvals";
     public const string AuditLogContainer = "auditLog";
+    public const string HumanInteractionsContainer = "humanInteractions";
 
     public CosmosDbService(CosmosClient client, IOptions<CosmosDbSettings> settings)
     {
@@ -43,8 +44,9 @@ public class CosmosDbService : ICosmosDbService
             (AgentRolesContainer,   "/tenantId"),
             (WorkflowRunsContainer, "/taskId"),
             (ArtifactsContainer,    "/taskId"),
-            (ApprovalsContainer,    "/runId"),
-            (AuditLogContainer,     "/tenantId"),
+            (ApprovalsContainer,          "/runId"),
+            (AuditLogContainer,           "/tenantId"),
+            (HumanInteractionsContainer,  "/runId"),
         };
 
         foreach (var (name, pk) in containers)
@@ -214,6 +216,38 @@ public class CosmosDbService : ICosmosDbService
         // Cross-partition query — acceptable for approval inbox (infrequent)
         var query = new QueryDefinition("SELECT * FROM c WHERE c.tenantId = @tenantId AND c.status = 'Pending'").WithParameter("@tenantId", tenantId);
         return await QueryAsync<Approval>(ApprovalsContainer, query, null, ct);
+    }
+
+    // ── Human Interactions ─────────────────────────────────────────────────────
+
+    public async Task<HumanInteraction> CreateInteractionAsync(HumanInteraction interaction, CancellationToken ct = default)
+    {
+        var res = await GetContainer(HumanInteractionsContainer).CreateItemAsync(interaction, new PartitionKey(interaction.RunId), cancellationToken: ct);
+        return res.Resource;
+    }
+
+    public async Task<HumanInteraction?> GetInteractionAsync(string runId, string interactionId, CancellationToken ct = default)
+    {
+        try
+        {
+            var res = await GetContainer(HumanInteractionsContainer).ReadItemAsync<HumanInteraction>(interactionId, new PartitionKey(runId), cancellationToken: ct);
+            return res.Resource;
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
+    }
+
+    public async Task<HumanInteraction> UpdateInteractionAsync(HumanInteraction interaction, CancellationToken ct = default)
+    {
+        var res = await GetContainer(HumanInteractionsContainer).ReplaceItemAsync(interaction, interaction.Id, new PartitionKey(interaction.RunId), cancellationToken: ct);
+        return res.Resource;
+    }
+
+    public async Task<IEnumerable<HumanInteraction>> GetPendingInteractionsAsync(string tenantId, CancellationToken ct = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.tenantId = @tenantId AND c.status = 'Pending'")
+            .WithParameter("@tenantId", tenantId);
+        return await QueryAsync<HumanInteraction>(HumanInteractionsContainer, query, null, ct);
     }
 
     // ── Audit Log ─────────────────────────────────────────────────────────────

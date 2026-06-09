@@ -45,6 +45,12 @@ public interface ICosmosDbService
     Task<Approval> UpdateApprovalAsync(Approval approval, CancellationToken ct = default);
     Task<IEnumerable<Approval>> GetPendingApprovalsAsync(string tenantId, CancellationToken ct = default);
 
+    // ── Human Interactions ─────────────────────────────────────────────────────
+    Task<HumanInteraction> CreateInteractionAsync(HumanInteraction interaction, CancellationToken ct = default);
+    Task<HumanInteraction?> GetInteractionAsync(string runId, string interactionId, CancellationToken ct = default);
+    Task<HumanInteraction> UpdateInteractionAsync(HumanInteraction interaction, CancellationToken ct = default);
+    Task<IEnumerable<HumanInteraction>> GetPendingInteractionsAsync(string tenantId, CancellationToken ct = default);
+
     // ── Audit Log ──────────────────────────────────────────────────────────────
     Task AppendAuditAsync(AuditEntry entry, CancellationToken ct = default);
 }

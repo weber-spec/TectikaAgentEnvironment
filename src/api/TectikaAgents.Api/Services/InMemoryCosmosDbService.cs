@@ -21,6 +21,7 @@ public class InMemoryCosmosDbService : ICosmosDbService
     private readonly ConcurrentDictionary<string, WorkflowRun> _runs = new();
     private readonly ConcurrentDictionary<string, Artifact> _artifacts = new();
     private readonly ConcurrentDictionary<string, Approval> _approvals = new();
+    private readonly ConcurrentDictionary<string, HumanInteraction> _interactions = new();
     private readonly ConcurrentDictionary<string, AuditEntry> _audit = new();
 
     private readonly ILogger<InMemoryCosmosDbService> _logger;
@@ -149,6 +150,27 @@ public class InMemoryCosmosDbService : ICosmosDbService
     public Task<IEnumerable<Approval>> GetPendingApprovalsAsync(string tenantId, CancellationToken ct = default) =>
         Task.FromResult(_approvals.Values
             .Where(a => a.TenantId == tenantId && a.Status == ApprovalStatus.Pending)
+            .AsEnumerable());
+
+    // ── Human Interactions ──────────────────────────────────────────────────────
+    public Task<HumanInteraction> CreateInteractionAsync(HumanInteraction interaction, CancellationToken ct = default)
+    {
+        _interactions[interaction.Id] = interaction;
+        return Task.FromResult(interaction);
+    }
+
+    public Task<HumanInteraction?> GetInteractionAsync(string runId, string interactionId, CancellationToken ct = default) =>
+        Task.FromResult(_interactions.TryGetValue(interactionId, out var i) && i.RunId == runId ? i : null);
+
+    public Task<HumanInteraction> UpdateInteractionAsync(HumanInteraction interaction, CancellationToken ct = default)
+    {
+        _interactions[interaction.Id] = interaction;
+        return Task.FromResult(interaction);
+    }
+
+    public Task<IEnumerable<HumanInteraction>> GetPendingInteractionsAsync(string tenantId, CancellationToken ct = default) =>
+        Task.FromResult(_interactions.Values
+            .Where(i => i.TenantId == tenantId && i.Status == InteractionStatus.Pending)
             .AsEnumerable());
 
     // ── Audit Log ──────────────────────────────────────────────────────────────

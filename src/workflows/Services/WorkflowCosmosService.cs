@@ -134,11 +134,25 @@ public class WorkflowCosmosService
         await C("artifacts").PatchItemAsync<Artifact>(artifactId, new PartitionKey(taskId), patchOps, cancellationToken: ct);
     }
 
+    public async Task PatchTaskArtifactSummaryAsync(string boardId, string taskId, string summary, CancellationToken ct = default)
+    {
+        var patchOps = new List<PatchOperation> { PatchOperation.Set("/artifactSummary", summary) };
+        await C("tasks").PatchItemAsync<AgentTask>(taskId, new PartitionKey(boardId), patchOps, cancellationToken: ct);
+    }
+
     // ── Approval ──────────────────────────────────────────────────────────────
 
     public async Task<Approval> CreateApprovalAsync(Approval approval, CancellationToken ct = default)
     {
         var res = await C("approvals").CreateItemAsync(approval, new PartitionKey(approval.RunId), cancellationToken: ct);
+        return res.Resource;
+    }
+
+    // ── HumanInteraction ──────────────────────────────────────────────────────
+
+    public async Task<HumanInteraction> CreateInteractionAsync(HumanInteraction interaction, CancellationToken ct = default)
+    {
+        var res = await C("humanInteractions").CreateItemAsync(interaction, new PartitionKey(interaction.RunId), cancellationToken: ct);
         return res.Resource;
     }
 
