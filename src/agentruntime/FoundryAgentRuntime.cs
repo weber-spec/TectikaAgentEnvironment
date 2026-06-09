@@ -167,9 +167,11 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         string status = run.Status.ToString();
         OnStatus?.Invoke(status);
 
+        // NOTE: RequiresAction is intentionally NOT a continue-status. Phase 1 agents carry no
+        // tools, so we never submit tool outputs; treating it as terminal (→ Failed below) avoids
+        // polling forever should a tool-enabled role ever reach this runtime before tools land.
         while (run.Status == FoundryRunStatus.Queued
             || run.Status == FoundryRunStatus.InProgress
-            || run.Status == FoundryRunStatus.RequiresAction
             || run.Status == FoundryRunStatus.Cancelling)
         {
             await Task.Delay(TimeSpan.FromMilliseconds(750), ct).ConfigureAwait(false);
@@ -202,6 +204,8 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
 
         if (text.Length > 0) OnText?.Invoke(text.ToString());
 
+        if (status == "requires_action")
+            return Fail(req, "Foundry run requires tool action, which this runtime does not handle yet (Phase 1 has no tools).");
         if (status is "failed" or "cancelled" or "expired")
             return Fail(req, $"Foundry run ended with status '{status}'.");
         if (status == "incomplete")
