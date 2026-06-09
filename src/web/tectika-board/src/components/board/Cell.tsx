@@ -416,16 +416,17 @@ function FormulaCell({ task, col }: { task: AgentTask; col: ColumnDef }) {
 // ── Result (artifactSummary) ──────────────────────────────────────────────────
 const MAX_RESULT_CHARS = 80;
 function ResultCell({ task }: { task: AgentTask }) {
-  const summary = task.artifactSummary;
+  const summary = task.artifactSummary?.trim() || undefined;
   if (!summary) {
     return <CellWrap><span className="text-xs text-[var(--muted-2)]">—</span></CellWrap>;
   }
-  const display = summary.length > MAX_RESULT_CHARS
-    ? summary.slice(0, MAX_RESULT_CHARS) + '…'
+  const chars = [...summary];
+  const display = chars.length > MAX_RESULT_CHARS
+    ? chars.slice(0, MAX_RESULT_CHARS).join('') + '…'
     : summary;
   return (
     <CellWrap>
-      <span className="text-xs text-[var(--foreground)] truncate" title={summary}>{display}</span>
+      <span className="text-xs text-[var(--foreground)]" title={summary}>{display}</span>
     </CellWrap>
   );
 }
