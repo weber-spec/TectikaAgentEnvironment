@@ -148,6 +148,9 @@ interface BoardContextValue {
   disconnectEdge: (edgeId: string) => Promise<void>;
   updateEdge: (edgeId: string, patch: Partial<Pick<TaskEdge, 'kind' | 'label'>>) => Promise<void>;
 
+  // run board
+  runBoard: () => Promise<void>;
+
   // agent config + interactive workspace chat
   saveRole: (role: AgentRole) => Promise<void>;
   chatThreads: Record<string, ChatTurn[]>;
@@ -551,6 +554,16 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     try { await api.edges.update(boardId, edgeId, patch); } catch { toast('Could not update edge', 'error'); }
   }, [boardId]);
 
+  const runBoard = useCallback(async () => {
+    const tasksToRun = tasks.filter(
+      t =>
+        t.assignee?.type === 'Agent' &&
+        t.status === 'Backlog' &&
+        !edges.some(e => e.targetTaskId === t.id && e.kind === 'Dependency'),
+    );
+    await Promise.allSettled(tasksToRun.map(t => api.runs.start(boardId, t.id)));
+  }, [boardId, tasks, edges]);
+
   const saveRole = useCallback(async (role: AgentRole) => {
     setRoles(prev => prev.map(r => r.id === role.id ? role : r));
     try { await api.agentRoles.upsert(role); } catch { toast('Could not save agent configuration', 'error'); }
@@ -571,6 +584,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     selectedIds, toggleSelect, selectAll, clearSelection,
     updateTask, setStatus, setCustomCell, addTask, deleteTasks, moveCanvas,
     edges, upstreamIds, downstreamIds, connectEdge, disconnectEdge, updateEdge,
+    runBoard,
     saveRole, chatThreads: cfg.chatThreads, pushChatTurns,
     liveEnabled, liveState, toggleLive,
     openTaskId, openTask: setOpenTaskId,
