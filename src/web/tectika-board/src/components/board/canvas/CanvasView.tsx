@@ -36,10 +36,10 @@ function layout(nodes: Node[], edges: Edge[]): Node[] {
 }
 
 // Edge id is always `${source}->${target}` (equals TaskEdge.id).
-function buildEdge(source: string, target: string, animated: boolean, feedback: boolean, label: string): Edge {
+function buildEdge(source: string, target: string, animated: boolean, feedback: boolean, label: string, currentIterations?: number, maxIterations?: number): Edge {
   return {
     id: `${source}->${target}`, source, target, type: 'pipeline', animated,
-    data: { feedback, label },
+    data: { feedback, label, currentIterations, maxIterations },
     markerEnd: feedback ? FEEDBACK_MARKER : FORWARD_MARKER,
   };
 }
@@ -75,7 +75,7 @@ function Inner() {
   useEffect(() => {
     const es: Edge[] = taskEdges
       .filter(e => taskIds.has(e.sourceTaskId) && taskIds.has(e.targetTaskId))
-      .map(e => buildEdge(e.sourceTaskId, e.targetTaskId, statusById[e.sourceTaskId] === 'InProgress', e.kind === 'QaFeedback', e.label ?? ''));
+      .map(e => buildEdge(e.sourceTaskId, e.targetTaskId, statusById[e.sourceTaskId] === 'InProgress', e.kind === 'QaFeedback', e.label ?? '', e.currentIterations, e.maxIterations));
     setNodes(prev => {
       // Preserve existing node positions (from drag) unless the task has an explicit canvasPosition.
       const prevById = new Map(prev.map(n => [n.id, n]));
@@ -180,6 +180,8 @@ function PipelineEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, 
   const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
   const feedback = !!(data as { feedback?: boolean })?.feedback;
   const label = ((data as { label?: string })?.label) ?? '';
+  const currentIterations = (data as { currentIterations?: number })?.currentIterations;
+  const maxIterations = (data as { maxIterations?: number })?.maxIterations;
   const editing = ui?.editingId === id;
   const hovered = ui?.hoveredId === id;
   const show = !!selected || hovered || editing;
@@ -212,6 +214,15 @@ function PipelineEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, 
                   {feedback && <Icon.refresh size={10} />}
                   <span className="truncate">{label || 'add label…'}</span>
                 </button>
+              )}
+              {feedback && maxIterations != null && maxIterations > 0 && (
+                <span
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold border"
+                  style={{ borderColor: '#ff642e55', color: '#ff642e', background: 'var(--background)' }}
+                  title={`QA iterations: ${currentIterations ?? 0} of ${maxIterations}`}
+                >
+                  ↻ {currentIterations ?? 0}/{maxIterations}
+                </span>
               )}
               {show && (
                 <button
