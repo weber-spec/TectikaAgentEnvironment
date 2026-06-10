@@ -66,6 +66,7 @@ public class UpdateRunStatusActivity
             RunStatus.PausedApproval  => AgentTaskStatus.AwaitingApproval,
             RunStatus.Completed       => AgentTaskStatus.Done,
             RunStatus.Failed          => AgentTaskStatus.Failed,
+            RunStatus.NeedsRevision   => AgentTaskStatus.Review,
             _                         => AgentTaskStatus.InProgress
         };
 
@@ -80,7 +81,83 @@ public class UpdateRunStatusActivity
             await _events.PublishRunFailedAsync(input.RunId, input.TaskId, input.ErrorMessage ?? "Unknown error", ct);
 
         if (taskStatus == AgentTaskStatus.Done)
+        {
+            await ResetQaEdgeIterationsAsync(input.BoardId, input.TaskId, ct);
             await TriggerDownstreamRunsAsync(input.BoardId, input.TaskId, ct);
+        }
+        else if (taskStatus == AgentTaskStatus.Review)
+            await TryTriggerQaLoopAsync(input.BoardId, input.TaskId, ct);
+    }
+
+    private async Task TryTriggerQaLoopAsync(string boardId, string validatorTaskId, CancellationToken ct)
+    {
+        List<TaskEdge> feedbackEdges;
+        try { feedbackEdges = await _cosmos.GetOutgoingQaFeedbackEdgesAsync(boardId, validatorTaskId, ct); }
+        catch (Exception ex) { _logger.LogError(ex, "QaFeedback edge query failed for {TaskId}", validatorTaskId); return; }
+
+        if (feedbackEdges.Count == 0) return;
+
+        foreach (var edge in feedbackEdges)
+            await ProcessQaFeedbackEdgeAsync(boardId, validatorTaskId, edge, ct);
+    }
+
+    private async Task ProcessQaFeedbackEdgeAsync(
+        string boardId, string validatorTaskId, TaskEdge edge, CancellationToken ct)
+    {
+        edge.CurrentIterations++;
+        await _cosmos.UpdateEdgeAsync(edge, ct);
+
+        _logger.LogInformation("QA loop edge {EdgeId}: iteration {Current}/{Max}",
+            edge.Id, edge.CurrentIterations, edge.MaxIterations);
+
+        if (edge.CurrentIterations >= edge.MaxIterations)
+        {
+            _logger.LogWarning("QA loop exhausted on edge {EdgeId} after {N} iterations — no re-trigger",
+                edge.Id, edge.CurrentIterations);
+            return;
+        }
+
+        var loopTargetId = edge.TargetTaskId;
+
+        List<string> segmentIds;
+        try { segmentIds = await _cosmos.GetTasksBetweenAsync(boardId, loopTargetId, validatorTaskId, ct); }
+        catch (Exception ex) { _logger.LogError(ex, "GetTasksBetween failed for QA loop"); return; }
+
+        await _cosmos.ResetTasksToBacklogAsync(boardId, segmentIds, ct);
+
+        var apiBaseUrl = _config["Api:BaseUrl"];
+        if (string.IsNullOrEmpty(apiBaseUrl))
+        {
+            _logger.LogWarning("Api:BaseUrl not configured — QA retry skipped for {TaskId}", loopTargetId);
+            return;
+        }
+
+        try
+        {
+            var body = System.Text.Json.JsonSerializer.Serialize(new
+                { boardId, taskId = loopTargetId, pipeline = (object?)null });
+            var content = new System.Net.Http.StringContent(body, System.Text.Encoding.UTF8, "application/json");
+            var http = _httpClientFactory.CreateClient();
+            var response = await http.PostAsync($"{apiBaseUrl.TrimEnd('/')}/api/runs/start", content, ct);
+            if (!response.IsSuccessStatusCode)
+                _logger.LogError("QA retry POST returned {Status} for task {TaskId}",
+                    (int)response.StatusCode, loopTargetId);
+        }
+        catch (Exception ex) { _logger.LogError(ex, "QA retry trigger failed for {TaskId}", loopTargetId); }
+    }
+
+    private async Task ResetQaEdgeIterationsAsync(string boardId, string taskId, CancellationToken ct)
+    {
+        try
+        {
+            var edges = await _cosmos.GetOutgoingQaFeedbackEdgesAsync(boardId, taskId, ct);
+            foreach (var edge in edges.Where(e => e.CurrentIterations > 0))
+            {
+                edge.CurrentIterations = 0;
+                await _cosmos.UpdateEdgeAsync(edge, ct);
+            }
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "Failed to reset QA iterations on success for {TaskId}", taskId); }
     }
 
     private async Task TriggerDownstreamRunsAsync(string boardId, string taskId, CancellationToken ct)
