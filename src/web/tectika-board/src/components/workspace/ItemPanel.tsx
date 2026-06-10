@@ -187,6 +187,42 @@ function ActivityTab({ task }: { task: AgentTask }) {
   );
 }
 
+// ── QA Feedback Loop section ──────────────────────────────────────────────────
+function QaLoopSection({ task }: { task: AgentTask }) {
+  const { edges, updateEdge } = useBoard();
+  const feedbackEdges = edges.filter(
+    e => e.sourceTaskId === task.id && e.kind === 'QaFeedback'
+  );
+  if (feedbackEdges.length === 0) return null;
+
+  return (
+    <div className="rounded-lg border border-[var(--border)] p-3 flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <span style={{ color: '#ff642e' }}>↻</span>
+        <span className="font-semibold text-sm">QA Feedback Loop</span>
+      </div>
+      {feedbackEdges.map(edge => (
+        <div key={edge.id} className="flex items-center gap-2">
+          <label className="text-xs text-[var(--muted)]">Max iterations</label>
+          <input
+            type="number" min={1} max={20}
+            defaultValue={edge.maxIterations}
+            onBlur={ev => {
+              const val = parseInt(ev.target.value, 10);
+              if (!isNaN(val) && val > 0 && val !== edge.maxIterations)
+                updateEdge(edge.id, { maxIterations: val });
+            }}
+            className="w-16 bg-[var(--surface)] border border-[var(--border)] rounded px-2 py-1 text-sm"
+          />
+          <span className="text-xs text-[var(--muted)]">
+            ({edge.currentIterations ?? 0} used)
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Details / config ──────────────────────────────────────────────────────────
 function DetailsTab({ task, role, run, people, onAssign }: { task: AgentTask; role?: ReturnType<typeof useBoard>['roles'][0]; run?: ReturnType<typeof useBoard>['runsById'][string]; people: ReturnType<typeof useBoard>['people']; onAssign: (id: string, kind: 'Agent' | 'Human') => void }) {
   const { updateTask } = useBoard();
@@ -214,6 +250,7 @@ function DetailsTab({ task, role, run, people, onAssign }: { task: AgentTask; ro
           </div>
         </div>
       )}
+      <QaLoopSection task={task} />
     </div>
   );
 }

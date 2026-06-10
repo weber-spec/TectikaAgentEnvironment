@@ -146,7 +146,7 @@ interface BoardContextValue {
   downstreamIds: Record<string, string[]>;
   connectEdge: (source: string, target: string) => Promise<TaskEdge | undefined>;
   disconnectEdge: (edgeId: string) => Promise<void>;
-  updateEdge: (edgeId: string, patch: Partial<Pick<TaskEdge, 'kind' | 'label'>>) => Promise<void>;
+  updateEdge: (edgeId: string, patch: Partial<Pick<TaskEdge, 'kind' | 'label' | 'maxIterations'>>) => Promise<void>;
 
   // run board
   runBoard: () => Promise<void>;
@@ -548,7 +548,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     catch { if (removed) setEdges(p => p.some(e => e.id === removed!.id) ? p : [...p, removed!]); toast('Could not remove connection', 'error'); }
   }, [boardId]);
 
-  const updateEdge = useCallback(async (edgeId: string, patch: Partial<Pick<TaskEdge, 'kind' | 'label'>>) => {
+  const updateEdge = useCallback(async (edgeId: string, patch: Partial<Pick<TaskEdge, 'kind' | 'label' | 'maxIterations'>>) => {
     lastEditRef.current = Date.now();
     setEdges(p => p.map(e => e.id === edgeId ? { ...e, ...patch } : e));
     try { await api.edges.update(boardId, edgeId, patch); } catch { toast('Could not update edge', 'error'); }
