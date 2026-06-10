@@ -61,6 +61,9 @@ public class InvokeAgentActivity
         // ── 3. Load upstream artifacts ────────────────────────────────────────
         var upstreamTaskIds = await _cosmos.GetUpstreamTaskIdsAsync(task.BoardId, input.TaskId, ct);
         var upstreamArtifacts = await _cosmos.GetUpstreamArtifactsAsync(upstreamTaskIds, ct);
+        // Include validator feedback from QaFeedback edges so agents know what to fix on retry
+        var qaFeedbackArtifacts = await _cosmos.GetQaFeedbackArtifactsAsync(task.BoardId, input.TaskId, ct);
+        var allUpstreamArtifacts = upstreamArtifacts.Concat(qaFeedbackArtifacts).ToList();
 
         await _events.PublishStepStartedAsync(input.RunId, input.TaskId, input.Step, role.Id, ct);
 
@@ -74,7 +77,18 @@ public class InvokeAgentActivity
             if (task.FoundryThreadId != threadId)
                 await _cosmos.PatchTaskThreadIdAsync(input.BoardId, input.TaskId, threadId, ct);
 
-            var userContent = await _contextManager.BuildUserContentAsync(role, task, board, upstreamArtifacts, ct);
+            var userContent = await _contextManager.BuildUserContentAsync(role, task, board, allUpstreamArtifacts, ct);
+
+            // If this task is a QA validator (has outgoing QaFeedback edge),
+            // automatically inject revision-signaling instructions — no manual prompt config needed.
+            var isValidator = await _cosmos.HasOutgoingQaFeedbackEdgeAsync(input.BoardId, input.TaskId, ct);
+            if (isValidator)
+            {
+                var injectedInstruction =
+                    "\n\n---\n[System: If you find issues that require the pipeline to re-run, " +
+                    "end your response with:\n## REVISION_NEEDED\n<brief description of what needs to be fixed>]";
+                userContent = userContent + injectedInstruction;
+            }
 
             // Stream thinking text → agent_thinking SSE. Collect the publish tasks and await them AFTER the
             // turn — never block inside the synchronous OnText callback (deadlock risk). FoundryAgentRuntime
@@ -134,7 +148,7 @@ public class InvokeAgentActivity
             InternalLogs = [$"Agent: {role.DisplayName}", $"Step: {input.Step}", $"Model completion: {outcome.CompletionId}"],
             InputContext = new ArtifactInputContext
             {
-                UpstreamArtifacts = upstreamArtifacts.Select(a => new UpstreamArtifactRef
+                UpstreamArtifacts = allUpstreamArtifacts.Select(a => new UpstreamArtifactRef
                 {
                     TaskId = a.TaskId,
                     ArtifactId = a.Id,

@@ -97,6 +97,21 @@ public class WorkflowCosmosService
     public async Task UpdateEdgeAsync(TaskEdge edge, CancellationToken ct = default) =>
         await C("taskEdges").ReplaceItemAsync(edge, edge.Id, new PartitionKey(edge.BoardId), cancellationToken: ct);
 
+    public async Task<bool> HasOutgoingQaFeedbackEdgeAsync(string boardId, string taskId, CancellationToken ct = default)
+    {
+        var q = new QueryDefinition(
+            "SELECT VALUE COUNT(1) FROM c WHERE c.boardId=@b AND c.sourceTaskId=@t AND c.kind='QaFeedback'")
+            .WithParameter("@b", boardId).WithParameter("@t", taskId);
+        var iter = C("taskEdges").GetItemQueryIterator<int>(q,
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(boardId) });
+        while (iter.HasMoreResults)
+        {
+            var page = await iter.ReadNextAsync(ct);
+            if (page.FirstOrDefault() > 0) return true;
+        }
+        return false;
+    }
+
     /// <summary>
     /// BFS forward from startTaskId through Dependency edges up to endTaskId (inclusive).
     /// Returns all task IDs in the pipeline segment for reset.
@@ -186,6 +201,24 @@ public class WorkflowCosmosService
                 results.AddRange(await iter.ReadNextAsync(ct));
         }
         return results;
+    }
+
+    /// <summary>
+    /// Returns the latest artifacts from validator tasks connected to taskId via QaFeedback edges.
+    /// Used as additional context during QA loop retries so agents know what to fix.
+    /// </summary>
+    public async Task<List<Artifact>> GetQaFeedbackArtifactsAsync(string boardId, string taskId, CancellationToken ct = default)
+    {
+        var sourceIds = new List<string>();
+        var q = new QueryDefinition(
+            "SELECT VALUE c.sourceTaskId FROM c WHERE c.boardId=@b AND c.targetTaskId=@t AND c.kind='QaFeedback'")
+            .WithParameter("@b", boardId).WithParameter("@t", taskId);
+        var iter = C("taskEdges").GetItemQueryIterator<string>(q,
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(boardId) });
+        while (iter.HasMoreResults) sourceIds.AddRange(await iter.ReadNextAsync(ct));
+
+        if (sourceIds.Count == 0) return [];
+        return await GetUpstreamArtifactsAsync(sourceIds, ct);
     }
 
     // ── Board ─────────────────────────────────────────────────────────────────
