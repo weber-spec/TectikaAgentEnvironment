@@ -170,7 +170,6 @@ module rbac 'modules/rbac.bicep' = {
     keyVaultName: data.outputs.keyVaultName
     storageName: data.outputs.storageName
     foundryAccountName: foundry.outputs.accountName
-    foundryProjectName: foundry.outputs.projectName
   }
 }
 

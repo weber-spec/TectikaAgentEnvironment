@@ -12,15 +12,17 @@ param serviceBusName string
 param keyVaultName string
 param storageName string
 param foundryAccountName string
-param foundryProjectName string
 
 // ── Built-in role definition ids ─────────────────────────────────────────────
 var roles = {
   acrPull: '7f951dda-4ed3-4680-a7ca-43fe172d538d'
   serviceBusDataOwner: '090c5cfd-751d-490a-894a-3ce6f1109419'
   keyVaultSecretsUser: '4633458b-17de-408a-b874-0445c86b69e6'
-  cognitiveServicesOpenAIUser: '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
-  azureAIDeveloper: '64702f94-c441-49e6-a78b-ef80e0188fee'
+  // "Azure AI User" (surfaced as "Foundry User" in some tenants). dataActions = Microsoft.CognitiveServices/*
+  // → the Foundry data-plane role: Agent Service (accounts/AIServices/agents/* — create/update/delete agents,
+  // threads, runs) AND OpenAI inference. Replaces the prior OpenAI-User + AI-Developer pair, which lacked
+  // the agents/write data action (caused 401 PermissionDenied on POST /assistants).
+  foundryUser: '53ca6127-db72-4b80-b1b0-d745d6d5456d'
   storageBlobDataOwner: 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
   storageQueueDataContributor: '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
   storageTableDataContributor: '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
@@ -37,10 +39,6 @@ resource kv 'Microsoft.KeyVault/vaults@2023-07-01' existing = { name: keyVaultNa
 resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' existing = { name: storageName }
 resource cosmos 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' existing = { name: cosmosName }
 resource foundry 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' existing = { name: foundryAccountName }
-resource foundryProject 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-preview' existing = {
-  parent: foundry
-  name: foundryProjectName
-}
 
 // ── AcrPull: api, workflows, web ──────────────────────────────────────────────
 resource acrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
@@ -81,26 +79,15 @@ resource kvUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
   }
 ]
 
-// ── Cognitive Services OpenAI User (account): api, workflows ─────────────────
-resource openAiUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
+// ── Foundry data plane — "Azure AI User"/"Foundry User", account scope: api, workflows ──
+// Grants Microsoft.CognitiveServices/* incl. accounts/AIServices/agents/write (agent create/
+// update/delete) + threads/runs + OpenAI inference. Account scope covers the child project.
+resource foundryUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
   for p in aiPrincipals: {
-    name: guid(foundry.id, p, roles.cognitiveServicesOpenAIUser)
+    name: guid(foundry.id, p, roles.foundryUser)
     scope: foundry
     properties: {
-      roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.cognitiveServicesOpenAIUser)
-      principalId: p
-      principalType: 'ServicePrincipal'
-    }
-  }
-]
-
-// ── Azure AI Developer (project, Agent Service data plane): api, workflows ───
-resource aiDeveloper 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
-  for p in aiPrincipals: {
-    name: guid(foundryProject.id, p, roles.azureAIDeveloper)
-    scope: foundryProject
-    properties: {
-      roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.azureAIDeveloper)
+      roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.foundryUser)
       principalId: p
       principalType: 'ServicePrincipal'
     }
