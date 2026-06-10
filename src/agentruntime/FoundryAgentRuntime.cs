@@ -71,23 +71,32 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
             var definition = new AgentDefinition("prompt", model, role.SystemPrompt, role.DisplayName);
             var http = await ClientAsync(ct).ConfigureAwait(false);
 
-            if (string.IsNullOrEmpty(role.FoundryAgentId))
+            // Stable agent id: reuse the stored one; mint a fresh random id only for a brand-new role.
+            var name = string.IsNullOrEmpty(role.FoundryAgentId) ? FoundryAgentName.New() : role.FoundryAgentId!;
+
+            // Self-heal: the stored agent may have been deleted out-of-band — check whether it exists.
+            var getResp = await http.GetAsync($"{_base}/agents/{name}?{Api}", ct).ConfigureAwait(false);
+            if (getResp.StatusCode is not System.Net.HttpStatusCode.OK and not System.Net.HttpStatusCode.NotFound)
+                await EnsureOkAsync(getResp, ct).ConfigureAwait(false); // surface unexpected errors
+            var exists = getResp.StatusCode == System.Net.HttpStatusCode.OK;
+
+            if (!exists)
             {
-                var name = FoundryAgentName.New();
+                // Create (or recreate) the agent WITH this id, so the stored FoundryAgentId stays valid.
                 var resp = await http.PostAsJsonAsync($"{_base}/agents?{Api}", new CreateAgentRequest(name, definition), Json, ct).ConfigureAwait(false);
+                if (resp.StatusCode != System.Net.HttpStatusCode.Conflict) // 409 = created concurrently → fine
+                    await EnsureOkAsync(resp, ct).ConfigureAwait(false);
+            }
+            else if (role.FoundryAgentHash != hash)
+            {
+                // Prompt/model changed → publish a new version of the same agent.
+                var resp = await http.PostAsJsonAsync($"{_base}/agents/{name}/versions?{Api}", new NewVersionRequest(definition), Json, ct).ConfigureAwait(false);
                 await EnsureOkAsync(resp, ct).ConfigureAwait(false);
-                role.FoundryAgentId = name;
-                role.FoundryAgentHash = hash;
-                return new AgentSyncResult(name, true);
             }
 
-            if (role.FoundryAgentHash != hash)
-            {
-                var resp = await http.PostAsJsonAsync($"{_base}/agents/{role.FoundryAgentId}/versions?{Api}", new NewVersionRequest(definition), Json, ct).ConfigureAwait(false);
-                await EnsureOkAsync(resp, ct).ConfigureAwait(false);
-                role.FoundryAgentHash = hash;
-            }
-            return new AgentSyncResult(role.FoundryAgentId, true);
+            role.FoundryAgentId = name;
+            role.FoundryAgentHash = hash;
+            return new AgentSyncResult(name, true);
         }
         catch (Exception ex)
         {
