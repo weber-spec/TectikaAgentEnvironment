@@ -32,6 +32,7 @@ builder.Services.Configure<AzureAdSettings>(builder.Configuration.GetSection("Az
 builder.Services.Configure<FoundrySettings>(builder.Configuration.GetSection("Foundry"));
 builder.Services.Configure<ServiceBusSettings>(builder.Configuration.GetSection("ServiceBus"));
 builder.Services.Configure<KeyVaultSettings>(builder.Configuration.GetSection("KeyVault"));
+builder.Services.Configure<LoggingSettings>(builder.Configuration.GetSection("Logging"));
 
 // ── Toggles (independent) ────────────────────────────────────────────────────
 // "MockDatabase:Enabled" selects the DB backend: in-memory mock vs real Cosmos DB.
@@ -170,6 +171,7 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 
 app.UseCors("NextJs");
+app.UseMiddleware<TectikaAgents.Api.Middleware.RequestLoggingMiddleware>();
 app.UseWebSockets();
 app.UseAuthentication();
 app.UseAuthorization();
