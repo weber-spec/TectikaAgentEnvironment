@@ -11,8 +11,13 @@ namespace TectikaAgents.Api.Controllers;
 public class TasksController : ControllerBase
 {
     private readonly ICosmosDbService _cosmos;
+    private readonly IRunStartService _runStart;
 
-    public TasksController(ICosmosDbService cosmos) => _cosmos = cosmos;
+    public TasksController(ICosmosDbService cosmos, IRunStartService runStart)
+    {
+        _cosmos = cosmos;
+        _runStart = runStart;
+    }
 
     private string TenantId => User.FindFirst("tid")?.Value ?? "default";
     private string UserId => User.FindFirst("preferred_username")?.Value ?? "unknown";
@@ -88,7 +93,54 @@ public class TasksController : ControllerBase
         if (req.Status is AgentTaskStatus.Done or AgentTaskStatus.Failed)
             task.TaskBrief = "";
         var updated = await _cosmos.UpdateTaskAsync(task, ct);
+
+        if (req.Status == AgentTaskStatus.Done)
+            await TriggerDownstreamAsync(boardId, taskId, TenantId, ct);
+
         return Ok(updated);
+    }
+
+    private async System.Threading.Tasks.Task TriggerDownstreamAsync(string boardId, string completedTaskId, string tenantId, CancellationToken ct)
+    {
+        var allEdges = (await _cosmos.GetEdgesByBoardAsync(boardId, ct)).ToList();
+
+        // Find tasks that have completedTaskId as a dependency
+        var downstreamEdges = allEdges
+            .Where(e => e.SourceTaskId == completedTaskId && e.Kind == EdgeKind.Dependency)
+            .ToList();
+
+        foreach (var edge in downstreamEdges)
+        {
+            var targetTaskId = edge.TargetTaskId;
+
+            var targetTask = await _cosmos.GetTaskAsync(boardId, targetTaskId, ct);
+
+            // Skip if not found, not Backlog, or not assigned to an agent
+            if (targetTask is null) continue;
+            if (targetTask.Status != AgentTaskStatus.Backlog) continue;
+            if (targetTask.Assignee.Type != AssigneeType.Agent) continue;
+
+            // Collect all upstream dependency IDs for this target task
+            var upstreamIds = allEdges
+                .Where(e => e.TargetTaskId == targetTaskId && e.Kind == EdgeKind.Dependency)
+                .Select(e => e.SourceTaskId)
+                .ToList();
+
+            // Check that every upstream task is Done
+            var allUpstreamDone = true;
+            foreach (var upstreamId in upstreamIds)
+            {
+                var upstreamTask = await _cosmos.GetTaskAsync(boardId, upstreamId, ct);
+                if (upstreamTask is null || upstreamTask.Status != AgentTaskStatus.Done)
+                {
+                    allUpstreamDone = false;
+                    break;
+                }
+            }
+
+            if (allUpstreamDone)
+                await _runStart.StartAsync(boardId, targetTaskId, tenantId, ct);
+        }
     }
 
     [HttpPatch("{taskId}/canvas-position")]

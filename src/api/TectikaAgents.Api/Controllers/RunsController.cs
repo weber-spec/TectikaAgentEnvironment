@@ -1,8 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Net.Http.Headers;
-using System.Text;
-using System.Text.Json;
 using TectikaAgents.Api.Services;
 using TectikaAgents.Core.Models;
 
@@ -15,21 +12,18 @@ public class RunsController : ControllerBase
 {
     private readonly ICosmosDbService _cosmos;
     private readonly SseConnectionManager _sse;
-    private readonly IHttpClientFactory _httpFactory;
-    private readonly IConfiguration _config;
+    private readonly IRunStartService _runStart;
     private readonly ILogger<RunsController> _logger;
 
     public RunsController(
         ICosmosDbService cosmos,
         SseConnectionManager sse,
-        IHttpClientFactory httpFactory,
-        IConfiguration config,
+        IRunStartService runStart,
         ILogger<RunsController> logger)
     {
         _cosmos = cosmos;
         _sse = sse;
-        _httpFactory = httpFactory;
-        _config = config;
+        _runStart = runStart;
         _logger = logger;
     }
 
@@ -49,85 +43,16 @@ public class RunsController : ControllerBase
     [HttpPost("start")]
     public async Task<IActionResult> Start([FromBody] StartRunRequest req, CancellationToken ct)
     {
-        // ── 1. Load task ──────────────────────────────────────────────────────
-        var task = await _cosmos.GetTaskAsync(req.BoardId, req.TaskId, ct);
-        if (task is null) return NotFound($"Task '{req.TaskId}' not found.");
-
-        // ── 2. Resolve pipeline (supplied or derived from task assignee) ─────────
-        List<PipelineStep> pipeline;
-        try
-        {
-            pipeline = (req.Pipeline is { Count: > 0 }) ? req.Pipeline : RunPipelineFactory.FromTask(task);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ex.Message);
-        }
-
-        // ── 3. Create WorkflowRun in Cosmos ───────────────────────────────────
-        var run = new WorkflowRun
-        {
-            TenantId           = TenantId,
-            TaskId             = req.TaskId,
-            PipelineDefinition = pipeline,
-            Status             = RunStatus.Pending
-        };
-
-        var savedRun = await _cosmos.CreateRunAsync(run, ct);
-
-        // Update task's workflowRunId
-        task.WorkflowRunId = savedRun.Id;
-        task.Status = AgentTaskStatus.InProgress;
-        await _cosmos.UpdateTaskAsync(task, ct);
-
-        // ── 4. Trigger Durable Functions via HTTP ─────────────────────────────
-        var durableStartUrl = _config["DurableFunctions:StartUrl"]
-            ?? "http://localhost:7071/api/pipelines/start";
-
-        var pipelineInput = new
-        {
-            runId    = savedRun.Id,
-            taskId   = req.TaskId,
-            boardId  = req.BoardId,
-            tenantId = TenantId,
-            steps    = pipeline
-        };
-
-        try
-        {
-            var http = _httpFactory.CreateClient();
-            var content = new StringContent(JsonSerializer.Serialize(pipelineInput), Encoding.UTF8, "application/json");
-            var durableRes = await http.PostAsync(durableStartUrl, content, ct);
-
-            if (!durableRes.IsSuccessStatusCode)
-            {
-                var err = await durableRes.Content.ReadAsStringAsync(ct);
-                _logger.LogError("Durable Functions start failed: {Status} {Error}", durableRes.StatusCode, err);
-                return StatusCode(502, $"Failed to start pipeline: {err}");
-            }
-
-            var durableBody = await durableRes.Content.ReadAsStringAsync(ct);
-            var durableData = JsonSerializer.Deserialize<JsonElement>(durableBody);
-            var instanceId = durableData.TryGetProperty("instanceId", out var id) ? id.GetString() : null;
-
-            // Save instance ID back to run
-            savedRun.DurableFunctionInstanceId = instanceId;
-            await _cosmos.UpdateRunAsync(savedRun, ct);
-
-            _logger.LogInformation("Pipeline started: run={RunId} instance={InstanceId}", savedRun.Id, instanceId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to trigger Durable Functions for run {RunId}", savedRun.Id);
-            // Don't fail the request — run is created, can retry trigger
-        }
+        var savedRun = await _runStart.StartAsync(req.BoardId, req.TaskId, TenantId, ct);
+        if (savedRun is null)
+            return BadRequest("Task has no agent assigned or is already running.");
 
         return CreatedAtAction(nameof(Get), new { taskId = req.TaskId, runId = savedRun.Id }, new
         {
-            runId      = savedRun.Id,
-            taskId     = req.TaskId,
-            status     = savedRun.Status,
-            streamUrl  = $"/api/runs/{savedRun.Id}/stream"
+            runId     = savedRun.Id,
+            taskId    = req.TaskId,
+            status    = savedRun.Status,
+            streamUrl = $"/api/runs/{savedRun.Id}/stream"
         });
     }
 

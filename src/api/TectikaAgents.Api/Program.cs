@@ -86,6 +86,9 @@ builder.Services.AddSingleton<CliBridgeManager>();
 // ── HttpClientFactory (used by RunsController to call Durable Functions) ──────
 builder.Services.AddHttpClient();
 
+// ── Run orchestration service ────────────────────────────────────────────────
+builder.Services.AddScoped<IRunStartService, RunStartService>();
+
 // ── Controllers + OpenAPI ────────────────────────────────────────────────────
 // Serialize enums as their string names (e.g. "InProgress") so the Next.js client's
 // string-union types line up with the API contract instead of receiving raw integers.
