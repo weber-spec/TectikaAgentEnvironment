@@ -113,8 +113,9 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         var http = await ClientAsync(ct).ConfigureAwait(false);
         var resp = await http.PostAsJsonAsync($"{_base}/conversations?{Api}", new EmptyBody(), Json, ct).ConfigureAwait(false);
         await EnsureOkAsync(resp, ct).ConfigureAwait(false);
-        var conv = await resp.Content.ReadFromJsonAsync<ConversationResponse>(Json, ct).ConfigureAwait(false);
-        task.FoundryThreadId = conv!.Id;
+        var conv = await resp.Content.ReadFromJsonAsync<ConversationResponse>(Json, ct).ConfigureAwait(false)
+                   ?? throw new Exception("Empty conversation response from Foundry.");
+        task.FoundryThreadId = conv.Id;
         return task.FoundryThreadId!;
     }
 
@@ -128,7 +129,8 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
             var body = new ResponsesRequest(
                 req.UserMessage,
                 new AgentRef(req.Role.FoundryAgentId!, "agent_reference"),
-                string.IsNullOrEmpty(req.ThreadId) ? null : req.ThreadId);
+                string.IsNullOrEmpty(req.ThreadId) ? null : req.ThreadId,
+                req.MaxCompletionTokens > 0 ? req.MaxCompletionTokens : null);
             var resp = await http.PostAsJsonAsync($"{_base}/openai/v1/responses", body, Json, ct).ConfigureAwait(false);
             await EnsureOkAsync(resp, ct).ConfigureAwait(false);
             var r = await resp.Content.ReadFromJsonAsync<ResponsesResult>(Json, ct).ConfigureAwait(false)
@@ -203,7 +205,8 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
     private sealed record ResponsesRequest(
         [property: JsonPropertyName("input")] string Input,
         [property: JsonPropertyName("agent_reference")] AgentRef AgentReference,
-        [property: JsonPropertyName("conversation")] string? Conversation);
+        [property: JsonPropertyName("conversation")] string? Conversation,
+        [property: JsonPropertyName("max_output_tokens")] int? MaxOutputTokens);
     private sealed class ResponsesResult
     {
         [JsonPropertyName("id")] public string? Id { get; set; }
