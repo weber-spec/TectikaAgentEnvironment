@@ -73,6 +73,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'AzureWebJobsStorage__credential', value: 'managedidentity' }
         { name: 'AzureWebJobsStorage__clientId', value: miClientId }
         { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsightsConnectionString }
+        { name: 'Logging__LogSensitiveContent', value: 'true' }
         // App config
         { name: 'CosmosDb__AccountEndpoint', value: cosmosEndpoint }
         { name: 'CosmosDb__DatabaseName', value: cosmosDatabaseName }
