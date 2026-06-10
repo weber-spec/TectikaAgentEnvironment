@@ -6,6 +6,7 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { SettingsProvider } from '@/lib/settings-context';
 import { Toaster } from '@/components/common/Toaster';
 import { CommandPalette } from '@/components/command/CommandPalette';
+import { TelemetryProvider } from '@/components/observability/TelemetryProvider';
 
 const poppins = Poppins({
   subsets: ['latin'],
@@ -19,18 +20,23 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const aiConn = process.env.APPLICATIONINSIGHTS_CONNECTION_STRING ?? '';
+  const logSensitive = (process.env['Logging__LogSensitiveContent'] ?? 'true') !== 'false';
+
   return (
     <html lang="en" className={`h-full ${poppins.className}`} suppressHydrationWarning>
       <body className="h-full overflow-hidden flex flex-col bg-[var(--background)] text-[var(--foreground)]">
-        <SettingsProvider>
-          <Navbar />
-          <div className="flex flex-1 min-h-0 overflow-hidden">
-            <Sidebar />
-            <main className="flex-1 min-w-0 overflow-y-auto bg-[var(--background)]">{children}</main>
-          </div>
-          <Toaster />
-          <CommandPalette />
-        </SettingsProvider>
+        <TelemetryProvider connectionString={aiConn} logSensitiveContent={logSensitive}>
+          <SettingsProvider>
+            <Navbar />
+            <div className="flex flex-1 min-h-0 overflow-hidden">
+              <Sidebar />
+              <main className="flex-1 min-w-0 overflow-y-auto bg-[var(--background)]">{children}</main>
+            </div>
+            <Toaster />
+            <CommandPalette />
+          </SettingsProvider>
+        </TelemetryProvider>
       </body>
     </html>
   );
