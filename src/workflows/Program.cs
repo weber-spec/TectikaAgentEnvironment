@@ -70,6 +70,7 @@ else
     builder.Services.AddTransient<IAgentRuntime, FoundryAgentRuntime>();
 
 builder.Services.AddScoped<ContextManager>();
+builder.Services.AddHttpClient();
 
 // ── OpenTelemetry ─────────────────────────────────────────────────────────────
 var aiConnStr = Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING");

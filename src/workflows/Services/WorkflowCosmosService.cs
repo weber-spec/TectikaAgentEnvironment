@@ -68,6 +68,18 @@ public class WorkflowCosmosService
         return ids;
     }
 
+    public async Task<List<string>> GetDownstreamTaskIdsAsync(string boardId, string taskId, CancellationToken ct = default)
+    {
+        var ids = new List<string>();
+        var q = new QueryDefinition(
+            "SELECT VALUE c.targetTaskId FROM c WHERE c.boardId=@b AND c.sourceTaskId=@t AND c.kind='Dependency'")
+            .WithParameter("@b", boardId).WithParameter("@t", taskId);
+        var iter = C("taskEdges").GetItemQueryIterator<string>(q,
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(boardId) });
+        while (iter.HasMoreResults) ids.AddRange(await iter.ReadNextAsync(ct));
+        return ids;
+    }
+
     // ── WorkflowRun ───────────────────────────────────────────────────────────
 
     public async Task<WorkflowRun?> GetRunAsync(string taskId, string runId, CancellationToken ct = default)
