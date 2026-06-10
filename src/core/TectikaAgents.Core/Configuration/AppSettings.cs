@@ -39,6 +39,7 @@ public class ServiceBusSettings
 {
     public string Namespace { get; set; } = string.Empty;     // <namespace>.servicebus.windows.net
     public string AgentEventsTopic { get; set; } = "agent-events";
+    public string AgentEventsSubscription { get; set; } = "api-sub";
     public string TaskTriggerQueue { get; set; } = "task-trigger";
     public string ApprovalsQueue { get; set; } = "approvals";
 }

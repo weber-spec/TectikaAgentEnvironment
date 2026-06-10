@@ -37,7 +37,7 @@ public class ServiceBusListenerService : BackgroundService
         }
 
         var client = new ServiceBusClient(_settings.Namespace, new DefaultAzureCredential());
-        _processor = client.CreateProcessor(_settings.AgentEventsTopic, new ServiceBusProcessorOptions
+        _processor = client.CreateProcessor(_settings.AgentEventsTopic, _settings.AgentEventsSubscription, new ServiceBusProcessorOptions
         {
             MaxConcurrentCalls = 10,
             AutoCompleteMessages = false
