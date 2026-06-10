@@ -37,6 +37,9 @@ public class TaskEdge
     [JsonPropertyName("maxIterations")]
     public int MaxIterations { get; set; } = 3;
 
+    [JsonPropertyName("currentIterations")]
+    public int CurrentIterations { get; set; } = 0;
+
     [JsonPropertyName("createdAt")]
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
