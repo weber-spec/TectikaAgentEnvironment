@@ -33,15 +33,31 @@ public class InteractionsController : ControllerBase
     private string UserId   => User.FindFirst("preferred_username")?.Value ?? "unknown";
 
     [HttpGet("pending")]
-    public async Task<IActionResult> GetPending(CancellationToken ct) =>
-        Ok(await _cosmos.GetPendingInteractionsAsync(TenantId, ct));
+    public async Task<IActionResult> GetPending(CancellationToken ct)
+    {
+        _logger.LogInformation("[InteractionList] fetching pending interactions for tenant {TenantId}", TenantId);
+        var pending = await _cosmos.GetPendingInteractionsAsync(TenantId, ct);
+        _logger.LogInformation("[InteractionList] returning {Count} pending interactions for tenant {TenantId}", pending?.Count() ?? 0, TenantId);
+        return Ok(pending);
+    }
 
     [HttpPost("{interactionId}/respond")]
     public async Task<IActionResult> Respond(string interactionId, [FromBody] InteractionRespond req, CancellationToken ct)
     {
+        _logger.LogInformation("[InteractionReply] received reply for interaction {InteractionId} run={RunId} by {User}",
+            interactionId, req.RunId, UserId);
+
         var interaction = await _cosmos.GetInteractionAsync(req.RunId, interactionId, ct);
-        if (interaction is null) return NotFound();
-        if (interaction.Status != InteractionStatus.Pending) return Conflict("Interaction already resolved.");
+        if (interaction is null)
+        {
+            _logger.LogWarning("[InteractionReply] interaction {InteractionId} not found for run {RunId}", interactionId, req.RunId);
+            return NotFound();
+        }
+        if (interaction.Status != InteractionStatus.Pending)
+        {
+            _logger.LogWarning("[InteractionReply] interaction {InteractionId} already resolved status={Status}", interactionId, interaction.Status);
+            return Conflict("Interaction already resolved.");
+        }
 
         // Persist response
         interaction.Status      = InteractionStatus.Responded;
@@ -52,17 +68,28 @@ public class InteractionsController : ControllerBase
         {
             case InteractionType.Selection:
                 if (req.SelectedIndex is null || req.SelectedIndex < 0 || req.SelectedIndex >= (interaction.Items?.Count ?? 0))
+                {
+                    _logger.LogWarning("[InteractionReply] interaction {InteractionId} invalid selectedIndex={SelectedIndex}", interactionId, req.SelectedIndex);
                     return BadRequest("Invalid selectedIndex.");
+                }
                 interaction.SelectedIndex = req.SelectedIndex;
                 break;
 
             case InteractionType.Question:
-                if (string.IsNullOrWhiteSpace(req.Answer)) return BadRequest("Answer is required.");
+                if (string.IsNullOrWhiteSpace(req.Answer))
+                {
+                    _logger.LogWarning("[InteractionReply] interaction {InteractionId} missing required answer", interactionId);
+                    return BadRequest("Answer is required.");
+                }
                 interaction.Answer = req.Answer;
                 break;
 
             case InteractionType.Approval:
-                if (req.Approved is null) return BadRequest("Approved field is required.");
+                if (req.Approved is null)
+                {
+                    _logger.LogWarning("[InteractionReply] interaction {InteractionId} missing required approved field", interactionId);
+                    return BadRequest("Approved field is required.");
+                }
                 interaction.Approved = req.Approved;
                 interaction.Notes    = req.Notes;
                 break;
@@ -90,7 +117,7 @@ public class InteractionsController : ControllerBase
         if (run?.DurableFunctionInstanceId is not null)
             await RaiseInteractionEventAsync(run.DurableFunctionInstanceId, interaction.StepIndex, payload, ct);
         else
-            _logger.LogWarning("No DurableFunctionInstanceId for run {RunId}", req.RunId);
+            _logger.LogWarning("[InteractionReply] no DurableFunctionInstanceId for run {RunId} — cannot wake orchestrator", req.RunId);
 
         // Update task status back to InProgress
         var task = await _cosmos.GetTaskAsync(interaction.BoardId, interaction.TaskId, ct);
@@ -100,7 +127,7 @@ public class InteractionsController : ControllerBase
             await _cosmos.UpdateTaskAsync(task, ct);
         }
 
-        _logger.LogInformation("Interaction {Id} ({Type}) responded by {User}", interactionId, interaction.Type, UserId);
+        _logger.LogInformation("[InteractionReply] interaction {InteractionId} type={Type} responded by {User}", interactionId, interaction.Type, UserId);
         return Ok(interaction);
     }
 
@@ -125,11 +152,11 @@ public class InteractionsController : ControllerBase
         if (!response.IsSuccessStatusCode)
         {
             var err = await response.Content.ReadAsStringAsync(ct);
-            _logger.LogError("Failed to raise interaction event: {Status} {Error}", response.StatusCode, err);
+            _logger.LogError("[InteractionEvent] failed to raise interaction event {Event}: {Status} {Error}", eventName, response.StatusCode, err);
         }
         else
         {
-            _logger.LogInformation("Raised interaction event '{Event}' on instance {Instance}", eventName, instanceId);
+            _logger.LogInformation("[InteractionEvent] raised interaction event '{Event}' on instance {Instance}", eventName, instanceId);
         }
     }
 }

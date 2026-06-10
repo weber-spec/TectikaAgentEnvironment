@@ -16,21 +16,27 @@ public class SseConnectionManager
 
     public void AddClient(string runId, SseClient client)
     {
-        _connections.AddOrUpdate(runId,
+        var clients = _connections.AddOrUpdate(runId,
             _ => [client],
             (_, existing) => { existing.Add(client); return existing; });
+        _logger.LogInformation("[Sse] client connected channel={Channel} total={Count}", runId, clients.Count);
     }
 
     public void RemoveClient(string runId, SseClient client)
     {
         if (_connections.TryGetValue(runId, out var clients))
+        {
             clients.Remove(client);
+            _logger.LogInformation("[Sse] client disconnected channel={Channel} total={Count}", runId, clients.Count);
+        }
     }
 
     public async Task BroadcastAsync(AgentEvent agentEvent, CancellationToken ct = default)
     {
         if (!_connections.TryGetValue(agentEvent.RunId, out var clients) || clients.Count == 0)
             return;
+
+        _logger.LogDebug("[Sse] broadcast event={Event} to {Count} clients on channel={Channel}", agentEvent.Type, clients.Count, agentEvent.RunId);
 
         var json = JsonSerializer.Serialize(agentEvent);
         var data = $"data: {json}\n\n";
@@ -46,7 +52,7 @@ public class SseConnectionManager
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "SSE client disconnected for run {RunId}", agentEvent.RunId);
+                _logger.LogWarning(ex, "[Sse] client write failed channel={Channel}", agentEvent.RunId);
                 deadClients.Add(client);
             }
         }

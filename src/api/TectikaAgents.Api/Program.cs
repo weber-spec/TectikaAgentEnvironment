@@ -1,4 +1,5 @@
 using Azure.Identity;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Identity.Web;
@@ -10,6 +11,21 @@ using TectikaAgents.AgentRuntime;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ── Observability (Azure Monitor / OpenTelemetry) ────────────────────────────
+// Guarded on the connection string so local dev (no App Insights) is unaffected.
+// Routes all ILogger output to App Insights and auto-captures incoming requests,
+// outgoing HttpClient dependencies, and exceptions. Sampling left at full capture
+// for now (see spec — primary cost knob).
+var aiConnStr = builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"];
+if (!string.IsNullOrEmpty(aiConnStr))
+{
+    builder.Services.AddOpenTelemetry().UseAzureMonitor(o =>
+    {
+        o.ConnectionString = aiConnStr;
+        o.SamplingRatio = 1.0f; // capture everything for now
+    });
+}
+
 // ── Configuration ────────────────────────────────────────────────────────────
 builder.Services.Configure<CosmosDbSettings>(builder.Configuration.GetSection("CosmosDb"));
 builder.Services.Configure<AzureAdSettings>(builder.Configuration.GetSection("AzureAd"));
@@ -17,6 +33,7 @@ builder.Services.Configure<FoundrySettings>(builder.Configuration.GetSection("Fo
 builder.Services.Configure<ServiceBusSettings>(builder.Configuration.GetSection("ServiceBus"));
 builder.Services.Configure<DurableFunctionsSettings>(builder.Configuration.GetSection("DurableFunctions"));
 builder.Services.Configure<KeyVaultSettings>(builder.Configuration.GetSection("KeyVault"));
+builder.Services.Configure<LoggingSettings>(builder.Configuration.GetSection("Logging"));
 
 // ── Toggles (independent) ────────────────────────────────────────────────────
 // "MockDatabase:Enabled" selects the DB backend: in-memory mock vs real Cosmos DB.
@@ -157,6 +174,7 @@ if (app.Environment.IsDevelopment())
 app.UseCors("NextJs");
 app.UseWebSockets();
 app.UseAuthentication();
+app.UseMiddleware<TectikaAgents.Api.Middleware.RequestLoggingMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
 

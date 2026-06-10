@@ -1,5 +1,9 @@
 using System.Text;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using TectikaAgents.Core.Configuration;
 using TectikaAgents.Core.Models;
+using TectikaAgents.Core.Observability;
 
 namespace TectikaAgents.Workflows.Services;
 
@@ -10,6 +14,15 @@ namespace TectikaAgents.Workflows.Services;
 /// </summary>
 public class ContextManager
 {
+    private readonly ILogger<ContextManager> _logger;
+    private readonly bool _logSensitive;
+
+    public ContextManager(IOptions<LoggingSettings> logging, ILogger<ContextManager> logger)
+    {
+        _logger = logger;
+        _logSensitive = logging.Value.LogSensitiveContent;
+    }
+
     /// <summary>Assemble the user-content string for an agent turn (no system prompt).
     /// Board.Goal/MasterPlan are added in Phase 2; not referenced here.</summary>
     public static string Assemble(AgentRole role, AgentTask task, Board board, IReadOnlyList<Artifact> upstream)
@@ -33,5 +46,10 @@ public class ContextManager
     /// <summary>Instance entry point used by the activity (kept async for future retrieval/summarize steps).</summary>
     public Task<string> BuildUserContentAsync(AgentRole role, AgentTask task, Board board,
         IReadOnlyList<Artifact> upstream, CancellationToken ct = default)
-        => Task.FromResult(Assemble(role, task, board, upstream));
+    {
+        var content = Assemble(role, task, board, upstream);
+        _logger.LogDebug("[Context] built context for task {TaskId} role {RoleId} upstream={UpstreamCount} content={Content}",
+            task.Id, role.Id, upstream.Count, SensitiveContent.Format(content, _logSensitive));
+        return Task.FromResult(content);
+    }
 }

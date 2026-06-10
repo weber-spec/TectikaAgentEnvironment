@@ -14,18 +14,30 @@ public class AppRegistrationIdentityService : IAgentIdentityService
 {
     private readonly AzureAdSettings _settings;
     private readonly DefaultAzureCredential _credential;
+    private readonly ILogger<AppRegistrationIdentityService> _logger;
 
-    public AppRegistrationIdentityService(IOptions<AzureAdSettings> settings)
+    public AppRegistrationIdentityService(IOptions<AzureAdSettings> settings, ILogger<AppRegistrationIdentityService> logger)
     {
         _settings = settings.Value;
         _credential = new DefaultAzureCredential();
+        _logger = logger;
     }
 
     public async Task<string> GetServiceTokenAsync(string[] scopes, CancellationToken ct = default)
     {
-        var tokenRequest = new TokenRequestContext(scopes);
-        var token = await _credential.GetTokenAsync(tokenRequest, ct);
-        return token.Token;
+        _logger.LogInformation("[Identity] acquiring service token scopes={ScopeCount}", scopes.Length);
+        try
+        {
+            var tokenRequest = new TokenRequestContext(scopes);
+            var token = await _credential.GetTokenAsync(tokenRequest, ct);
+            _logger.LogInformation("[Identity] service token acquired scopes={ScopeCount} expiresOn={ExpiresOn}", scopes.Length, token.ExpiresOn);
+            return token.Token;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Identity] failed acquiring service token scopes={ScopeCount}", scopes.Length);
+            throw;
+        }
     }
 
     public async Task<string> GetOboTokenAsync(string userAccessToken, string[] scopes, CancellationToken ct = default)

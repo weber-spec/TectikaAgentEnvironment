@@ -3,6 +3,7 @@
 import type {
   Board, AgentTask, AgentRole, AgentUpsertResult, Artifact, Approval, WorkflowRun, AgentEvent, HumanInteraction, TaskEdge, EdgeKind,
 } from './types';
+import { trackEvent, trackException, redact } from './telemetry';
 
 // Strip any trailing slash so `${API_BASE}${path}` (paths start with /api) never doubles up.
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5138').replace(/\/+$/, '');
@@ -15,19 +16,30 @@ export class ApiError extends Error {
 }
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      // TODO: attach Bearer token from MSAL once auth is wired in production.
-      ...options?.headers,
-    },
-  });
+  const method = options?.method ?? 'GET';
+  trackEvent('[ApiRequest]', { method, path, body: redact(options?.body as string | undefined) });
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        // TODO: attach Bearer token from MSAL once auth is wired in production.
+        ...options?.headers,
+      },
+    });
 
-  if (!res.ok) throw new ApiError(res.status, `API ${res.status}: ${await res.text()}`);
-  if (res.status === 204) return undefined as T;
-  const text = await res.text();
-  return (text ? JSON.parse(text) : undefined) as T;
+    if (!res.ok) {
+      const text = await res.text();
+      trackEvent('[ApiError]', { method, path, status: res.status, body: redact(text) });
+      throw new ApiError(res.status, `API ${res.status}: ${text}`);
+    }
+    if (res.status === 204) return undefined as T;
+    const text = await res.text();
+    return (text ? JSON.parse(text) : undefined) as T;
+  } catch (err) {
+    if (!(err instanceof ApiError)) trackException(err, { method, path });
+    throw err;
+  }
 }
 
 /** Fields the backend's PUT /tasks/{id} accepts. */

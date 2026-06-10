@@ -22,6 +22,7 @@ builder.ConfigureFunctionsWebApplication();
 builder.Services.Configure<CosmosDbSettings>(builder.Configuration.GetSection("CosmosDb"));
 builder.Services.Configure<ServiceBusSettings>(builder.Configuration.GetSection("ServiceBus"));
 builder.Services.Configure<FoundrySettings>(builder.Configuration.GetSection("Foundry"));
+builder.Services.Configure<LoggingSettings>(builder.Configuration.GetSection("Logging"));
 
 // ── Cosmos DB ─────────────────────────────────────────────────────────────────
 builder.Services.AddSingleton(sp =>

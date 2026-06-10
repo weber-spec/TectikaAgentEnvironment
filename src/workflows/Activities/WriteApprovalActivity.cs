@@ -23,6 +23,9 @@ public class WriteApprovalActivity
     {
         var ct = ctx.CancellationToken;
 
+        _logger.LogInformation("[WriteApproval] creating approval for task {TaskId} run {RunId} step {Step}",
+            input.TaskId, input.RunId, input.StepIndex);
+
         var approval = new Approval
         {
             RunId             = input.RunId,
@@ -37,8 +40,8 @@ public class WriteApprovalActivity
 
         var saved = await _cosmos.CreateApprovalAsync(approval, ct);
 
-        _logger.LogInformation("Approval {ApprovalId} created for run {RunId} step {Step}",
-            saved.Id, input.RunId, input.StepIndex);
+        _logger.LogInformation("[WriteApproval] created approval {ApprovalId} for task {TaskId} run {RunId} step {Step}",
+            saved.Id, input.TaskId, input.RunId, input.StepIndex);
 
         // Notify via Service Bus → SSE to frontend
         await _events.PublishApprovalRequiredAsync(input.RunId, input.TaskId, input.StepIndex, saved.Id, ct);

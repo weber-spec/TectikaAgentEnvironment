@@ -21,6 +21,9 @@ public class WriteAuditActivity
     {
         var ct = ctx.CancellationToken;
 
+        _logger.LogInformation("[WriteAudit] task={TaskId} event={Event} agent={Agent}",
+            input.TaskId, input.Action, input.AgentRoleId);
+
         var entry = new AuditEntry
         {
             TenantId     = input.TenantId,
@@ -38,8 +41,8 @@ public class WriteAuditActivity
 
         await _cosmos.AppendAuditAsync(entry, ct);
 
-        _logger.LogInformation("Audit: {Action} by {Agent} → {Outcome} ({Tokens} tokens)",
-            input.Action, input.AgentRoleId, input.Outcome, input.TokenUsage?.Total ?? 0);
+        _logger.LogInformation("[WriteAudit] persisted task={TaskId} event={Event} agent={Agent} outcome={Outcome} tokens={Tokens}",
+            input.TaskId, input.Action, input.AgentRoleId, input.Outcome, input.TokenUsage?.Total ?? 0);
     }
 }
 

@@ -92,6 +92,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'ServiceBus__ApprovalsQueue', value: 'approvals' }
             { name: 'KeyVault__VaultUri', value: keyVaultUri }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsightsConnectionString }
+            { name: 'Logging__LogSensitiveContent', value: 'true' }
             { name: 'AZURE_CLIENT_ID', value: apiMiClientId }
             { name: 'Foundry__Endpoint', value: foundryEndpoint }
             { name: 'Foundry__ProjectName', value: foundryProjectName }
@@ -142,6 +143,8 @@ resource webApp 'Microsoft.App/containerApps@2024-03-01' = {
           resources: { cpu: json('0.25'), memory: '0.5Gi' }
           env: [
             { name: 'NODE_ENV', value: 'production' }
+            { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsightsConnectionString }
+            { name: 'Logging__LogSensitiveContent', value: 'true' }
           ]
         }
       ]

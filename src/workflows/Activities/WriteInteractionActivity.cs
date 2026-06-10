@@ -23,6 +23,9 @@ public class WriteInteractionActivity
     {
         var ct = ctx.CancellationToken;
 
+        _logger.LogInformation("[WriteInteraction] creating interaction ({Type}) for task {TaskId} run {RunId} step {Step}",
+            input.Pending.Type, input.TaskId, input.RunId, input.StepIndex);
+
         var interaction = new HumanInteraction
         {
             RunId             = input.RunId,
@@ -41,8 +44,8 @@ public class WriteInteractionActivity
 
         var saved = await _cosmos.CreateInteractionAsync(interaction, ct);
 
-        _logger.LogInformation("Interaction {Id} ({Type}) created for run {RunId} step {Step}",
-            saved.Id, saved.Type, input.RunId, input.StepIndex);
+        _logger.LogInformation("[WriteInteraction] created interaction {InteractionId} ({Type}) for task {TaskId} run {RunId} step {Step}",
+            saved.Id, saved.Type, input.TaskId, input.RunId, input.StepIndex);
 
         await _events.PublishInteractionRequiredAsync(
             input.RunId, input.TaskId, input.StepIndex, saved.Id, saved.Type.ToString(), ct);

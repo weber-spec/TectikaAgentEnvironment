@@ -1,7 +1,9 @@
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
+using TectikaAgents.Core.Configuration;
 using TectikaAgents.Core.Interfaces;
 using TectikaAgents.Core.Models;
+using TectikaAgents.Core.Observability;
 using TectikaAgents.Workflows.Services;
 
 namespace TectikaAgents.Workflows.Activities;
@@ -19,6 +21,7 @@ public class InvokeAgentActivity
     private readonly WorkflowEventPublisher _events;
     private readonly ILogger<InvokeAgentActivity> _logger;
     private readonly int _maxCompletionTokens;
+    private readonly bool _logSensitive;
 
     public InvokeAgentActivity(
         WorkflowCosmosService cosmos,
@@ -26,6 +29,7 @@ public class InvokeAgentActivity
         ContextManager contextManager,
         WorkflowEventPublisher events,
         Microsoft.Extensions.Options.IOptions<TectikaAgents.Core.Configuration.FoundrySettings> foundry,
+        Microsoft.Extensions.Options.IOptions<LoggingSettings> logging,
         ILogger<InvokeAgentActivity> logger)
     {
         _cosmos = cosmos;
@@ -33,6 +37,7 @@ public class InvokeAgentActivity
         _contextManager = contextManager;
         _events = events;
         _maxCompletionTokens = foundry.Value.MaxCompletionTokens;
+        _logSensitive = logging.Value.LogSensitiveContent;
         _logger = logger;
     }
 
@@ -44,7 +49,7 @@ public class InvokeAgentActivity
         var ct = executionContext.CancellationToken;
         var start = DateTimeOffset.UtcNow;
 
-        _logger.LogInformation("InvokeAgent: role={Role} task={Task} step={Step}",
+        _logger.LogInformation("[InvokeAgent] role={Role} task={Task} step={Step}",
             input.AgentRoleId, input.TaskId, input.Step);
 
         // ── 1. Load AgentRole ─────────────────────────────────────────────────
@@ -103,8 +108,18 @@ public class InvokeAgentActivity
                 };
             }
 
+            _logger.LogInformation("[InvokeAgent] invoking runtime role={Role} task={Task} step={Step} thread={Thread}",
+                role.Id, input.TaskId, input.Step, threadId);
+            _logger.LogDebug("[InvokeAgent] user content role={Role} task={Task} content={Content}",
+                role.Id, input.TaskId, SensitiveContent.Format(userContent, _logSensitive));
+
             outcome = await _runtime.RunTurnAsync(
                 new AgentRunRequest(role, task, threadId, userContent, _maxCompletionTokens, input.RunId, input.Step), ct);
+
+            _logger.LogInformation("[InvokeAgent] runtime returned role={Role} task={Task} step={Step} status={Status} completion={Completion}",
+                role.Id, input.TaskId, input.Step, outcome.Status, outcome.CompletionId);
+            _logger.LogDebug("[InvokeAgent] runtime output role={Role} task={Task} content={Content}",
+                role.Id, input.TaskId, SensitiveContent.Format(outcome.Content, _logSensitive));
 
             if (thinkingTasks.Count > 0)
                 await Task.WhenAll(thinkingTasks);
@@ -120,7 +135,8 @@ public class InvokeAgentActivity
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Agent invocation failed for role {Role}", role.Id);
+            _logger.LogError(ex, "[InvokeAgent] invocation failed role={Role} task={Task} step={Step}",
+                role.Id, input.TaskId, input.Step);
             throw;
         }
 
@@ -163,8 +179,8 @@ public class InvokeAgentActivity
         // ── 8a. NeedsRevision early return ────────────────────────────────────
         if (!string.IsNullOrEmpty(revisionReason))
         {
-            _logger.LogInformation("InvokeAgent: REVISION_NEEDED detected for task={Task} step={Step}: {Reason}",
-                input.TaskId, input.Step, revisionReason);
+            _logger.LogInformation("[InvokeAgent] REVISION_NEEDED task={Task} step={Step} reason={Reason}",
+                input.TaskId, input.Step, SensitiveContent.Format(revisionReason, _logSensitive));
             var usage0 = new TokenUsage { Input = outcome.TokenUsage.Input, Output = outcome.TokenUsage.Output };
             await _events.PublishStepCompletedAsync(input.RunId, input.TaskId, input.Step, role.Id, usage0, ct);
             return new StepResult

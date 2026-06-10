@@ -23,7 +23,7 @@ public class TaskPipelineOrchestrator
         var logger = context.CreateReplaySafeLogger<TaskPipelineOrchestrator>();
         var input = context.GetInput<PipelineInput>()!;
 
-        logger.LogInformation("Pipeline started: task={TaskId} run={RunId} steps={Steps}",
+        logger.LogInformation("[Pipeline] start task={TaskId} run={RunId} steps={Steps}",
             input.TaskId, input.RunId, input.Steps.Count);
 
         var completedSteps = new List<StepResult>();
@@ -39,7 +39,7 @@ public class TaskPipelineOrchestrator
             // ── Approval Gate ────────────────────────────────────────────────
             if (step.Type == StepType.ApprovalGate)
             {
-                logger.LogInformation("Approval gate at step {Step}", step.Step);
+                logger.LogInformation("[Pipeline] stage={Stage} task={TaskId} step={Step}", "ApprovalGate", input.TaskId, step.Step);
 
                 // Update run status to PausedApproval
                 await context.CallActivityAsync(nameof(UpdateRunStatusActivity),
@@ -64,7 +64,7 @@ public class TaskPipelineOrchestrator
 
                 if (decision != "Approved")
                 {
-                    logger.LogWarning("Pipeline rejected at step {Step} (approval {ApprovalId})", step.Step, approvalId);
+                    logger.LogWarning("[Pipeline] rejected task={TaskId} step={Step} approval={ApprovalId}", input.TaskId, step.Step, approvalId);
 
                     await context.CallActivityAsync(nameof(UpdateRunStatusActivity),
                         new UpdateRunStatusInput(input.RunId, input.TaskId, input.BoardId, RunStatus.Failed, step.Step,
@@ -87,7 +87,7 @@ public class TaskPipelineOrchestrator
             // ── Agent Execution Step ─────────────────────────────────────────
             if (string.IsNullOrEmpty(step.AgentRoleId)) continue;
 
-            logger.LogInformation("Executing step {Step}: agent={Agent}", step.Step, step.AgentRoleId);
+            logger.LogInformation("[Pipeline] stage={Stage} task={TaskId} step={Step} agent={Agent}", "AgentStep", input.TaskId, step.Step, step.AgentRoleId);
 
             StepResult stepResult;
             try
@@ -104,7 +104,7 @@ public class TaskPipelineOrchestrator
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Step {Step} failed for agent {Agent}", step.Step, step.AgentRoleId);
+                logger.LogError(ex, "[Pipeline] step failed task={TaskId} step={Step} agent={Agent}", input.TaskId, step.Step, step.AgentRoleId);
 
                 await context.CallActivityAsync(nameof(WriteAuditActivity),
                     new WriteAuditInput(input.TenantId, input.RunId, input.TaskId,
@@ -132,7 +132,7 @@ public class TaskPipelineOrchestrator
             // ── Interaction Gate (agent-requested) ────────────────────────────
             if (stepResult.PendingInteraction is not null)
             {
-                logger.LogInformation("Interaction gate at step {Step} type={Type}", step.Step, stepResult.PendingInteraction.Type);
+                logger.LogInformation("[Pipeline] stage={Stage} task={TaskId} step={Step} type={Type}", "AwaitingInteraction", input.TaskId, step.Step, stepResult.PendingInteraction.Type);
 
                 await context.CallActivityAsync(nameof(UpdateRunStatusActivity),
                     new UpdateRunStatusInput(input.RunId, input.TaskId, input.BoardId, RunStatus.AwaitingInteraction, step.Step));
@@ -172,7 +172,8 @@ public class TaskPipelineOrchestrator
             new UpdateRunStatusInput(input.RunId, input.TaskId, input.BoardId, RunStatus.Completed,
                 CurrentStep: input.Steps.Count));
 
-        logger.LogInformation("Pipeline completed: run={RunId} steps={Count}", input.RunId, completedSteps.Count);
+        logger.LogInformation("[Pipeline] complete task={TaskId} run={RunId} status={Status} steps={Count}",
+            input.TaskId, input.RunId, RunStatus.Completed, completedSteps.Count);
         return new OrchestrationResult(input.RunId, RunStatus.Completed, completedSteps, null);
     }
 }

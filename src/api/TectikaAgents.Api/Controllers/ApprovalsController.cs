@@ -33,16 +33,32 @@ public class ApprovalsController : ControllerBase
     private string UserId   => User.FindFirst("preferred_username")?.Value ?? "unknown";
 
     [HttpGet("pending")]
-    public async Task<IActionResult> GetPending(CancellationToken ct) =>
-        Ok(await _cosmos.GetPendingApprovalsAsync(TenantId, ct));
+    public async Task<IActionResult> GetPending(CancellationToken ct)
+    {
+        _logger.LogInformation("[ApprovalList] fetching pending approvals for tenant {TenantId}", TenantId);
+        var pending = await _cosmos.GetPendingApprovalsAsync(TenantId, ct);
+        _logger.LogInformation("[ApprovalList] returning {Count} pending approvals for tenant {TenantId}", pending?.Count() ?? 0, TenantId);
+        return Ok(pending);
+    }
 
     [HttpPost("{approvalId}/respond")]
     public async Task<IActionResult> Respond(string approvalId, [FromBody] ApprovalResponse req, CancellationToken ct)
     {
+        _logger.LogInformation("[ApprovalDecision] approval {ApprovalId} decision={Decision} run={RunId} by {User}",
+            approvalId, req.Approved ? "Approved" : "Rejected", req.RunId, UserId);
+
         // ── 1. Load + validate approval ───────────────────────────────────────
         var approval = await _cosmos.GetApprovalAsync(req.RunId, approvalId, ct);
-        if (approval is null) return NotFound();
-        if (approval.Status != ApprovalStatus.Pending) return Conflict("Approval already resolved.");
+        if (approval is null)
+        {
+            _logger.LogWarning("[ApprovalDecision] approval {ApprovalId} not found for run {RunId}", approvalId, req.RunId);
+            return NotFound();
+        }
+        if (approval.Status != ApprovalStatus.Pending)
+        {
+            _logger.LogWarning("[ApprovalDecision] approval {ApprovalId} already resolved status={Status}", approvalId, approval.Status);
+            return Conflict("Approval already resolved.");
+        }
 
         // ── 2. Persist decision ───────────────────────────────────────────────
         approval.Status     = req.Approved ? ApprovalStatus.Approved : ApprovalStatus.Rejected;
@@ -65,10 +81,10 @@ public class ApprovalsController : ControllerBase
         else
         {
             if (_logger.IsEnabled(LogLevel.Warning))
-            _logger.LogWarning("No DurableFunctionInstanceId for run {RunId} — cannot wake orchestrator", req.RunId);
+            _logger.LogWarning("[ApprovalDecision] no DurableFunctionInstanceId for run {RunId} — cannot wake orchestrator", req.RunId);
         }
 
-        _logger.LogInformation("Approval {Id} {Status} by {User}", approvalId, approval.Status, UserId);
+        _logger.LogInformation("[ApprovalDecision] approval {ApprovalId} resolved status={Status} by {User}", approvalId, approval.Status, UserId);
         return Ok(approval);
     }
 
@@ -98,12 +114,12 @@ public class ApprovalsController : ControllerBase
         if (!response.IsSuccessStatusCode)
         {
             var err = await response.Content.ReadAsStringAsync(ct);
-            _logger.LogError("Failed to raise Durable event: {Status} {Error}", response.StatusCode, err);
+            _logger.LogError("[ApprovalEvent] failed to raise Durable event {Event}: {Status} {Error}", eventName, response.StatusCode, err);
         }
         else
         {
             if (_logger.IsEnabled(LogLevel.Information))
-                _logger.LogInformation("Raised Durable event '{Event}' on instance {Instance}", eventName, instanceId);
+                _logger.LogInformation("[ApprovalEvent] raised Durable event '{Event}' on instance {Instance}", eventName, instanceId);
         }
     }
 }
