@@ -7,6 +7,7 @@ import { SettingsProvider } from '@/lib/settings-context';
 import { Toaster } from '@/components/common/Toaster';
 import { CommandPalette } from '@/components/command/CommandPalette';
 import { TelemetryProvider } from '@/components/observability/TelemetryProvider';
+import { connection } from 'next/server';
 
 const poppins = Poppins({
   subsets: ['latin'],
@@ -19,7 +20,8 @@ export const metadata: Metadata = {
   description: 'AI Agent task management platform by Tectika',
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  await connection(); // opt out of static prerendering so env is read at request time
   const aiConn = process.env.APPLICATIONINSIGHTS_CONNECTION_STRING ?? '';
   const logSensitive = (process.env['Logging__LogSensitiveContent'] ?? 'true') !== 'false';
 
