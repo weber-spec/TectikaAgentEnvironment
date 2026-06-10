@@ -9,7 +9,7 @@ import { Icon } from '@/components/ui/icons';
 import { FilterBuilder } from './FilterBuilder';
 
 export function Toolbar() {
-  const { activeView, addTask, groups } = useBoard();
+  const { activeView, addTask, groups, runBoard } = useBoard();
   const showGrouping = activeView.kind === 'table' || activeView.kind === 'kanban';
   const showColumns = activeView.kind === 'table';
 
@@ -30,6 +30,8 @@ export function Toolbar() {
       <SortControl />
       {showGrouping && <GroupControl />}
       {showColumns && <ColumnsControl />}
+      <div className="flex-1" />
+      <button onClick={runBoard} className="inline-flex items-center gap-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap px-2.5 py-1.5 text-white bg-green-600 hover:bg-green-700 shadow-sm"><Icon.play aria-hidden="true" size={15} /> Run Board</button>
     </div>
   );
 }

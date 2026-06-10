@@ -63,6 +63,7 @@ export const Icon = {
   unlock: (p: P) => <S {...p}><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 7.5-2" /></S>,
   sidebarCollapse: (p: P) => <S {...p}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /><path d="m15 9-2 3 2 3" /></S>,
   sidebarExpand: (p: P) => <S {...p}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /><path d="m13 9 2 3-2 3" /></S>,
+  play: (p: P) => <S {...p}><polygon points="5 3 19 12 5 21 5 3" fill="currentColor" stroke="none" /></S>,
 };
 
 export type IconName = keyof typeof Icon;
