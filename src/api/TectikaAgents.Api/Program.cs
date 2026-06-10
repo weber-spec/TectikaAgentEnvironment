@@ -16,8 +16,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Routes all ILogger output to App Insights and auto-captures incoming requests,
 // outgoing HttpClient dependencies, and exceptions. Sampling left at full capture
 // for now (see spec — primary cost knob).
-var aiConnStr = builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]
-    ?? Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING");
+var aiConnStr = builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"];
 if (!string.IsNullOrEmpty(aiConnStr))
 {
     builder.Services.AddOpenTelemetry().UseAzureMonitor(o =>
