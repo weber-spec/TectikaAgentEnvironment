@@ -39,6 +39,15 @@ public class AgentRolesController : ControllerBase
     {
         role.TenantId = TenantId;
         role.UpdatedAt = DateTimeOffset.UtcNow;
+        // Carry the Foundry identity forward from the stored role: the client never sends
+        // FoundryAgentId/Hash, and the agent name (FoundryAgentId) must stay stable across edits and
+        // renames — otherwise EnsureAgent would treat each save as new and orphan + recreate the agent.
+        var existing = await _cosmos.GetAgentRoleAsync(TenantId, role.Id, ct);
+        if (existing is not null)
+        {
+            role.FoundryAgentId = existing.FoundryAgentId;
+            role.FoundryAgentHash = existing.FoundryAgentHash;
+        }
         var sync = await _provisioner.EnsureAgentAsync(role, ct);  // mutates role.FoundryAgentId/Hash on success
         // Intentional: persist the role even when sync fails (EnsureAgentAsync returns Synced=false rather
         // than throwing). The user keeps their edits and sees a "not synced" indicator; because the stored
