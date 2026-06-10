@@ -36,10 +36,13 @@ public class UpdateRunStatusActivity
     {
         var ct = ctx.CancellationToken;
 
+        _logger.LogInformation("[UpdateRunStatus] run={RunId} task={TaskId} -> {Status} step={Step}",
+            input.RunId, input.TaskId, input.Status, input.CurrentStep);
+
         var run = await _cosmos.GetRunAsync(input.TaskId, input.RunId, ct);
         if (run is null)
         {
-            _logger.LogWarning("Run {RunId} not found — skipping status update", input.RunId);
+            _logger.LogWarning("[UpdateRunStatus] run {RunId} not found — skipping status update", input.RunId);
             return;
         }
 
@@ -93,7 +96,7 @@ public class UpdateRunStatusActivity
     {
         List<TaskEdge> feedbackEdges;
         try { feedbackEdges = await _cosmos.GetOutgoingQaFeedbackEdgesAsync(boardId, validatorTaskId, ct); }
-        catch (Exception ex) { _logger.LogError(ex, "QaFeedback edge query failed for {TaskId}", validatorTaskId); return; }
+        catch (Exception ex) { _logger.LogError(ex, "[QaLoop] QaFeedback edge query failed for {TaskId}", validatorTaskId); return; }
 
         if (feedbackEdges.Count == 0) return;
 
@@ -107,12 +110,12 @@ public class UpdateRunStatusActivity
         edge.CurrentIterations++;
         await _cosmos.UpdateEdgeAsync(edge, ct);
 
-        _logger.LogInformation("QA loop edge {EdgeId}: iteration {Current}/{Max}",
+        _logger.LogInformation("[QaLoop] edge {EdgeId}: iteration {Current}/{Max}",
             edge.Id, edge.CurrentIterations, edge.MaxIterations);
 
         if (edge.CurrentIterations >= edge.MaxIterations)
         {
-            _logger.LogWarning("QA loop exhausted on edge {EdgeId} after {N} iterations — no re-trigger",
+            _logger.LogWarning("[QaLoop] exhausted on edge {EdgeId} after {N} iterations — no re-trigger",
                 edge.Id, edge.CurrentIterations);
             return;
         }
@@ -121,14 +124,14 @@ public class UpdateRunStatusActivity
 
         List<string> segmentIds;
         try { segmentIds = await _cosmos.GetTasksBetweenAsync(boardId, loopTargetId, validatorTaskId, ct); }
-        catch (Exception ex) { _logger.LogError(ex, "GetTasksBetween failed for QA loop"); return; }
+        catch (Exception ex) { _logger.LogError(ex, "[QaLoop] GetTasksBetween failed"); return; }
 
         await _cosmos.ResetTasksToBacklogAsync(boardId, segmentIds, ct);
 
         var apiBaseUrl = _config["Api:BaseUrl"];
         if (string.IsNullOrEmpty(apiBaseUrl))
         {
-            _logger.LogWarning("Api:BaseUrl not configured — QA retry skipped for {TaskId}", loopTargetId);
+            _logger.LogWarning("[QaLoop] Api:BaseUrl not configured — QA retry skipped for {TaskId}", loopTargetId);
             return;
         }
 
@@ -140,10 +143,10 @@ public class UpdateRunStatusActivity
             var http = _httpClientFactory.CreateClient();
             var response = await http.PostAsync($"{apiBaseUrl.TrimEnd('/')}/api/runs/start", content, ct);
             if (!response.IsSuccessStatusCode)
-                _logger.LogError("QA retry POST returned {Status} for task {TaskId}",
+                _logger.LogError("[QaLoop] retry POST returned {Status} for task {TaskId}",
                     (int)response.StatusCode, loopTargetId);
         }
-        catch (Exception ex) { _logger.LogError(ex, "QA retry trigger failed for {TaskId}", loopTargetId); }
+        catch (Exception ex) { _logger.LogError(ex, "[QaLoop] retry trigger failed for {TaskId}", loopTargetId); }
     }
 
     private async Task ResetQaEdgeIterationsAsync(string boardId, string taskId, CancellationToken ct)
@@ -157,7 +160,7 @@ public class UpdateRunStatusActivity
                 await _cosmos.UpdateEdgeAsync(edge, ct);
             }
         }
-        catch (Exception ex) { _logger.LogWarning(ex, "Failed to reset QA iterations on success for {TaskId}", taskId); }
+        catch (Exception ex) { _logger.LogWarning(ex, "[QaLoop] failed to reset QA iterations on success for {TaskId}", taskId); }
     }
 
     private async Task TriggerDownstreamRunsAsync(string boardId, string taskId, CancellationToken ct)
@@ -165,7 +168,7 @@ public class UpdateRunStatusActivity
         var apiBaseUrl = _config["Api:BaseUrl"];
         if (string.IsNullOrEmpty(apiBaseUrl))
         {
-            _logger.LogWarning("Api:BaseUrl is not configured — skipping downstream cascade for task {TaskId}", taskId);
+            _logger.LogWarning("[Downstream] Api:BaseUrl is not configured — skipping downstream cascade for task {TaskId}", taskId);
             return;
         }
 
@@ -176,7 +179,7 @@ public class UpdateRunStatusActivity
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get downstream task IDs for task {TaskId}", taskId);
+            _logger.LogError(ex, "[Downstream] failed to get downstream task IDs for task {TaskId}", taskId);
             return;
         }
 
@@ -187,19 +190,19 @@ public class UpdateRunStatusActivity
                 var downstreamTask = await _cosmos.GetTaskAsync(boardId, downstreamId, ct);
                 if (downstreamTask is null)
                 {
-                    _logger.LogWarning("Downstream task {DownstreamId} not found — skipping", downstreamId);
+                    _logger.LogWarning("[Downstream] task {DownstreamId} not found — skipping", downstreamId);
                     continue;
                 }
 
                 if (downstreamTask.Status != AgentTaskStatus.Backlog)
                 {
-                    _logger.LogDebug("Downstream task {DownstreamId} is {Status} (not Backlog) — skipping", downstreamId, downstreamTask.Status);
+                    _logger.LogDebug("[Downstream] task {DownstreamId} is {Status} (not Backlog) — skipping", downstreamId, downstreamTask.Status);
                     continue;
                 }
 
                 if (downstreamTask.Assignee.Type != AssigneeType.Agent)
                 {
-                    _logger.LogDebug("Downstream task {DownstreamId} has no agent assignee — skipping", downstreamId);
+                    _logger.LogDebug("[Downstream] task {DownstreamId} has no agent assignee — skipping", downstreamId);
                     continue;
                 }
 
@@ -218,7 +221,7 @@ public class UpdateRunStatusActivity
 
                 if (!allUpstreamDone)
                 {
-                    _logger.LogDebug("Downstream task {DownstreamId} has unfinished upstream dependencies — skipping", downstreamId);
+                    _logger.LogDebug("[Downstream] task {DownstreamId} has unfinished upstream dependencies — skipping", downstreamId);
                     continue;
                 }
 
@@ -228,15 +231,15 @@ public class UpdateRunStatusActivity
                 var http = _httpClientFactory.CreateClient();
                 var url = $"{apiBaseUrl.TrimEnd('/')}/api/runs/start";
 
-                _logger.LogInformation("Triggering downstream run for task {DownstreamId} via {Url}", downstreamId, url);
+                _logger.LogInformation("[Downstream] triggering downstream run for task {DownstreamId} via {Url}", downstreamId, url);
                 var response = await http.PostAsync(url, content, ct);
 
                 if (!response.IsSuccessStatusCode)
-                    _logger.LogError("POST {Url} for downstream task {DownstreamId} returned {StatusCode}", url, downstreamId, (int)response.StatusCode);
+                    _logger.LogError("[Downstream] POST {Url} for downstream task {DownstreamId} returned {StatusCode}", url, downstreamId, (int)response.StatusCode);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error triggering downstream run for task {DownstreamId}", downstreamId);
+                _logger.LogError(ex, "[Downstream] error triggering downstream run for task {DownstreamId}", downstreamId);
             }
         }
     }

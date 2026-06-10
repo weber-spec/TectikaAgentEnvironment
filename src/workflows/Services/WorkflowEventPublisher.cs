@@ -25,7 +25,7 @@ public class WorkflowEventPublisher
     {
         if (_sender is null)
         {
-            _logger.LogDebug("[Dev] AgentEvent {Type} runId={RunId}", agentEvent.Type, agentEvent.RunId);
+            _logger.LogDebug("[WorkflowEvent] dev — skipped publish {EventType} for run {RunId}", agentEvent.Type, agentEvent.RunId);
             return;
         }
 
@@ -33,10 +33,11 @@ public class WorkflowEventPublisher
         {
             var json = JsonSerializer.Serialize(agentEvent);
             await _sender.SendMessageAsync(new ServiceBusMessage(json), ct);
+            _logger.LogDebug("[WorkflowEvent] published {EventType} for run {RunId}", agentEvent.Type, agentEvent.RunId);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to publish event {Type}", agentEvent.Type);
+            _logger.LogWarning(ex, "[WorkflowEvent] failed to publish {EventType} for run {RunId}", agentEvent.Type, agentEvent.RunId);
         }
     }
 

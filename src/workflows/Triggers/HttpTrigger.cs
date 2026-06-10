@@ -23,6 +23,8 @@ public class HttpTrigger
         [DurableClient] DurableTaskClient durableClient,
         FunctionContext context)
     {
+        _logger.LogInformation("[HttpTrigger] {Function} invoked", nameof(StartPipeline));
+
         var body = await req.ReadAsStringAsync();
         var input = JsonSerializer.Deserialize<PipelineInput>(body ?? "{}");
 
@@ -37,8 +39,8 @@ public class HttpTrigger
             nameof(TaskPipelineOrchestrator),
             input);
 
-        _logger.LogInformation("Started pipeline for task {TaskId}, instance {InstanceId}",
-            input.TaskId, instanceId);
+        _logger.LogInformation("[HttpTrigger] started orchestration {InstanceId} for task {TaskId} run {RunId}",
+            instanceId, input.TaskId, input.RunId);
 
         var response = req.CreateResponse(System.Net.HttpStatusCode.Accepted);
         await response.WriteAsJsonAsync(new { instanceId, runId = input.RunId });
@@ -53,11 +55,17 @@ public class HttpTrigger
         [DurableClient] DurableTaskClient durableClient,
         FunctionContext context)
     {
+        _logger.LogInformation("[HttpTrigger] {Function} invoked instance={InstanceId} step={Step}",
+            nameof(RaiseApprovalEvent), instanceId, step);
+
         var body = await req.ReadAsStringAsync();
         var payload = JsonSerializer.Deserialize<ApprovalEventPayload>(body ?? "{}");
         var decision = payload?.Approved == true ? "Approved" : "Rejected";
 
         await durableClient.RaiseEventAsync(instanceId, $"approval-gate-{step}", decision);
+
+        _logger.LogInformation("[HttpTrigger] raised approval event instance={InstanceId} step={Step} decision={Decision}",
+            instanceId, step, decision);
 
         var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
         await response.WriteStringAsync($"Approval event raised: {decision}");

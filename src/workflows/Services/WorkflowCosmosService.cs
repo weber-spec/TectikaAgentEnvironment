@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Microsoft.Azure.Cosmos;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TectikaAgents.Core.Configuration;
 using TectikaAgents.Core.Models;
@@ -13,11 +14,13 @@ public class WorkflowCosmosService
 {
     private readonly CosmosClient _client;
     private readonly string _db;
+    private readonly ILogger<WorkflowCosmosService> _logger;
 
-    public WorkflowCosmosService(CosmosClient client, IOptions<CosmosDbSettings> settings)
+    public WorkflowCosmosService(CosmosClient client, IOptions<CosmosDbSettings> settings, ILogger<WorkflowCosmosService> logger)
     {
         _client = client;
         _db = settings.Value.DatabaseName;
+        _logger = logger;
     }
 
     private Container C(string name) => _client.GetContainer(_db, name);
@@ -38,6 +41,7 @@ public class WorkflowCosmosService
 
     public async Task<AgentTask?> GetTaskAsync(string boardId, string taskId, CancellationToken ct = default)
     {
+        _logger.LogDebug("[WorkflowCosmos] read task {TaskId} board={BoardId}", taskId, boardId);
         try
         {
             var res = await C("tasks").ReadItemAsync<AgentTask>(taskId, new PartitionKey(boardId), cancellationToken: ct);
@@ -48,6 +52,7 @@ public class WorkflowCosmosService
 
     public async Task UpdateTaskStatusAsync(string boardId, string taskId, AgentTaskStatus status, string? workflowRunId, CancellationToken ct = default)
     {
+        _logger.LogDebug("[WorkflowCosmos] update task {TaskId} status={Status}", taskId, status);
         var task = await GetTaskAsync(boardId, taskId, ct);
         if (task is null) return;
         task.Status = status;
@@ -174,14 +179,19 @@ public class WorkflowCosmosService
         catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
     }
 
-    public async Task UpdateRunAsync(WorkflowRun run, CancellationToken ct = default) =>
+    public async Task UpdateRunAsync(WorkflowRun run, CancellationToken ct = default)
+    {
+        _logger.LogDebug("[WorkflowCosmos] wrote run id={Id} status={Status}", run.Id, run.Status);
         await C("workflowRuns").ReplaceItemAsync(run, run.Id, new PartitionKey(run.TaskId), cancellationToken: ct);
+    }
 
     // ── Artifact ──────────────────────────────────────────────────────────────
 
     public async Task<Artifact> CreateArtifactAsync(Artifact artifact, CancellationToken ct = default)
     {
         var res = await C("artifacts").CreateItemAsync(artifact, new PartitionKey(artifact.TaskId), cancellationToken: ct);
+        _logger.LogDebug("[WorkflowCosmos] wrote Artifact id={Id} task={TaskId} version={Version}",
+            res.Resource.Id, artifact.TaskId, artifact.Version);
         return res.Resource;
     }
 
@@ -277,6 +287,7 @@ public class WorkflowCosmosService
     public async Task<Approval> CreateApprovalAsync(Approval approval, CancellationToken ct = default)
     {
         var res = await C("approvals").CreateItemAsync(approval, new PartitionKey(approval.RunId), cancellationToken: ct);
+        _logger.LogDebug("[WorkflowCosmos] wrote Approval id={Id} run={RunId}", res.Resource.Id, approval.RunId);
         return res.Resource;
     }
 
@@ -285,6 +296,7 @@ public class WorkflowCosmosService
     public async Task<HumanInteraction> CreateInteractionAsync(HumanInteraction interaction, CancellationToken ct = default)
     {
         var res = await C("humanInteractions").CreateItemAsync(interaction, new PartitionKey(interaction.RunId), cancellationToken: ct);
+        _logger.LogDebug("[WorkflowCosmos] wrote HumanInteraction id={Id} run={RunId}", res.Resource.Id, interaction.RunId);
         return res.Resource;
     }
 
