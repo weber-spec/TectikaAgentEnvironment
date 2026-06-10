@@ -171,9 +171,9 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 
 app.UseCors("NextJs");
-app.UseMiddleware<TectikaAgents.Api.Middleware.RequestLoggingMiddleware>();
 app.UseWebSockets();
 app.UseAuthentication();
+app.UseMiddleware<TectikaAgents.Api.Middleware.RequestLoggingMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
 

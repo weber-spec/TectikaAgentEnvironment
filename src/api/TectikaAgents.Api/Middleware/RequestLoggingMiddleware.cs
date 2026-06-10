@@ -15,6 +15,10 @@ public sealed class RequestLoggingMiddleware
     private readonly ILogger<RequestLoggingMiddleware> _logger;
     private readonly bool _logSensitive;
 
+    // Cap body logging so large agent payloads (prompts, file/base64 blobs) don't blow up
+    // log lines or double peak memory. Above this, log a size marker instead of the content.
+    private const int MaxBodyLogBytes = 64 * 1024;
+
     public RequestLoggingMiddleware(RequestDelegate next, ILogger<RequestLoggingMiddleware> logger,
         IOptions<LoggingSettings> logging)
     {
@@ -30,10 +34,19 @@ public sealed class RequestLoggingMiddleware
         if (_logSensitive && (HttpMethods.IsPost(ctx.Request.Method) || HttpMethods.IsPut(ctx.Request.Method)
             || HttpMethods.IsPatch(ctx.Request.Method)))
         {
-            ctx.Request.EnableBuffering();
-            using var reader = new StreamReader(ctx.Request.Body, leaveOpen: true);
-            body = await reader.ReadToEndAsync();
-            ctx.Request.Body.Position = 0;
+            var length = ctx.Request.ContentLength;
+            if (length is > 0 and <= MaxBodyLogBytes)
+            {
+                ctx.Request.EnableBuffering();
+                using var reader = new StreamReader(ctx.Request.Body, leaveOpen: true);
+                body = await reader.ReadToEndAsync();
+                ctx.Request.Body.Position = 0;
+            }
+            else if (length is > MaxBodyLogBytes)
+            {
+                body = $"[body too large to log: {length} bytes]";
+            }
+            // length null (chunked/unknown) or 0 -> leave body empty, don't risk an unbounded read
         }
 
         _logger.LogInformation(
@@ -45,12 +58,23 @@ public sealed class RequestLoggingMiddleware
         {
             await _next(ctx);
         }
-        finally
+        catch (Exception ex)
         {
             sw.Stop();
-            _logger.LogInformation(
-                "[HttpResponse] {Method} {Path} -> {Status} in {ElapsedMs}ms",
-                ctx.Request.Method, ctx.Request.Path, ctx.Response.StatusCode, sw.ElapsedMilliseconds);
+            _logger.LogError(ex,
+                "[HttpResponse] {Method} {Path} threw after {ElapsedMs}ms",
+                ctx.Request.Method, ctx.Request.Path, sw.ElapsedMilliseconds);
+            throw;
+        }
+        finally
+        {
+            if (sw.IsRunning)
+            {
+                sw.Stop();
+                _logger.LogInformation(
+                    "[HttpResponse] {Method} {Path} -> {Status} in {ElapsedMs}ms",
+                    ctx.Request.Method, ctx.Request.Path, ctx.Response.StatusCode, sw.ElapsedMilliseconds);
+            }
         }
     }
 }
