@@ -35,6 +35,12 @@ public class FoundrySettings
     public bool UseMock { get; set; }
 }
 
+public class DurableFunctionsSettings
+{
+    public string StartUrl { get; set; } = "http://localhost:7071/api/pipelines/start";
+    public string? FunctionKey { get; set; }
+}
+
 public class ServiceBusSettings
 {
     public string Namespace { get; set; } = string.Empty;     // <namespace>.servicebus.windows.net

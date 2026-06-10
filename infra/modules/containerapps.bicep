@@ -26,6 +26,7 @@ param foundryProjectName string
 param foundryProjectEndpoint string
 param modelName string
 param functionAppUrl string
+param workflowsFunctionKeySecretUri string
 param tenantId string
 param apiClientId string
 param platformClientId string
@@ -66,6 +67,13 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
       registries: [
         { server: acrLoginServer, identity: apiMiId }
       ]
+      secrets: [
+        {
+          name: 'workflows-function-key'
+          keyVaultUrl: workflowsFunctionKeySecretUri
+          identity: apiMiId
+        }
+      ]
     }
     template: {
       containers: [
@@ -92,6 +100,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'Foundry__IsOpenAiDirect', value: 'false' }
             { name: 'Foundry__ApiKey', value: '' }
             { name: 'DurableFunctions__StartUrl', value: '${functionAppUrl}/api/pipelines/start' }
+            { name: 'DurableFunctions__FunctionKey', secretRef: 'workflows-function-key' }
             { name: 'AzureAd__Instance', value: environment().authentication.loginEndpoint }
             { name: 'AzureAd__TenantId', value: tenantId }
             { name: 'AzureAd__ClientId', value: apiClientId }

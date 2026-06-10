@@ -151,6 +151,7 @@ module containerApps 'modules/containerapps.bicep' = {
     foundryProjectEndpoint: foundry.outputs.projectEndpoint
     modelName: modelName
     functionAppUrl: functionApp.outputs.defaultUrl
+    workflowsFunctionKeySecretUri: '${data.outputs.keyVaultUri}secrets/workflows-function-key'
     tenantId: tenantId
     apiClientId: apiClientId
     platformClientId: platformClientId

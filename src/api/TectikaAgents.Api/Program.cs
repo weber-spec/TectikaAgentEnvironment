@@ -15,6 +15,7 @@ builder.Services.Configure<CosmosDbSettings>(builder.Configuration.GetSection("C
 builder.Services.Configure<AzureAdSettings>(builder.Configuration.GetSection("AzureAd"));
 builder.Services.Configure<FoundrySettings>(builder.Configuration.GetSection("Foundry"));
 builder.Services.Configure<ServiceBusSettings>(builder.Configuration.GetSection("ServiceBus"));
+builder.Services.Configure<DurableFunctionsSettings>(builder.Configuration.GetSection("DurableFunctions"));
 builder.Services.Configure<KeyVaultSettings>(builder.Configuration.GetSection("KeyVault"));
 
 // ── Toggles (independent) ────────────────────────────────────────────────────

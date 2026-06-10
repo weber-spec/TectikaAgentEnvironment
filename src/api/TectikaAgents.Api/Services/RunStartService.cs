@@ -1,6 +1,8 @@
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Options;
 using TectikaAgents.Api.Controllers;
+using TectikaAgents.Core.Configuration;
 using TectikaAgents.Core.Models;
 
 namespace TectikaAgents.Api.Services;
@@ -19,18 +21,18 @@ public class RunStartService : IRunStartService
 {
     private readonly ICosmosDbService _cosmos;
     private readonly IHttpClientFactory _httpFactory;
-    private readonly IConfiguration _config;
+    private readonly DurableFunctionsSettings _settings;
     private readonly ILogger<RunStartService> _logger;
 
     public RunStartService(
         ICosmosDbService cosmos,
         IHttpClientFactory httpFactory,
-        IConfiguration config,
+        IOptions<DurableFunctionsSettings> settings,
         ILogger<RunStartService> logger)
     {
         _cosmos = cosmos;
         _httpFactory = httpFactory;
-        _config = config;
+        _settings = settings.Value;
         _logger = logger;
     }
 
@@ -80,8 +82,9 @@ public class RunStartService : IRunStartService
         await _cosmos.UpdateTaskAsync(task, ct);
 
         // ── 6. Trigger Durable Functions via HTTP ─────────────────────────────
-        var durableStartUrl = _config["DurableFunctions:StartUrl"]
-            ?? "http://localhost:7071/api/pipelines/start";
+        var durableStartUrl = _settings.StartUrl;
+        if (!string.IsNullOrEmpty(_settings.FunctionKey))
+            durableStartUrl += $"?code={Uri.EscapeDataString(_settings.FunctionKey)}";
 
         var pipelineInput = new
         {
