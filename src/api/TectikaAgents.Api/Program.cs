@@ -1,4 +1,5 @@
 using Azure.Identity;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Identity.Web;
@@ -9,6 +10,22 @@ using TectikaAgents.Core.Interfaces;
 using TectikaAgents.AgentRuntime;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ── Observability (Azure Monitor / OpenTelemetry) ────────────────────────────
+// Guarded on the connection string so local dev (no App Insights) is unaffected.
+// Routes all ILogger output to App Insights and auto-captures incoming requests,
+// outgoing HttpClient dependencies, and exceptions. Sampling left at full capture
+// for now (see spec — primary cost knob).
+var aiConnStr = builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]
+    ?? Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING");
+if (!string.IsNullOrEmpty(aiConnStr))
+{
+    builder.Services.AddOpenTelemetry().UseAzureMonitor(o =>
+    {
+        o.ConnectionString = aiConnStr;
+        o.SamplingRatio = 1.0f; // capture everything for now
+    });
+}
 
 // ── Configuration ────────────────────────────────────────────────────────────
 builder.Services.Configure<CosmosDbSettings>(builder.Configuration.GetSection("CosmosDb"));
