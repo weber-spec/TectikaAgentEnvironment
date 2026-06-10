@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import type { AgentRole } from '@/lib/types';
 import { colorFor } from '@/lib/palette';
@@ -102,12 +102,23 @@ function RoleCard({ role, syncState, onEdit }: { role: AgentRole; syncState?: Sy
   );
 }
 
-function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: AgentRole) => void; onClose: () => void }) {
+function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: AgentRole) => void | Promise<void>; onClose: () => void }) {
   const [r, setR] = useState<AgentRole>(role);
   const set = (p: Partial<AgentRole>) => setR(prev => ({ ...prev, ...p }));
+  // Block double-submit: the ref guards rapid synchronous re-clicks (a useState flag is stale within
+  // the same render); `disabled` reflects it in the UI. One Save click = one request.
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const handleSave = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try { await onSave(r); }
+    finally { savingRef.current = false; setSaving(false); }
+  };
   return (
     <Modal open onClose={onClose} width={560} title={<span className="flex items-center gap-2"><Icon.robot size={18} /> {role.displayName === 'New Agent' ? 'New agent' : 'Edit agent'}</span>}
-      footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" onClick={() => onSave(r)}>Save agent</Button></>}>
+      footer={<><Button onClick={onClose} disabled={saving}>Cancel</Button><Button variant="primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save agent'}</Button></>}>
       <div className="flex flex-col gap-3">
         <L label="Display name"><input value={r.displayName} onChange={e => set({ displayName: e.target.value })} className="inp" /></L>
         <L label="System prompt"><textarea value={r.systemPrompt} onChange={e => set({ systemPrompt: e.target.value })} rows={4} className="inp resize-none" /></L>
