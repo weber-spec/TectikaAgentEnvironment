@@ -99,6 +99,11 @@ export const api = {
 
   runs: {
     get: (taskId: string, runId: string) => fetchApi<WorkflowRun>(`/api/runs/${taskId}/${runId}`),
+    start: (boardId: string, taskId: string) =>
+      fetchApi<{ runId: string; taskId: string; status: string; streamUrl: string }>(
+        '/api/runs/start',
+        { method: 'POST', body: JSON.stringify({ boardId, taskId, pipeline: null }) }
+      ),
   },
 
   approvals: {
