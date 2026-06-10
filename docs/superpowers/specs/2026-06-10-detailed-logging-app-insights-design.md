@@ -53,6 +53,25 @@ auto-instrumentation).
 - Production hardening later = flip the flag to `false` via env var; **no code change**.
 - Env var name for parity across services: `Logging__LogSensitiveContent`.
 
+### Message format convention (`[Topic]` prefix)
+
+Every enrichment log message we add starts with a `[Topic]` tag in square brackets
+identifying the file/process/topic it belongs to, so messages are easy to scan and filter in
+App Insights. Examples (text is illustrative only):
+
+- `[FoundryAgentInvoke] invoking agent {AgentId} with model {Model}`
+- `[RunStart] run {RunId} created for task {TaskId}`
+- `[QaLoop] iteration {Iteration}/{MaxIterations} for task {TaskId}`
+- `[ServiceBusDispatch] published {EventType} for run {RunId}`
+
+Rules:
+- The tag goes at the very start of the message template, before any structured fields.
+- The tag is a short PascalCase topic, not the raw class name necessarily — it names the
+  operation/topic (e.g. `[FoundryAgentInvoke]`, `[CosmosWrite]`, `[ApprovalDecision]`).
+- Structured fields still use `{Placeholder}` templates after the tag (the tag itself is
+  static text, not a parameter).
+- Applies uniformly to .NET (`ILogger`) and web (`trackTrace`/`trackEvent`) enrichment logs.
+
 ### Log levels
 
 - `TectikaAgents.*` namespaces → `Debug`/`Information`.
