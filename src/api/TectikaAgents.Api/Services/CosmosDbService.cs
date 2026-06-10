@@ -12,6 +12,7 @@ public class CosmosDbService : ICosmosDbService
 {
     private readonly CosmosClient _client;
     private readonly string _dbName;
+    private readonly ILogger<CosmosDbService> _logger;
 
     // Container names
     public const string BoardsContainer = "boards";
@@ -24,10 +25,11 @@ public class CosmosDbService : ICosmosDbService
     public const string HumanInteractionsContainer = "humanInteractions";
     public const string TaskEdgesContainer = "taskEdges";
 
-    public CosmosDbService(CosmosClient client, IOptions<CosmosDbSettings> settings)
+    public CosmosDbService(CosmosClient client, IOptions<CosmosDbSettings> settings, ILogger<CosmosDbService> logger)
     {
         _client = client;
         _dbName = settings.Value.DatabaseName;
+        _logger = logger;
     }
 
     private Container GetContainer(string name) => _client.GetContainer(_dbName, name);
@@ -53,6 +55,8 @@ public class CosmosDbService : ICosmosDbService
 
         foreach (var (name, pk) in containers)
             await db.Database.CreateContainerIfNotExistsAsync(name, pk);
+
+        _logger.LogInformation("[CosmosInfra] ensured database {Database} and {Count} containers", _dbName, containers.Length);
     }
 
     // ── Boards ───────────────────────────────────────────────────────────────
@@ -125,6 +129,7 @@ public class CosmosDbService : ICosmosDbService
     public async Task<AgentTask> UpdateTaskAsync(AgentTask task, CancellationToken ct = default)
     {
         var res = await GetContainer(TasksContainer).ReplaceItemAsync(task, task.Id, new PartitionKey(task.BoardId), cancellationToken: ct);
+        _logger.LogDebug("[CosmosWrite] update AgentTask id={Id} status={Status}", task.Id, task.Status);
         return res.Resource;
     }
 
@@ -175,6 +180,7 @@ public class CosmosDbService : ICosmosDbService
     public async Task<WorkflowRun> CreateRunAsync(WorkflowRun run, CancellationToken ct = default)
     {
         var res = await GetContainer(WorkflowRunsContainer).CreateItemAsync(run, new PartitionKey(run.TaskId), cancellationToken: ct);
+        _logger.LogDebug("[CosmosWrite] create WorkflowRun id={Id} task={TaskId}", res.Resource.Id, run.TaskId);
         return res.Resource;
     }
 
@@ -185,12 +191,17 @@ public class CosmosDbService : ICosmosDbService
             var res = await GetContainer(WorkflowRunsContainer).ReadItemAsync<WorkflowRun>(runId, new PartitionKey(taskId), cancellationToken: ct);
             return res.Resource;
         }
-        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            _logger.LogDebug("[CosmosRead] WorkflowRun not found id={Id} task={TaskId}", runId, taskId);
+            return null;
+        }
     }
 
     public async Task<WorkflowRun> UpdateRunAsync(WorkflowRun run, CancellationToken ct = default)
     {
         var res = await GetContainer(WorkflowRunsContainer).ReplaceItemAsync(run, run.Id, new PartitionKey(run.TaskId), cancellationToken: ct);
+        _logger.LogDebug("[CosmosWrite] update WorkflowRun id={Id} status={Status}", run.Id, run.Status);
         return res.Resource;
     }
 
@@ -199,6 +210,7 @@ public class CosmosDbService : ICosmosDbService
     public async Task<Artifact> CreateArtifactAsync(Artifact artifact, CancellationToken ct = default)
     {
         var res = await GetContainer(ArtifactsContainer).CreateItemAsync(artifact, new PartitionKey(artifact.TaskId), cancellationToken: ct);
+        _logger.LogDebug("[CosmosWrite] create Artifact id={Id} task={TaskId}", res.Resource.Id, artifact.TaskId);
         return res.Resource;
     }
 
@@ -340,6 +352,8 @@ public class CosmosDbService : ICosmosDbService
             var page = await iterator.ReadNextAsync(ct);
             results.AddRange(page);
         }
+
+        _logger.LogDebug("[CosmosRead] query {Type} container={Container} -> {Count} items", typeof(T).Name, containerName, results.Count);
 
         return results;
     }

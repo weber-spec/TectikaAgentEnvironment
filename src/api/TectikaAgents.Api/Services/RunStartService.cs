@@ -36,18 +36,20 @@ public class RunStartService : IRunStartService
 
     public async Task<WorkflowRun?> StartAsync(string boardId, string taskId, string tenantId, CancellationToken ct = default)
     {
+        _logger.LogInformation("[RunStart] StartAsync board={BoardId} task={TaskId} tenant={TenantId}", boardId, taskId, tenantId);
+
         // ── 1. Load task ──────────────────────────────────────────────────────
         var task = await _cosmos.GetTaskAsync(boardId, taskId, ct);
         if (task is null)
         {
-            _logger.LogWarning("Task {TaskId} not found on board {BoardId}", taskId, boardId);
+            _logger.LogWarning("[RunStart] could not start run for task {TaskId} (not found on board {BoardId})", taskId, boardId);
             return null;
         }
 
         // ── 2. Guard: only start Backlog tasks ────────────────────────────────
         if (task.Status != AgentTaskStatus.Backlog)
         {
-            _logger.LogInformation("Task {TaskId} is {Status}, skipping", taskId, task.Status);
+            _logger.LogWarning("[RunStart] could not start run for task {TaskId} (not eligible, status {Status})", taskId, task.Status);
             return null;
         }
 
@@ -59,7 +61,7 @@ public class RunStartService : IRunStartService
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Cannot build pipeline for task {TaskId}: {Message}", taskId, ex.Message);
+            _logger.LogWarning(ex, "[RunStart] could not start run for task {TaskId} (cannot build pipeline: {Message})", taskId, ex.Message);
             return null;
         }
 
@@ -73,6 +75,7 @@ public class RunStartService : IRunStartService
         };
 
         var savedRun = await _cosmos.CreateRunAsync(run, ct);
+        _logger.LogInformation("[RunStart] created run {RunId} for task {TaskId}", savedRun.Id, taskId);
 
         // ── 5. Update task: link run + mark InProgress ────────────────────────
         task.WorkflowRunId = savedRun.Id;
@@ -101,7 +104,7 @@ public class RunStartService : IRunStartService
             if (!res.IsSuccessStatusCode)
             {
                 var err = await res.Content.ReadAsStringAsync(ct);
-                _logger.LogError("Durable Functions start failed for run {RunId}: {Status} {Error}", savedRun.Id, res.StatusCode, err);
+                _logger.LogError("[RunStart] Durable Functions start failed for run {RunId} status={Status} error={Error}", savedRun.Id, res.StatusCode, err);
             }
             else
             {
@@ -114,13 +117,13 @@ public class RunStartService : IRunStartService
                 {
                     savedRun.DurableFunctionInstanceId = instanceId;
                     await _cosmos.UpdateRunAsync(savedRun, ct);
-                    _logger.LogInformation("Pipeline started: run={RunId} instance={InstanceId}", savedRun.Id, instanceId);
+                    _logger.LogInformation("[RunStart] pipeline started run={RunId} instance={InstanceId}", savedRun.Id, instanceId);
                 }
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to trigger Durable Functions for run {RunId}", savedRun.Id);
+            _logger.LogError(ex, "[RunStart] failed to trigger Durable Functions for run {RunId}", savedRun.Id);
             // Don't throw — run is created, trigger can be retried
         }
 

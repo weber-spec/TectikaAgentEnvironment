@@ -32,7 +32,7 @@ public class ServiceBusListenerService : BackgroundService
         // Skip if not configured (dev without Service Bus)
         if (string.IsNullOrEmpty(_settings.Namespace) || _settings.Namespace.StartsWith("__"))
         {
-            _logger.LogWarning("Service Bus not configured — SSE events will not stream from agents.");
+            _logger.LogWarning("[ServiceBusListener] Service Bus not configured — SSE events will not stream from agents");
             return;
         }
 
@@ -47,36 +47,44 @@ public class ServiceBusListenerService : BackgroundService
         _processor.ProcessErrorAsync += OnErrorAsync;
 
         await _processor.StartProcessingAsync(stoppingToken);
+        _logger.LogInformation("[ServiceBusListener] started topic={Topic} subscription={Subscription}", _settings.AgentEventsTopic, _settings.AgentEventsSubscription);
         await Task.Delay(Timeout.Infinite, stoppingToken);
     }
 
     private async Task OnMessageAsync(ProcessMessageEventArgs args)
     {
+        _logger.LogInformation("[ServiceBusListener] received message {MessageId} subject={Subject}", args.Message.MessageId, args.Message.Subject);
         try
         {
             var agentEvent = JsonSerializer.Deserialize<AgentEvent>(args.Message.Body.ToString());
             if (agentEvent is not null)
+            {
                 await _sse.BroadcastAsync(agentEvent, args.CancellationToken);
+                _logger.LogInformation("[ServiceBusListener] dispatched event {EventType} for run {RunId}", agentEvent.Type, agentEvent.RunId);
+            }
 
             await args.CompleteMessageAsync(args.Message);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to process Service Bus message");
+            _logger.LogError(ex, "[ServiceBusListener] failed processing message {MessageId}", args.Message.MessageId);
             await args.AbandonMessageAsync(args.Message);
         }
     }
 
     private Task OnErrorAsync(ProcessErrorEventArgs args)
     {
-        _logger.LogError(args.Exception, "Service Bus processor error: {Source}", args.ErrorSource);
+        _logger.LogError(args.Exception, "[ServiceBusListener] processor error source={Source}", args.ErrorSource);
         return Task.CompletedTask;
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         if (_processor is not null)
+        {
             await _processor.StopProcessingAsync(cancellationToken);
+            _logger.LogInformation("[ServiceBusListener] stopped");
+        }
         await base.StopAsync(cancellationToken);
     }
 }

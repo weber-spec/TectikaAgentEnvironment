@@ -27,7 +27,7 @@ public class CliBridgeManager
     public async Task HandleConnectionAsync(string taskId, string runId, string tenantId, WebSocket ws, CancellationToken ct)
     {
         _connections[taskId] = ws;
-        _logger.LogInformation("CLI agent connected for task {TaskId}", taskId);
+        _logger.LogInformation("[CliBridge] session task={TaskId} run={RunId} opened", taskId, runId);
 
         await _sse.BroadcastAsync(new AgentEvent
         {
@@ -54,11 +54,12 @@ public class CliBridgeManager
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "CLI WebSocket error for task {TaskId}", taskId);
+            _logger.LogError(ex, "[CliBridge] session task={TaskId} WebSocket error", taskId);
         }
         finally
         {
             _connections.TryRemove(taskId, out _);
+            _logger.LogInformation("[CliBridge] session task={TaskId} run={RunId} closed", taskId, runId);
             await _sse.BroadcastAsync(new AgentEvent
             {
                 Type = AgentEvent.Types.CliDisconnected,
@@ -72,6 +73,8 @@ public class CliBridgeManager
     {
         var cliMessage = JsonSerializer.Deserialize<CliMessage>(message);
         if (cliMessage is null) return;
+
+        _logger.LogDebug("[CliBridge] session task={TaskId} message kind={Kind}", taskId, cliMessage.Type);
 
         // Broadcast stdout/stderr to SSE viewers
         await _sse.BroadcastAsync(new AgentEvent
