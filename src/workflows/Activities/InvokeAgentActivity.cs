@@ -111,7 +111,7 @@ public class InvokeAgentActivity
         }
 
         // ── 5. Parse agent sections ───────────────────────────────────────────
-        var (briefUpdate, artifactSummary, pendingInteraction, cleanContent) = ParseAgentSections(outcome.Content);
+        var (briefUpdate, artifactSummary, pendingInteraction, cleanContent, revisionReason) = ParseAgentSections(outcome.Content);
         if (!string.IsNullOrEmpty(outcome.BriefUpdate))
             briefUpdate = outcome.BriefUpdate;
 
@@ -145,6 +145,26 @@ public class InvokeAgentActivity
         };
 
         var savedArtifact = await _cosmos.CreateArtifactAsync(artifact, ct);
+
+        // ── 8a. NeedsRevision early return ────────────────────────────────────
+        if (!string.IsNullOrEmpty(revisionReason))
+        {
+            _logger.LogInformation("InvokeAgent: REVISION_NEEDED detected for task={Task} step={Step}: {Reason}",
+                input.TaskId, input.Step, revisionReason);
+            var usage0 = new TokenUsage { Input = outcome.TokenUsage.Input, Output = outcome.TokenUsage.Output };
+            await _events.PublishStepCompletedAsync(input.RunId, input.TaskId, input.Step, role.Id, usage0, ct);
+            return new StepResult
+            {
+                Step         = input.Step,
+                Status       = RunStatus.NeedsRevision,
+                FoundryRunId = outcome.CompletionId,
+                ArtifactId   = savedArtifact.Id,
+                TokenUsage   = usage0,
+                DurationMs   = (long)(DateTimeOffset.UtcNow - start).TotalMilliseconds,
+                CompletedAt  = DateTimeOffset.UtcNow,
+                RevisionReason = revisionReason
+            };
+        }
 
         // ── 8. Update task: status + TaskBrief ───────────────────────────────
         await _cosmos.UpdateTaskStatusAsync(input.BoardId, input.TaskId, AgentTaskStatus.InProgress, input.RunId, ct);
@@ -184,7 +204,7 @@ public class InvokeAgentActivity
         };
     }
 
-    private static (string Brief, string Summary, PendingInteractionRequest? Interaction, string CleanContent) ParseAgentSections(string content)
+    private static (string Brief, string Summary, PendingInteractionRequest? Interaction, string CleanContent, string? RevisionReason) ParseAgentSections(string content)
     {
         string ExtractFirstNonEmptyLine(string marker)
         {
@@ -238,7 +258,19 @@ public class InvokeAgentActivity
             }
         }
 
-        return (brief, summary, interaction, cleanContent);
+        string? revisionReason = null;
+        var revisionMarker = "## REVISION_NEEDED";
+        var revisionIdx = content.LastIndexOf(revisionMarker, StringComparison.OrdinalIgnoreCase);
+        if (revisionIdx >= 0)
+        {
+            revisionReason = content[(revisionIdx + revisionMarker.Length)..]
+                .Split('\n')
+                .Select(l => l.Trim())
+                .FirstOrDefault(l => !string.IsNullOrWhiteSpace(l)) ?? "Revision needed";
+            cleanContent = cleanContent[..Math.Min(cleanContent.Length, revisionIdx)].TrimEnd();
+        }
+
+        return (brief, summary, interaction, cleanContent, revisionReason);
     }
 }
 

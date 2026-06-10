@@ -87,6 +87,9 @@ public class StepResult
 
     [JsonPropertyName("pendingInteraction")]
     public PendingInteractionRequest? PendingInteraction { get; set; }
+
+    [JsonPropertyName("revisionReason")]
+    public string? RevisionReason { get; set; }
 }
 
 public class TokenUsage
