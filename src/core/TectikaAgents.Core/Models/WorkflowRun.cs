@@ -101,5 +101,5 @@ public class TokenUsage
     public int Total => Input + Output;
 }
 
-public enum RunStatus { Pending, Running, PausedApproval, AwaitingInteraction, Completed, Failed, Cancelled }
+public enum RunStatus { Pending, Running, PausedApproval, AwaitingInteraction, Completed, Failed, Cancelled, NeedsRevision }
 public enum StepType { AgentExecution, ApprovalGate, CliBridge }
