@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using TectikaAgents.Core.Configuration;
 using TectikaAgents.Core.Interfaces;
 using TectikaAgents.Core.Models;
+using TectikaAgents.Core.Observability;
 
 namespace TectikaAgents.AgentRuntime;
 
@@ -39,6 +40,7 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
     private readonly IHttpClientFactory _httpFactory;
     private readonly FoundrySettings _settings;
     private readonly ILogger<FoundryAgentRuntime> _logger;
+    private readonly bool _logSensitive;
     private readonly TokenCredential _credential = new DefaultAzureCredential();
     private readonly string _base;
 
@@ -46,11 +48,13 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
     public Action<string>? OnText { get; set; }
     public Action<string>? OnStatus { get; set; }
 
-    public FoundryAgentRuntime(IHttpClientFactory httpFactory, IOptions<FoundrySettings> settings, ILogger<FoundryAgentRuntime> logger)
+    public FoundryAgentRuntime(IHttpClientFactory httpFactory, IOptions<FoundrySettings> settings,
+        IOptions<LoggingSettings> logging, ILogger<FoundryAgentRuntime> logger)
     {
         _httpFactory = httpFactory;
         _settings = settings.Value;
         _logger = logger;
+        _logSensitive = logging.Value.LogSensitiveContent;
         _base = _settings.ProjectEndpoint.TrimEnd('/');
     }
 
@@ -67,6 +71,7 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         try
         {
             var model = role.ModelOverride ?? _settings.DefaultModel;
+            _logger.LogInformation("[FoundryEnsureAgent] ensuring agent role={RoleId} model={Model}", role.Id, model);
             var hash = AgentInstructionsHash.Compute(role.SystemPrompt, model);
             var definition = new AgentDefinition("prompt", model, role.SystemPrompt, role.DisplayName);
             var http = await ClientAsync(ct).ConfigureAwait(false);
@@ -96,7 +101,9 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
 
             role.FoundryAgentId = name;
             role.FoundryAgentHash = hash;
-            return new AgentSyncResult(name, true);
+            var result = new AgentSyncResult(name, true);
+            _logger.LogInformation("[FoundryEnsureAgent] agent role={RoleId} foundryId={FoundryId} synced={Synced}", role.Id, result.FoundryAgentId, result.Synced);
+            return result;
         }
         catch (Exception ex)
         {
@@ -108,6 +115,7 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
     public async Task DeleteAgentAsync(string? foundryAgentId, CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(foundryAgentId)) return;
+        _logger.LogInformation("[FoundryDeleteAgent] deleting foundry agent {FoundryId}", foundryAgentId);
         try
         {
             var http = await ClientAsync(ct).ConfigureAwait(false);
@@ -119,19 +127,25 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
     public async Task<string> EnsureThreadAsync(AgentTask task, CancellationToken ct = default)
     {
         if (!string.IsNullOrEmpty(task.FoundryThreadId)) return task.FoundryThreadId!;
+        _logger.LogInformation("[FoundryThread] ensuring thread for task {TaskId}", task.Id);
         var http = await ClientAsync(ct).ConfigureAwait(false);
         var resp = await http.PostAsJsonAsync($"{_base}/conversations?{Api}", new EmptyBody(), Json, ct).ConfigureAwait(false);
         await EnsureOkAsync(resp, ct).ConfigureAwait(false);
         var conv = await resp.Content.ReadFromJsonAsync<ConversationResponse>(Json, ct).ConfigureAwait(false)
                    ?? throw new Exception("Empty conversation response from Foundry.");
         task.FoundryThreadId = conv.Id;
-        return task.FoundryThreadId!;
+        var threadId = task.FoundryThreadId!;
+        _logger.LogInformation("[FoundryThread] thread {ThreadId} ready for task {TaskId}", threadId, task.Id);
+        return threadId;
     }
 
     public async Task<AgentRunOutcome> RunTurnAsync(AgentRunRequest req, CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(req.Role.FoundryAgentId))
             return Fail(req, "Role has no Foundry agent — ensure the agent first.");
+        var model = req.Role.ModelOverride ?? _settings.DefaultModel;
+        _logger.LogInformation("[FoundryAgentInvoke] running turn agent={AgentId} thread={ThreadId} model={Model} prompt={Prompt}",
+            req.Role.FoundryAgentId, req.ThreadId, model, SensitiveContent.Format(req.UserMessage, _logSensitive));
         try
         {
             var http = await ClientAsync(ct).ConfigureAwait(false);
@@ -150,12 +164,16 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
             var usage = new TokenUsage { Input = r.Usage?.InputTokens ?? 0, Output = r.Usage?.OutputTokens ?? 0 };
             if (!string.IsNullOrEmpty(content)) OnText?.Invoke(content);
 
-            return r.Status switch
+            var outcome = r.Status switch
             {
                 "completed" => new AgentRunOutcome(AgentRunStatus.Completed, content, DetectType(content, req.Role), usage, r.Id ?? ""),
                 "incomplete" => new AgentRunOutcome(AgentRunStatus.BudgetExceeded, content, ArtifactContentType.Markdown, usage, r.Id ?? ""),
                 _ => Fail(req, $"Foundry response status '{r.Status}': {r.Error?.Message}"),
             };
+            _logger.LogInformation("[FoundryAgentInvoke] turn complete agent={AgentId} status={Status} tokens={Tokens} output={Output}",
+                req.Role.FoundryAgentId, outcome.Status, outcome.TokenUsage.Input + outcome.TokenUsage.Output,
+                SensitiveContent.Format(outcome.Content, _logSensitive));
+            return outcome;
         }
         catch (Exception ex)
         {
@@ -164,10 +182,11 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         }
     }
 
-    private static async Task EnsureOkAsync(HttpResponseMessage resp, CancellationToken ct)
+    private async Task EnsureOkAsync(HttpResponseMessage resp, CancellationToken ct)
     {
         if (resp.IsSuccessStatusCode) return;
         var bodyText = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        _logger.LogError("[FoundryAgentInvoke] Foundry call failed status={Status} body={Body}", (int)resp.StatusCode, bodyText);
         throw new HttpRequestException($"Foundry {(int)resp.StatusCode} {resp.ReasonPhrase}: {bodyText}");
     }
 
