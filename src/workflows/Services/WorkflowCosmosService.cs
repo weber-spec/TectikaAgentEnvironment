@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Options;
 using TectikaAgents.Core.Configuration;
@@ -78,6 +79,72 @@ public class WorkflowCosmosService
             requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(boardId) });
         while (iter.HasMoreResults) ids.AddRange(await iter.ReadNextAsync(ct));
         return ids;
+    }
+
+    public async Task<List<TaskEdge>> GetOutgoingQaFeedbackEdgesAsync(
+        string boardId, string taskId, CancellationToken ct = default)
+    {
+        var edges = new List<TaskEdge>();
+        var q = new QueryDefinition(
+            "SELECT * FROM c WHERE c.boardId=@b AND c.sourceTaskId=@t AND c.kind='QaFeedback'")
+            .WithParameter("@b", boardId).WithParameter("@t", taskId);
+        var iter = C("taskEdges").GetItemQueryIterator<TaskEdge>(q,
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(boardId) });
+        while (iter.HasMoreResults) edges.AddRange(await iter.ReadNextAsync(ct));
+        return edges;
+    }
+
+    public async Task UpdateEdgeAsync(TaskEdge edge, CancellationToken ct = default) =>
+        await C("taskEdges").ReplaceItemAsync(edge, edge.Id, new PartitionKey(edge.BoardId), cancellationToken: ct);
+
+    /// <summary>
+    /// BFS forward from startTaskId through Dependency edges up to endTaskId (inclusive).
+    /// Returns all task IDs in the pipeline segment for reset.
+    /// </summary>
+    public async Task<List<string>> GetTasksBetweenAsync(
+        string boardId, string startTaskId, string endTaskId, CancellationToken ct = default)
+    {
+        var q = new QueryDefinition(
+            "SELECT c.sourceTaskId, c.targetTaskId FROM c WHERE c.boardId=@b AND c.kind='Dependency'")
+            .WithParameter("@b", boardId);
+        var iter = C("taskEdges").GetItemQueryIterator<TaskEdgeSlim>(q,
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(boardId) });
+
+        var adj = new Dictionary<string, List<string>>();
+        while (iter.HasMoreResults)
+        {
+            var page = await iter.ReadNextAsync(ct);
+            foreach (var e in page)
+            {
+                if (!adj.TryGetValue(e.SourceTaskId, out var list)) adj[e.SourceTaskId] = list = new();
+                list.Add(e.TargetTaskId);
+            }
+        }
+
+        var visited = new HashSet<string> { startTaskId };
+        var queue = new Queue<string>(new[] { startTaskId });
+        while (queue.Count > 0)
+        {
+            var cur = queue.Dequeue();
+            if (cur == endTaskId) break;
+            if (!adj.TryGetValue(cur, out var nexts)) continue;
+            foreach (var next in nexts) if (visited.Add(next)) queue.Enqueue(next);
+        }
+        visited.Add(endTaskId);
+        return visited.ToList();
+    }
+
+    public async Task ResetTasksToBacklogAsync(string boardId, IEnumerable<string> taskIds, CancellationToken ct = default)
+    {
+        foreach (var taskId in taskIds)
+        {
+            var task = await GetTaskAsync(boardId, taskId, ct);
+            if (task is null) continue;
+            task.Status = AgentTaskStatus.Backlog;
+            task.WorkflowRunId = null;
+            task.TaskBrief = "";
+            await C("tasks").ReplaceItemAsync(task, taskId, new PartitionKey(boardId), cancellationToken: ct);
+        }
     }
 
     // ── WorkflowRun ───────────────────────────────────────────────────────────
@@ -192,4 +259,8 @@ public class WorkflowCosmosService
 
     public async Task AppendAuditAsync(AuditEntry entry, CancellationToken ct = default) =>
         await C("auditLog").CreateItemAsync(entry, new PartitionKey(entry.TenantId), cancellationToken: ct);
+
+    private record TaskEdgeSlim(
+        [property: JsonPropertyName("sourceTaskId")] string SourceTaskId,
+        [property: JsonPropertyName("targetTaskId")] string TargetTaskId);
 }
