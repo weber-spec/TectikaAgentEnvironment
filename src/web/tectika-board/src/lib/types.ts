@@ -72,6 +72,7 @@ export interface TaskEdge {
   label?: string;
   condition?: string;
   maxIterations: number;
+  currentIterations: number;
   createdAt: string;
   updatedAt: string;
 }
