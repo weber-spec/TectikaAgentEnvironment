@@ -60,7 +60,7 @@ public class InvokeAgentActivity
         var task = await _cosmos.GetTaskAsync(input.BoardId, input.TaskId, ct)
             ?? throw new Exception($"Task '{input.TaskId}' not found in board '{input.BoardId}'");
 
-        var board = await _cosmos.GetBoardAsync(input.BoardId, ct)
+        var board = await _cosmos.GetBoardAsync(input.BoardId, input.TenantId, ct)
             ?? throw new Exception($"Board '{input.BoardId}' not found");
 
         // ── 3. Load upstream artifacts ────────────────────────────────────────

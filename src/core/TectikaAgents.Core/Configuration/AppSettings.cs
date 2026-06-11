@@ -39,6 +39,7 @@ public class DurableFunctionsSettings
 {
     public string StartUrl { get; set; } = "http://localhost:7071/api/pipelines/start";
     public string? FunctionKey { get; set; }
+    public string? ManagementKey { get; set; }
 }
 
 public class ServiceBusSettings

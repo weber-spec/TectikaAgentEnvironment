@@ -27,6 +27,7 @@ param foundryProjectEndpoint string
 param modelName string
 param functionAppUrl string
 param workflowsFunctionKeySecretUri string
+param workflowsManagementKeySecretUri string
 param tenantId string
 param apiClientId string
 param platformClientId string
@@ -73,6 +74,11 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
           keyVaultUrl: workflowsFunctionKeySecretUri
           identity: apiMiId
         }
+        {
+          name: 'workflows-management-key'
+          keyVaultUrl: workflowsManagementKeySecretUri
+          identity: apiMiId
+        }
       ]
     }
     template: {
@@ -102,6 +108,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'Foundry__ApiKey', value: '' }
             { name: 'DurableFunctions__StartUrl', value: '${functionAppUrl}/api/pipelines/start' }
             { name: 'DurableFunctions__FunctionKey', secretRef: 'workflows-function-key' }
+            { name: 'DurableFunctions__ManagementKey', secretRef: 'workflows-management-key' }
             { name: 'AzureAd__Instance', value: environment().authentication.loginEndpoint }
             { name: 'AzureAd__TenantId', value: tenantId }
             { name: 'AzureAd__ClientId', value: apiClientId }

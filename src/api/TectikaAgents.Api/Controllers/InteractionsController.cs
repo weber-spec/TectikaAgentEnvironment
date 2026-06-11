@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 using System.Text;
 using System.Text.Json;
 using TectikaAgents.Api.Services;
+using TectikaAgents.Core.Configuration;
 using TectikaAgents.Core.Models;
 
 namespace TectikaAgents.Api.Controllers;
@@ -14,18 +16,18 @@ public class InteractionsController : ControllerBase
 {
     private readonly ICosmosDbService _cosmos;
     private readonly IHttpClientFactory _httpFactory;
-    private readonly IConfiguration _config;
+    private readonly DurableFunctionsSettings _durableSettings;
     private readonly ILogger<InteractionsController> _logger;
 
     public InteractionsController(
         ICosmosDbService cosmos,
         IHttpClientFactory httpFactory,
-        IConfiguration config,
+        IOptions<DurableFunctionsSettings> durableSettings,
         ILogger<InteractionsController> logger)
     {
         _cosmos = cosmos;
         _httpFactory = httpFactory;
-        _config = config;
+        _durableSettings = durableSettings.Value;
         _logger = logger;
     }
 
@@ -134,12 +136,12 @@ public class InteractionsController : ControllerBase
     private async Task RaiseInteractionEventAsync(
         string instanceId, int stepIndex, InteractionResponsePayload payload, CancellationToken ct)
     {
-        var baseUrl = _config["DurableFunctions:StartUrl"]
-            ?? "http://localhost:7071/api/pipelines/start";
-
+        var baseUrl = _durableSettings.StartUrl;
         var managementBase = baseUrl[..baseUrl.IndexOf("/api/", StringComparison.Ordinal)];
         var eventName = $"interaction-{stepIndex}";
         var url = $"{managementBase}/runtime/webhooks/durabletask/instances/{instanceId}/raiseEvent/{eventName}";
+        if (!string.IsNullOrEmpty(_durableSettings.ManagementKey))
+            url += $"?code={Uri.EscapeDataString(_durableSettings.ManagementKey)}";
 
         var body = new StringContent(
             JsonSerializer.Serialize(payload),

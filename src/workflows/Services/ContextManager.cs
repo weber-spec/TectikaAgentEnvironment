@@ -40,6 +40,18 @@ public class ContextManager
         }
         sb.AppendLine("\nComplete the task. Be thorough and production-ready.");
         sb.AppendLine("End with a one-line `## Brief Update`.");
+        sb.AppendLine("\nIf you cannot proceed without human input, end your response with ## INTERACTION_REQUIRED followed by a JSON block (examples below).");
+        sb.AppendLine("- Question (need a free-text or multiple-choice answer):");
+        sb.AppendLine("  ## INTERACTION_REQUIRED");
+        sb.AppendLine("  { \"type\": \"Question\", \"actionDescription\": \"<one-liner>\", \"question\": \"<your question>\", \"questionOptions\": [\"opt1\",\"opt2\"] }");
+        sb.AppendLine("  (omit questionOptions for a free-text answer)");
+        sb.AppendLine("- Selection (user picks one item from a list you provide):");
+        sb.AppendLine("  ## INTERACTION_REQUIRED");
+        sb.AppendLine("  { \"type\": \"Selection\", \"actionDescription\": \"<one-liner>\", \"items\": [{\"title\":\"...\",\"subtitle\":\"...\",\"price\":\"...\",\"details\":[\"...\"],\"link\":\"...\"}] }");
+        sb.AppendLine("- Approval (need explicit approve/reject before continuing):");
+        sb.AppendLine("  ## INTERACTION_REQUIRED");
+        sb.AppendLine("  { \"type\": \"Approval\", \"actionDescription\": \"<describe what needs approval>\" }");
+        sb.AppendLine("Only use INTERACTION_REQUIRED when the task genuinely cannot continue without human input.");
         return sb.ToString();
     }
 

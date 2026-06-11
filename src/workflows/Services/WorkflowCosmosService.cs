@@ -233,11 +233,11 @@ public class WorkflowCosmosService
 
     // ── Board ─────────────────────────────────────────────────────────────────
 
-    public async Task<Board?> GetBoardAsync(string boardId, CancellationToken ct = default)
+    public async Task<Board?> GetBoardAsync(string boardId, string tenantId, CancellationToken ct = default)
     {
         try
         {
-            var res = await C("boards").ReadItemAsync<Board>(boardId, new PartitionKey(boardId), cancellationToken: ct);
+            var res = await C("boards").ReadItemAsync<Board>(boardId, new PartitionKey(tenantId), cancellationToken: ct);
             return res.Resource;
         }
         catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }

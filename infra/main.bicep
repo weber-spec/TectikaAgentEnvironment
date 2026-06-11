@@ -152,6 +152,7 @@ module containerApps 'modules/containerapps.bicep' = {
     modelName: modelName
     functionAppUrl: functionApp.outputs.defaultUrl
     workflowsFunctionKeySecretUri: '${data.outputs.keyVaultUri}secrets/workflows-function-key'
+    workflowsManagementKeySecretUri: '${data.outputs.keyVaultUri}secrets/workflows-management-key'
     tenantId: tenantId
     apiClientId: apiClientId
     platformClientId: platformClientId
