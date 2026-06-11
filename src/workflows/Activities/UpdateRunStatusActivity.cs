@@ -65,12 +65,13 @@ public class UpdateRunStatusActivity
         // Mirror status on the task
         var taskStatus = input.Status switch
         {
-            RunStatus.Running         => AgentTaskStatus.InProgress,
-            RunStatus.PausedApproval  => AgentTaskStatus.AwaitingApproval,
-            RunStatus.Completed       => AgentTaskStatus.Done,
-            RunStatus.Failed          => AgentTaskStatus.Failed,
-            RunStatus.NeedsRevision   => AgentTaskStatus.Review,
-            _                         => AgentTaskStatus.InProgress
+            RunStatus.Running            => AgentTaskStatus.InProgress,
+            RunStatus.PausedApproval     => AgentTaskStatus.AwaitingApproval,
+            RunStatus.AwaitingInteraction => AgentTaskStatus.AwaitingInteraction,
+            RunStatus.Completed          => AgentTaskStatus.Done,
+            RunStatus.Failed             => AgentTaskStatus.Failed,
+            RunStatus.NeedsRevision      => AgentTaskStatus.Review,
+            _                            => AgentTaskStatus.InProgress
         };
 
         await _cosmos.UpdateTaskStatusAsync(input.BoardId, input.TaskId, taskStatus, input.RunId, ct);

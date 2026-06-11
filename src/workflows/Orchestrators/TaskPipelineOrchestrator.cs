@@ -164,6 +164,38 @@ public class TaskPipelineOrchestrator
 
                 await context.CallActivityAsync(nameof(UpdateRunStatusActivity),
                     new UpdateRunStatusInput(input.RunId, input.TaskId, input.BoardId, RunStatus.Running, step.Step));
+
+                // Re-invoke the same agent so it incorporates the human response into a new artifact.
+                // Downstream tasks use SELECT TOP 1 ... ORDER BY version DESC, so they will receive
+                // this updated artifact instead of the pre-interaction partial response.
+                StepResult followUpResult;
+                try
+                {
+                    followUpResult = await context.CallActivityAsync<StepResult>(
+                        nameof(InvokeAgentActivity),
+                        new InvokeAgentInput(
+                            input.RunId,
+                            input.TaskId,
+                            input.BoardId,
+                            input.TenantId,
+                            step.AgentRoleId,
+                            step.Step + 1));
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "[Pipeline] interaction follow-up step failed task={TaskId} step={Step}", input.TaskId, step.Step + 1);
+                    await context.CallActivityAsync(nameof(UpdateRunStatusActivity),
+                        new UpdateRunStatusInput(input.RunId, input.TaskId, input.BoardId, RunStatus.Failed, step.Step + 1, ErrorMessage: ex.Message));
+                    return new OrchestrationResult(input.RunId, RunStatus.Failed, completedSteps, ex.Message);
+                }
+
+                completedSteps.Add(followUpResult);
+                await context.CallActivityAsync(nameof(UpdateRunStatusActivity),
+                    new UpdateRunStatusInput(input.RunId, input.TaskId, input.BoardId, RunStatus.Running, step.Step + 1, StepResult: followUpResult));
+
+                // If the follow-up also needs interaction, handle it recursively by updating stepResult
+                // so the outer loop's NeedsRevision / completion logic applies to the latest result.
+                stepResult = followUpResult;
             }
         }
 
