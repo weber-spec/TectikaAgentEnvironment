@@ -34,12 +34,28 @@ public class ContextManager
         sb.AppendLine($"## Task: {task.Title}");
         if (!string.IsNullOrWhiteSpace(task.Description)) sb.AppendLine(task.Description);
         if (!string.IsNullOrWhiteSpace(task.TaskBrief)) sb.AppendLine($"\n## Task brief (history)\n{task.TaskBrief}");
+        if (!string.IsNullOrWhiteSpace(task.TaskBrief) && task.TaskBrief.Contains("[Human,"))
+        {
+            sb.AppendLine("\n## Instruction: Human Decisions");
+            sb.AppendLine("The Task brief above contains decisions made by a human during this pipeline run.");
+            sb.AppendLine("Your artifact MUST begin with a `## Decisions Made` section that explicitly lists every human decision/selection/answer. Example:");
+            sb.AppendLine("  ## Decisions Made");
+            sb.AppendLine("  - Selected: Marriott Grand Hotel, $200/night (user chose)");
+            sb.AppendLine("  - Check-in: June 15 (user confirmed)");
+            sb.AppendLine("This section is required so downstream agents know what was decided.");
+        }
         foreach (var art in upstream)
         {
             sb.AppendLine($"\n### Input ({art.ContentType}):");
             sb.AppendLine("```");
             sb.AppendLine(art.Content);
             sb.AppendLine("```");
+        }
+        if (upstream.Any(a => a.Content.Contains("## Decisions Made", StringComparison.OrdinalIgnoreCase)))
+        {
+            sb.AppendLine("\n⚠ Note: One or more upstream inputs above contain a `## Decisions Made` section.");
+            sb.AppendLine("These are confirmed human decisions. Do NOT re-ask for this information.");
+            sb.AppendLine("Use these decisions directly in your task output.");
         }
         sb.AppendLine("\nComplete the task. Be thorough and production-ready.");
         sb.AppendLine("End with a one-line `## Brief Update`.");

@@ -226,6 +226,10 @@ public class UpdateRunStatusActivity
                     continue;
                 }
 
+                // Brief delay to allow Cosmos write propagation before the downstream task reads upstream artifacts.
+                // Session consistency doesn't guarantee visibility across different client sessions.
+                await Task.Delay(TimeSpan.FromSeconds(2), ct);
+
                 // All checks passed — trigger the downstream run
                 var body = JsonSerializer.Serialize(new { boardId, taskId = downstreamId, pipeline = (object?)null });
                 var content = new StringContent(body, Encoding.UTF8, "application/json");
