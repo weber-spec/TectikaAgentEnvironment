@@ -91,11 +91,11 @@ public class RunStartService : IRunStartService
 
         var pipelineInput = new
         {
-            runId    = savedRun.Id,
-            taskId,
-            boardId,
-            tenantId,
-            steps    = pipeline
+            RunId    = savedRun.Id,
+            TaskId   = taskId,
+            BoardId  = boardId,
+            TenantId = tenantId,
+            Steps    = pipeline
         };
 
         try
