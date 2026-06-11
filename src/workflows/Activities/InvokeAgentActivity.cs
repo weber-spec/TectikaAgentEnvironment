@@ -234,6 +234,12 @@ public class InvokeAgentActivity
         };
     }
 
+    private static readonly System.Text.Json.JsonSerializerOptions _interactionJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
+    };
+
     private static (string Brief, string Summary, PendingInteractionRequest? Interaction, string CleanContent, string? RevisionReason) ParseAgentSections(string content)
     {
         string ExtractFirstNonEmptyLine(string marker)
@@ -279,8 +285,7 @@ public class InvokeAgentActivity
                     var json = content[jsonStart..(jsonEnd + 1)];
                     try
                     {
-                        interaction = System.Text.Json.JsonSerializer.Deserialize<PendingInteractionRequest>(json,
-                            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        interaction = System.Text.Json.JsonSerializer.Deserialize<PendingInteractionRequest>(json, _interactionJsonOptions);
                     }
                     catch { /* malformed JSON — ignore */ }
                     cleanContent = content[..interactionIdx].TrimEnd();

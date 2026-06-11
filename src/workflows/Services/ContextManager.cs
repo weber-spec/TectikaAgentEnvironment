@@ -28,6 +28,9 @@ public class ContextManager
     public static string Assemble(AgentRole role, AgentTask task, Board board, IReadOnlyList<Artifact> upstream)
     {
         var sb = new StringBuilder();
+        sb.AppendLine($"## Project: {board.Name}");
+        if (!string.IsNullOrWhiteSpace(board.Description)) sb.AppendLine(board.Description);
+        sb.AppendLine();
         sb.AppendLine($"## Task: {task.Title}");
         if (!string.IsNullOrWhiteSpace(task.Description)) sb.AppendLine(task.Description);
         if (!string.IsNullOrWhiteSpace(task.TaskBrief)) sb.AppendLine($"\n## Task brief (history)\n{task.TaskBrief}");
