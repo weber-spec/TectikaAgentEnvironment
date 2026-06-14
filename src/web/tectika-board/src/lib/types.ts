@@ -55,8 +55,31 @@ export interface AgentTask {
   taskBrief?: string;
   artifactSummary?: string;
   foundryThreadId?: string;
+  prompt?: string;
   createdAt: string;
   dueAt?: string;
+}
+
+// ── Steerable run trace (mirrors backend RunEvent; Activity tab + chat transcript) ──
+export type RunEventKind =
+  | 'Thinking' | 'RoundStarted' | 'ToolCall' | 'ToolResult' | 'ArtifactWritten'
+  | 'UserMessage' | 'AgentMessage' | 'InteractionRequired' | 'ApprovalRequired'
+  | 'RoundCompleted' | 'RunCompleted' | 'RunFailed';
+
+export interface RunEvent {
+  id: string;
+  taskId: string;
+  runId: string;
+  round: number;
+  parentId?: string | null;
+  kind: RunEventKind;
+  title?: string;
+  detail?: string;
+  toolName?: string;
+  toolArgsSummary?: string;
+  resultSummary?: string;
+  tokenUsage?: TokenUsage;
+  timestamp: string;
 }
 
 // ── Typed edges — server-persisted source of truth for the task graph ──────────
@@ -194,6 +217,15 @@ export interface AgentEvent {
   tokenUsage?: TokenUsage;
   artifactId?: string;
   approvalId?: string;
+  // Steerable run trace (type === 'run_event' mirrors a persisted RunEvent)
+  eventId?: string;
+  round?: number;
+  parentId?: string | null;
+  kind?: RunEventKind;
+  title?: string;
+  toolName?: string;
+  toolArgsSummary?: string;
+  resultSummary?: string;
   timestamp: string;
 }
 

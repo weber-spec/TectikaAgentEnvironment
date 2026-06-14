@@ -1,7 +1,7 @@
 // API client — all calls to the .NET backend.
 
 import type {
-  Board, AgentTask, AgentRole, AgentUpsertResult, Artifact, Approval, WorkflowRun, AgentEvent, HumanInteraction, TaskEdge, EdgeKind,
+  Board, AgentTask, AgentRole, AgentUpsertResult, Artifact, Approval, WorkflowRun, AgentEvent, HumanInteraction, TaskEdge, EdgeKind, RunEvent,
 } from './types';
 import { trackEvent, trackException, redact } from './telemetry';
 
@@ -45,7 +45,7 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
 /** Fields the backend's PUT /tasks/{id} accepts. */
 export type TaskPatch = Partial<
   Pick<AgentTask, 'title' | 'description' | 'status' | 'priority' | 'assignee' |
-    'dueAt' | 'humanAuditorId' | 'canvasPosition'>
+    'dueAt' | 'humanAuditorId' | 'canvasPosition' | 'prompt'>
 >;
 
 export const api = {
@@ -75,6 +75,12 @@ export const api = {
       fetchApi<AgentTask>(`/api/boards/${boardId}/tasks/${taskId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
     updatePosition: (boardId: string, taskId: string, x: number, y: number) =>
       fetchApi<AgentTask>(`/api/boards/${boardId}/tasks/${taskId}/canvas-position`, { method: 'PATCH', body: JSON.stringify({ x, y }) }),
+    /** Chat with a task: starts a steerable run seeded with the message, or injects it into the live run. */
+    chat: (boardId: string, taskId: string, text: string) =>
+      fetchApi<{ runId: string; injected: boolean }>(`/api/boards/${boardId}/tasks/${taskId}/chat`, { method: 'POST', body: JSON.stringify({ text }) }),
+    /** Persisted run trace (Activity tab + chat transcript), oldest-first. */
+    events: (boardId: string, taskId: string, sinceRound?: number) =>
+      fetchApi<RunEvent[]>(`/api/boards/${boardId}/tasks/${taskId}/events${sinceRound != null ? `?sinceRound=${sinceRound}` : ''}`),
   },
 
   edges: {

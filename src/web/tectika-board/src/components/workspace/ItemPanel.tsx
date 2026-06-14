@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useBoard } from '@/lib/board-context';
 import { api } from '@/lib/api';
-import type { Artifact, AgentTask, AgentRole, ChatTurn } from '@/lib/types';
+import type { Artifact, AgentTask, AgentRole, RunEvent } from '@/lib/types';
 import { STATUS_CONFIG, STATUS_ORDER, PRIORITY_CONFIG, PRIORITY_ORDER, textOn } from '@/lib/palette';
 import { Avatar, Pill, Button, Spinner } from '@/components/ui/primitives';
 import { Icon } from '@/components/ui/icons';
@@ -162,27 +162,87 @@ function renderMentions(body: string) {
     : <span key={i}>{part}</span>);
 }
 
-// ── Activity ──────────────────────────────────────────────────────────────────
+// ── Live + replayable run trace (shared by Chat and Activity) ─────────────────
+// Loads the persisted RunEvents for a task, then appends live `run_event`s over SSE.
+function useRunEvents(task: AgentTask): RunEvent[] {
+  const [events, setEvents] = useState<RunEvent[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clear stale trace when switching tasks
+    setEvents([]);
+    api.tasks.events(task.boardId, task.id).then(list => { if (alive) setEvents(list); }).catch(() => {});
+    return () => { alive = false; };
+  }, [task.boardId, task.id]);
+
+  useEffect(() => {
+    const runId = task.workflowRunId;
+    if (!runId) return;
+    const stop = api.streamRun(runId, (e) => {
+      if (e.type !== 'run_event') return;
+      const re: RunEvent = {
+        id: e.eventId ?? `${e.runId}-${e.timestamp}`,
+        taskId: e.taskId ?? task.id, runId: e.runId, round: e.round ?? 0,
+        parentId: e.parentId, kind: e.kind ?? 'Thinking', title: e.title, detail: e.content,
+        toolName: e.toolName, toolArgsSummary: e.toolArgsSummary, resultSummary: e.resultSummary,
+        tokenUsage: e.tokenUsage, timestamp: e.timestamp,
+      };
+      setEvents(prev => prev.some(x => x.id === re.id) ? prev : [...prev, re]);
+    });
+    return stop;
+  }, [task.workflowRunId, task.id]);
+
+  return events;
+}
+
+// ── Activity — hierarchical round → sub-activity timeline ─────────────────────
 function ActivityTab({ task }: { task: AgentTask }) {
-  const { activity, peopleById } = useBoard();
-  const list = activity.filter(a => a.taskId === task.id).sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
-  const verb: Record<string, string> = { created: 'created this item', status: 'changed status', priority: 'changed priority', assignee: 'reassigned', due: 'set due date', connected: 'linked a dependency', comment: 'commented', artifact: 'updated the artifact', approval: 'requested approval', field: 'updated a field' };
+  const events = useRunEvents(task);
+  const rounds = useMemo(() => {
+    const tops = events.filter(e => !e.parentId).sort((a, b) => +new Date(a.timestamp) - +new Date(b.timestamp));
+    return tops.map(top => ({ top, children: events.filter(e => e.parentId === top.id).sort((a, b) => +new Date(a.timestamp) - +new Date(b.timestamp)) }));
+  }, [events]);
+
+  if (rounds.length === 0)
+    return <div className="p-6 text-center text-sm text-[var(--muted)]"><Icon.bolt size={30} className="mx-auto mb-2 text-[var(--muted-2)]" />No agent activity yet.<br /><span className="text-xs">Start the agent (or chat) to see its steps here.</span></div>;
+
   return (
-    <div className="p-4 flex flex-col gap-3">
-      {list.map(a => {
-        const p = peopleById[a.actorId];
-        return (
-          <div key={a.id} className="flex gap-2.5 items-start">
-            <Avatar person={p} name={a.actorId} size={26} />
-            <div className="flex-1 text-[13px]">
-              <span className="font-semibold text-[var(--foreground)]">{p?.name ?? displayName(a.actorId)}</span>{' '}
-              <span className="text-[var(--muted)]">{verb[a.kind] ?? a.kind}</span>
-              {a.from && a.to && <span className="text-[var(--muted)]"> from <b className="text-[var(--foreground)]">{a.from}</b> to <b className="text-[var(--foreground)]">{a.to}</b></span>}
-              <div className="text-[11px] text-[var(--muted-2)]">{relativeTime(a.createdAt)}</div>
+    <div className="p-3 flex flex-col gap-1.5">
+      {rounds.map(r => <ActivityRow key={r.top.id} ev={r.top} subs={r.children} />)}
+    </div>
+  );
+}
+
+function ActivityRow({ ev, subs }: { ev: RunEvent; subs: RunEvent[] }) {
+  const [open, setOpen] = useState(false);
+  const hasChildren = subs.length > 0;
+  const label = ev.kind === 'RoundStarted' ? (ev.title || 'Working…')
+    : ev.kind === 'UserMessage' ? `You: ${ev.title}`
+    : ev.kind === 'AgentMessage' ? (ev.title || 'Agent replied')
+    : (ev.title || ev.kind);
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)]/40">
+      <button disabled={!hasChildren} onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-2.5 py-2 text-left text-[13px]">
+        <Icon.bolt size={13} className="text-[#fdab3d] shrink-0" />
+        <span className="flex-1 truncate text-[var(--foreground)]">{label}</span>
+        <span className="text-[10px] text-[var(--muted-2)]">{relativeTime(ev.timestamp)}</span>
+        {hasChildren && <Icon.chevronDown size={14} className={`text-[var(--muted)] transition-transform ${open ? 'rotate-180' : ''}`} />}
+      </button>
+      {open && hasChildren && (
+        <div className="px-2.5 pb-2 flex flex-col gap-1 border-t border-[var(--border)] pt-1.5">
+          {subs.map(c => (
+            <div key={c.id} className="flex items-start gap-2 text-[12px] text-[var(--muted)] pl-1">
+              <Icon.bolt size={11} className="mt-0.5 text-[var(--muted-2)] shrink-0" />
+              <span className="flex-1">
+                <span className="font-mono text-[var(--foreground)]">{c.toolName ?? c.kind}</span>
+                {c.toolArgsSummary ? <span className="text-[var(--muted-2)]"> {c.toolArgsSummary}</span> : null}
+                {c.resultSummary ? <span className="text-[var(--muted)]"> → {c.resultSummary}</span> : null}
+              </span>
             </div>
-          </div>
-        );
-      })}
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -231,6 +291,12 @@ function DetailsTab({ task, role, run, people, onAssign }: { task: AgentTask; ro
       <Field label="Description">
         <textarea defaultValue={task.description} onBlur={e => { if (e.target.value !== task.description) updateTask(task.id, { description: e.target.value }); }}
           placeholder="Add a description…" rows={3} className="w-full bg-[var(--surface)] rounded-lg p-2 outline-none resize-none text-[var(--foreground)] border border-[var(--border)] focus:border-[var(--primary)]" />
+      </Field>
+      <Field label="Task prompt">
+        <textarea defaultValue={task.prompt ?? ''} onBlur={e => { if (e.target.value !== (task.prompt ?? '')) updateTask(task.id, { prompt: e.target.value }); }}
+          placeholder="Specific instructions for THIS task — layered on top of the agent's role/persona…" rows={4}
+          className="w-full bg-[var(--surface)] rounded-lg p-2 outline-none resize-none text-[var(--foreground)] border border-[var(--border)] focus:border-[var(--primary)]" />
+        <div className="text-[11px] text-[var(--muted-2)] mt-1">The agent keeps its role&apos;s skills/persona; this tells it exactly what to do here.</div>
       </Field>
       <Field label="Owner">
         <select value={task.assignee.id} onChange={e => { const p = people.find(x => x.id === e.target.value); onAssign(e.target.value, p?.kind ?? 'Human'); }}
@@ -321,36 +387,51 @@ function AgentConfigEditor({ role }: { role: AgentRole }) {
   );
 }
 
-// ── Interactive agent conversation ────────────────────────────────────────────
+// ── Interactive agent conversation (steerable: start-or-inject) ───────────────
+type Bubble = { id: string; author: 'human' | 'agent' | 'tool'; text: string; toolName?: string; at: string };
+
 function ChatTab({ task, role }: { task: AgentTask; role?: AgentRole }) {
-  const { chatThreads, pushChatTurns } = useBoard();
-  const turns = chatThreads[task.id] ?? [];
+  const events = useRunEvents(task);
   const [draft, setDraft] = useState('');
-  const [thinking, setThinking] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [pending, setPending] = useState<Bubble[]>([]);   // optimistic human turns (echo isn't streamed)
   const endRef = useRef<HTMLDivElement>(null);
-  const seq = useRef(0);
-  const mk = (author: ChatTurn['author'], text: string, toolName?: string): ChatTurn =>
-    ({ id: `c${task.id}-${seq.current++}-${text.length}`, author, text, toolName, createdAt: new Date().toISOString() });
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [turns.length, thinking]);
+  // Reset optimistic turns when switching tasks.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- clear pending bubbles on task change
+  useEffect(() => { setPending([]); }, [task.id]);
 
-  const send = () => {
+  const bubbles = useMemo<Bubble[]>(() => {
+    const fromEvents = events
+      .filter(e => e.kind === 'UserMessage' || e.kind === 'AgentMessage' || e.kind === 'ToolCall')
+      .map(e => ({
+        id: e.id,
+        author: e.kind === 'UserMessage' ? 'human' : e.kind === 'ToolCall' ? 'tool' : 'agent',
+        text: e.kind === 'ToolCall' ? `${e.toolName}${e.resultSummary ? ` → ${e.resultSummary}` : ''}` : (e.detail || e.title || ''),
+        toolName: e.toolName,
+        at: e.timestamp,
+      } as Bubble));
+    return [...fromEvents, ...pending].sort((a, b) => +new Date(a.at) - +new Date(b.at));
+  }, [events, pending]);
+
+  // Spinner stops once the agent has produced a message at/after our last send.
+  const lastAgentAt = useMemo(() =>
+    events.filter(e => e.kind === 'AgentMessage').map(e => e.timestamp).sort().at(-1), [events]);
+  const lastSentAt = pending.at(-1)?.at;
+  const thinking = sending || (!!lastSentAt && (!lastAgentAt || lastAgentAt < lastSentAt));
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [bubbles.length, thinking]);
+
+  const send = async () => {
     const text = draft.trim();
-    if (!text || thinking) return;
-    pushChatTurns(task.id, [mk('human', text)]);
+    if (!text || sending) return;
+    const at = new Date().toISOString();
+    setPending(p => [...p, { id: `local-${at}`, author: 'human', text, at }]);
     setDraft('');
-    setThinking(true);
-    // Front-end simulation of the agent's turn. When wired to the live Foundry/Durable
-    // backend, these turns stream in over SSE instead.
-    const tool = role?.tools[0];
-    window.setTimeout(() => {
-      const reply: ChatTurn[] = [];
-      reply.push(mk('agent', `Working on “${task.title}”. ${role ? `As ${role.displayName}, I’ll` : 'I’ll'} take that into account and update the artifact.`));
-      if (tool) reply.push(mk('tool', `invoked ${tool} → completed`, tool));
-      reply.push(mk('agent', 'Done — the deliverable on the right reflects your guidance. What should I refine next?'));
-      pushChatTurns(task.id, reply);
-      setThinking(false);
-    }, 1100);
+    setSending(true);
+    try { await api.tasks.chat(task.boardId, task.id, text); }
+    catch { toast('Could not send message', 'error'); }
+    finally { setSending(false); }
   };
 
   return (
@@ -358,17 +439,17 @@ function ChatTab({ task, role }: { task: AgentTask; role?: AgentRole }) {
       <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border)] text-[11px] text-[var(--muted)]">
         <span className="w-1.5 h-1.5 rounded-full bg-[#00c875]" />
         <span>{role ? role.displayName : 'Agent'} · {role?.modelOverride ?? 'default model'}</span>
-        <span className="ml-auto text-[var(--muted-2)]">live turns stream here when connected</span>
+        <span className="ml-auto text-[var(--muted-2)]">messages steer the run live</span>
       </div>
       <div className="flex-1 overflow-auto p-3 flex flex-col gap-2.5">
-        {turns.length === 0 && !thinking && (
+        {bubbles.length === 0 && !thinking && (
           <div className="text-center text-sm text-[var(--muted)] mt-8">
             <Icon.robot size={36} className="mx-auto mb-2 text-[var(--muted-2)]" />
             Start a conversation with this agent.<br />
-            <span className="text-xs">Give guidance, ask for changes, or steer the next iteration.</span>
+            <span className="text-xs">Message it to kick off a run, or steer one that&apos;s already working.</span>
           </div>
         )}
-        {turns.map(t => <ChatBubble key={t.id} turn={t} />)}
+        {bubbles.map(b => <ChatBubble key={b.id} bubble={b} />)}
         {thinking && (
           <div className="flex items-center gap-2 text-xs text-[var(--muted)] ml-1">
             <span className="flex gap-1">
@@ -387,27 +468,27 @@ function ChatTab({ task, role }: { task: AgentTask; role?: AgentRole }) {
           rows={2} placeholder="Message the agent…  (⌘/Ctrl + Enter to send)"
           className="w-full bg-[var(--surface)] rounded-lg p-2 text-[13px] outline-none resize-none text-[var(--foreground)] border border-[var(--border)] focus:border-[var(--primary)]" />
         <div className="flex justify-end mt-1.5">
-          <Button variant="primary" size="sm" disabled={!draft.trim() || thinking} onClick={send}><Icon.send size={13} /> Send</Button>
+          <Button variant="primary" size="sm" disabled={!draft.trim() || sending} onClick={send}><Icon.send size={13} /> Send</Button>
         </div>
       </div>
     </div>
   );
 }
 
-function ChatBubble({ turn }: { turn: ChatTurn }) {
-  if (turn.author === 'tool') {
+function ChatBubble({ bubble }: { bubble: Bubble }) {
+  if (bubble.author === 'tool') {
     return (
       <div className="flex items-center gap-2 ml-1 text-[11px] text-[var(--muted)] font-mono">
-        <Icon.bolt size={12} className="text-[#fdab3d]" /> <span className="px-1.5 py-0.5 rounded bg-[var(--surface)]">{turn.text}</span>
+        <Icon.bolt size={12} className="text-[#fdab3d]" /> <span className="px-1.5 py-0.5 rounded bg-[var(--surface)]">{bubble.text}</span>
       </div>
     );
   }
-  const human = turn.author === 'human';
+  const human = bubble.author === 'human';
   return (
     <div className={`flex ${human ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-[80%] rounded-xl px-3 py-2 text-[13px] leading-snug ${human ? 'bg-[var(--primary)] text-white rounded-br-sm' : 'bg-[var(--surface)] text-[var(--foreground)] rounded-bl-sm border border-[var(--border)]'}`}>
+      <div className={`max-w-[80%] rounded-xl px-3 py-2 text-[13px] leading-snug whitespace-pre-wrap ${human ? 'bg-[var(--primary)] text-white rounded-br-sm' : 'bg-[var(--surface)] text-[var(--foreground)] rounded-bl-sm border border-[var(--border)]'}`}>
         {!human && <div className="flex items-center gap-1 text-[10px] text-[var(--muted)] mb-0.5"><Icon.robot size={11} /> Agent</div>}
-        {turn.text}
+        {bubble.text}
       </div>
     </div>
   );
