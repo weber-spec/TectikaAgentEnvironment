@@ -72,8 +72,9 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         {
             var model = role.ModelOverride ?? _settings.DefaultModel;
             _logger.LogInformation("[FoundryEnsureAgent] ensuring agent role={RoleId} model={Model}", role.Id, model);
-            var hash = AgentInstructionsHash.Compute(role.SystemPrompt, model);
-            var definition = new AgentDefinition("prompt", model, role.SystemPrompt, role.DisplayName);
+            var hash = AgentInstructionsHash.Compute(role.SystemPrompt, model, TectikaToolSchema.Version);
+            var definition = new AgentDefinition("prompt", model, role.SystemPrompt, role.DisplayName,
+                TectikaToolSchema.ToFoundryToolsJson());
             var http = await ClientAsync(ct).ConfigureAwait(false);
 
             // Stable agent id: reuse the stored one; mint a fresh random id only for a brand-new role.
@@ -219,7 +220,8 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         [property: JsonPropertyName("kind")] string Kind,
         [property: JsonPropertyName("model")] string Model,
         [property: JsonPropertyName("instructions")] string Instructions,
-        [property: JsonPropertyName("description")] string? Description);
+        [property: JsonPropertyName("description")] string? Description,
+        [property: JsonPropertyName("tools")] IReadOnlyList<object> Tools);
     private sealed record CreateAgentRequest(
         [property: JsonPropertyName("name")] string Name,
         [property: JsonPropertyName("definition")] AgentDefinition Definition);

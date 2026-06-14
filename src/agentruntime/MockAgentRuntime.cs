@@ -12,7 +12,7 @@ public sealed class MockAgentProvisioner : IAgentProvisioner
     {
         if (string.IsNullOrEmpty(role.FoundryAgentId))
             role.FoundryAgentId = $"mock-agent-{role.Id}";
-        role.FoundryAgentHash = AgentInstructionsHash.Compute(role.SystemPrompt, role.ModelOverride ?? "mock");
+        role.FoundryAgentHash = AgentInstructionsHash.Compute(role.SystemPrompt, role.ModelOverride ?? "mock", TectikaToolSchema.Version);
         return Task.FromResult(new AgentSyncResult(role.FoundryAgentId, Synced: true));
     }
 
