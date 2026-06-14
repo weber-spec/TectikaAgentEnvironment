@@ -210,6 +210,70 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         }
     }
 
+    public async Task<RoundOutcome> RunRoundAsync(RoundRequest req, IProjectExplorer explorer, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(req.Role.FoundryAgentId))
+            return new RoundOutcome(RoundKind.Final, "", [], null, null, null, null, [], new TokenUsage(),
+                $"round-{req.RunId}-{req.Round}", Error: "Role has no Foundry agent — ensure the agent first.");
+        try
+        {
+            var http = await ClientAsync(ct).ConfigureAwait(false);
+
+            // First/seed/steer round (no pending outputs) sends a string; tool-result rounds send a
+            // function_call_output array (+ an optional injected user message). [live-verified: string & array]
+            object input = req.PendingToolOutputs.Count == 0
+                ? (object)(req.UserInput ?? "")
+                : BuildToolInput(req.PendingToolOutputs, req.UserInput);
+
+            var body = new ResponsesRequest(input, new AgentRef(req.Role.FoundryAgentId!, "agent_reference"),
+                string.IsNullOrEmpty(req.ThreadId) ? null : req.ThreadId,
+                req.MaxCompletionTokens > 0 ? req.MaxCompletionTokens : null);
+            var resp = await http.PostAsJsonAsync($"{_base}/openai/v1/responses", body, Json, ct).ConfigureAwait(false);
+            await EnsureOkAsync(resp, ct).ConfigureAwait(false);
+            var r = await resp.Content.ReadFromJsonAsync<ResponsesResult>(Json, ct).ConfigureAwait(false)
+                    ?? throw new Exception("Empty response from Foundry.");
+            var usage = new TokenUsage { Input = r.Usage?.InputTokens ?? 0, Output = r.Usage?.OutputTokens ?? 0 };
+
+            var calls = new List<ToolCall>();
+            if (r.Output is not null)
+                foreach (var item in r.Output)
+                    if (item.Type == "function_call" && item.Name is not null && item.CallId is not null)
+                        calls.Add(new ToolCall(item.Name, item.Arguments ?? "{}", item.CallId));
+            var round = calls.Count > 0
+                ? new RoundResponse { ToolCalls = calls, Usage = usage }
+                : RoundResponse.Final(ExtractText(r), usage);
+
+            var p = await RoundExecutor.ExecuteOneRoundAsync(round, explorer,
+                (n, _) => OnText?.Invoke($"\n[using tool: {n}]\n"), ct).ConfigureAwait(false);
+            var next = p.ToolOutputs.Select(o => new PriorToolOutput(o.CallId, o.Output)).ToList();
+            var id = r.Id ?? $"round-{req.RunId}-{req.Round}";
+
+            if (p.IsFinal)
+            {
+                if (!string.IsNullOrEmpty(p.FinalText)) OnText?.Invoke(p.FinalText);
+                return new RoundOutcome(RoundKind.Final, p.FinalText, [], null, null, p.RoundIntent, p.BriefUpdate, p.ToolCalls, usage, id);
+            }
+            if (p.Control is not null)
+                return new RoundOutcome(RoundKind.AwaitUser, null, next, p.OpenControlCallId, p.Control, p.RoundIntent, p.BriefUpdate, p.ToolCalls, usage, id);
+            return new RoundOutcome(RoundKind.Continue, null, next, null, null, p.RoundIntent, p.BriefUpdate, p.ToolCalls, usage, id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "RunRound failed for role {Role} task {Task} round {Round}", req.Role.Id, req.Task.Id, req.Round);
+            return new RoundOutcome(RoundKind.Final, "", [], null, null, null, null, [], new TokenUsage(),
+                $"round-{req.RunId}-{req.Round}", Error: ex.Message);
+        }
+    }
+
+    private static object[] BuildToolInput(IReadOnlyList<PriorToolOutput> pending, string? userInput)
+    {
+        var items = new List<object>(pending.Count + 1);
+        foreach (var o in pending) items.Add(new FunctionCallOutput("function_call_output", o.CallId, o.Output));
+        // Injected steering mid-tool-round — shape live-verified in Stage 3c chat smoke.
+        if (!string.IsNullOrEmpty(userInput)) items.Add(new UserMessageItem("message", "user", userInput));
+        return items.ToArray();
+    }
+
     private async Task EnsureOkAsync(HttpResponseMessage resp, CancellationToken ct)
     {
         if (resp.IsSuccessStatusCode) return;
@@ -268,6 +332,10 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         [property: JsonPropertyName("type")] string Type,
         [property: JsonPropertyName("call_id")] string CallId,
         [property: JsonPropertyName("output")] string Output);
+    private sealed record UserMessageItem(
+        [property: JsonPropertyName("type")] string Type,
+        [property: JsonPropertyName("role")] string Role,
+        [property: JsonPropertyName("content")] string Content);
     private sealed class ResponsesResult
     {
         [JsonPropertyName("id")] public string? Id { get; set; }
