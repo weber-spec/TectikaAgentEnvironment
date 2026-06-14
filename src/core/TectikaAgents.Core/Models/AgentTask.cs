@@ -55,6 +55,9 @@ public class AgentTask
     [JsonPropertyName("taskBrief")]
     public string TaskBrief { get; set; } = "";
 
+    [JsonPropertyName("prompt")]
+    public string? Prompt { get; set; }
+
     [JsonPropertyName("artifactSummary")]
     public string? ArtifactSummary { get; set; }
 
