@@ -24,6 +24,25 @@ public class CosmosDbService : ICosmosDbService
     public const string AuditLogContainer = "auditLog";
     public const string HumanInteractionsContainer = "humanInteractions";
     public const string TaskEdgesContainer = "taskEdges";
+    public const string RunEventsContainer = "runEvents";
+    public const string PendingMessagesContainer = "pendingMessages";
+
+    /// <summary>Authoritative list of Cosmos containers this app requires (name + partition key).
+    /// Source of truth for <see cref="EnsureInfrastructureAsync"/> and kept in sync with infra/modules/data.bicep.</summary>
+    public static readonly (string Name, string PartitionKey)[] ContainerDefinitions =
+    {
+        (BoardsContainer,            "/tenantId"),
+        (TasksContainer,             "/boardId"),
+        (AgentRolesContainer,        "/tenantId"),
+        (WorkflowRunsContainer,      "/taskId"),
+        (ArtifactsContainer,         "/taskId"),
+        (ApprovalsContainer,         "/runId"),
+        (AuditLogContainer,          "/tenantId"),
+        (HumanInteractionsContainer, "/runId"),
+        (TaskEdgesContainer,         "/boardId"),
+        (RunEventsContainer,         "/taskId"),
+        (PendingMessagesContainer,   "/runId"),
+    };
 
     public CosmosDbService(CosmosClient client, IOptions<CosmosDbSettings> settings, ILogger<CosmosDbService> logger)
     {
@@ -40,23 +59,10 @@ public class CosmosDbService : ICosmosDbService
     {
         var db = await _client.CreateDatabaseIfNotExistsAsync(_dbName);
 
-        var containers = new (string Name, string PartitionKey)[]
-        {
-            (BoardsContainer,       "/tenantId"),
-            (TasksContainer,        "/boardId"),
-            (AgentRolesContainer,   "/tenantId"),
-            (WorkflowRunsContainer, "/taskId"),
-            (ArtifactsContainer,    "/taskId"),
-            (ApprovalsContainer,          "/runId"),
-            (AuditLogContainer,           "/tenantId"),
-            (HumanInteractionsContainer,  "/runId"),
-            (TaskEdgesContainer,          "/boardId"),
-        };
-
-        foreach (var (name, pk) in containers)
+        foreach (var (name, pk) in ContainerDefinitions)
             await db.Database.CreateContainerIfNotExistsAsync(name, pk);
 
-        _logger.LogInformation("[CosmosInfra] ensured database {Database} and {Count} containers", _dbName, containers.Length);
+        _logger.LogInformation("[CosmosInfra] ensured database {Database} and {Count} containers", _dbName, ContainerDefinitions.Length);
     }
 
     // ── Boards ───────────────────────────────────────────────────────────────
