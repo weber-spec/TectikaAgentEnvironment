@@ -38,11 +38,56 @@ public class AgentEvent
     [JsonPropertyName("interactionType")]
     public string? InteractionType { get; set; }
 
+    // ── Steerable run trace (RunEvent mirror — live SSE and stored events share this shape) ──
+    [JsonPropertyName("round")]
+    public int? Round { get; set; }
+
+    [JsonPropertyName("parentId")]
+    public string? ParentId { get; set; }
+
+    [JsonPropertyName("kind")]
+    public string? Kind { get; set; }
+
+    [JsonPropertyName("title")]
+    public string? Title { get; set; }
+
+    [JsonPropertyName("toolName")]
+    public string? ToolName { get; set; }
+
+    [JsonPropertyName("toolArgsSummary")]
+    public string? ToolArgsSummary { get; set; }
+
+    [JsonPropertyName("resultSummary")]
+    public string? ResultSummary { get; set; }
+
+    [JsonPropertyName("eventId")]
+    public string? EventId { get; set; }
+
     [JsonPropertyName("timestamp")]
     public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.UtcNow;
 
+    /// <summary>Project a persisted RunEvent into the SSE shape (live and stored are identical by construction).</summary>
+    public static AgentEvent FromRunEvent(RunEvent e) => new()
+    {
+        Type = "run_event",
+        EventId = e.Id,
+        RunId = e.RunId,
+        TaskId = e.TaskId,
+        Round = e.Round,
+        ParentId = e.ParentId,
+        Kind = e.Kind.ToString(),
+        Title = e.Title,
+        Content = e.Detail,
+        ToolName = e.ToolName,
+        ToolArgsSummary = e.ToolArgsSummary,
+        ResultSummary = e.ResultSummary,
+        TokenUsage = e.TokenUsage,
+        Timestamp = e.Timestamp,
+    };
+
     public static class Types
     {
+        public const string RunEvent = "run_event";
         public const string RunStarted = "run_started";
         public const string StepStarted = "step_started";
         public const string AgentThinking = "agent_thinking";

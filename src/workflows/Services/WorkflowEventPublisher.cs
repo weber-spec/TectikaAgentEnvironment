@@ -67,6 +67,9 @@ public class WorkflowEventPublisher
             InteractionType = interactionType
         }, ct);
 
+    public Task PublishRunEventAsync(RunEvent e, CancellationToken ct = default) =>
+        PublishAsync(AgentEvent.FromRunEvent(e), ct);
+
     public Task PublishRunCompletedAsync(string runId, string taskId, CancellationToken ct = default) =>
         PublishAsync(new AgentEvent { Type = AgentEvent.Types.RunCompleted, RunId = runId, TaskId = taskId }, ct);
 

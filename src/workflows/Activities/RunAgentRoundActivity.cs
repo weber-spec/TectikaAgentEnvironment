@@ -19,6 +19,7 @@ public class RunAgentRoundActivity
     private readonly WorkflowCosmosService _cosmos;
     private readonly IAgentRuntime _runtime;
     private readonly ContextManager _contextManager;
+    private readonly WorkflowEventPublisher _events;
     private readonly int _maxCompletionTokens;
     private readonly ILogger<RunAgentRoundActivity> _logger;
 
@@ -26,12 +27,14 @@ public class RunAgentRoundActivity
         WorkflowCosmosService cosmos,
         IAgentRuntime runtime,
         ContextManager contextManager,
+        WorkflowEventPublisher events,
         IOptions<FoundrySettings> foundry,
         ILogger<RunAgentRoundActivity> logger)
     {
         _cosmos = cosmos;
         _runtime = runtime;
         _contextManager = contextManager;
+        _events = events;
         _maxCompletionTokens = foundry.Value.MaxCompletionTokens;
         _logger = logger;
     }
@@ -102,6 +105,13 @@ public class RunAgentRoundActivity
         else
         {
             await _cosmos.UpdateTaskStatusAsync(input.BoardId, input.TaskId, AgentTaskStatus.InProgress, input.RunId, ct);
+        }
+
+        // Persist the round trace (hierarchical) and mirror each event over SSE — live and stored share one shape.
+        foreach (var ev in RunEventFactory.BuildRoundEvents(input.RunId, input.TaskId, input.Round, outcome, artifactId))
+        {
+            var saved = await _cosmos.CreateRunEventAsync(ev, ct);
+            await _events.PublishRunEventAsync(saved, ct);
         }
 
         return new RoundActivityResult(outcome, artifactId);

@@ -33,6 +33,11 @@ public class TasksController : ControllerBase
         return task is null ? NotFound() : Ok(task);
     }
 
+    /// <summary>Persisted steerable-run trace for the Activity tab (and chat transcript) — replayable.</summary>
+    [HttpGet("{taskId}/events")]
+    public async Task<IActionResult> GetEvents(string boardId, string taskId, [FromQuery] int? sinceRound, CancellationToken ct) =>
+        Ok(await _cosmos.GetRunEventsAsync(taskId, sinceRound, ct));
+
     [HttpPost]
     public async Task<IActionResult> Create(string boardId, [FromBody] CreateTaskRequest req, CancellationToken ct)
     {

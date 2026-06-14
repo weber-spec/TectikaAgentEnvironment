@@ -300,6 +300,29 @@ public class WorkflowCosmosService
         return res.Resource;
     }
 
+    // ── RunEvent (steerable run trace) ────────────────────────────────────────
+
+    public async Task<RunEvent> CreateRunEventAsync(RunEvent e, CancellationToken ct = default)
+    {
+        var res = await C("runEvents").CreateItemAsync(e, new PartitionKey(e.TaskId), cancellationToken: ct);
+        return res.Resource;
+    }
+
+    public async Task<List<RunEvent>> GetRunEventsAsync(string taskId, int? sinceRound = null, CancellationToken ct = default)
+    {
+        var sql = "SELECT * FROM c WHERE c.taskId = @taskId"
+            + (sinceRound is null ? "" : " AND c.round >= @since")
+            + " ORDER BY c.timestamp ASC";
+        var q = new QueryDefinition(sql).WithParameter("@taskId", taskId);
+        if (sinceRound is not null) q = q.WithParameter("@since", sinceRound.Value);
+
+        var iter = C("runEvents").GetItemQueryIterator<RunEvent>(q,
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(taskId) });
+        var results = new List<RunEvent>();
+        while (iter.HasMoreResults) results.AddRange(await iter.ReadNextAsync(ct));
+        return results;
+    }
+
     // ── AuditLog ──────────────────────────────────────────────────────────────
 
     public async Task AppendAuditAsync(AuditEntry entry, CancellationToken ct = default) =>

@@ -342,6 +342,18 @@ public class CosmosDbService : ICosmosDbService
             await DeleteEdgeAsync(boardId, e.Id, ct);
     }
 
+    // ── Run trace ──────────────────────────────────────────────────────────────
+
+    public async Task<IReadOnlyList<RunEvent>> GetRunEventsAsync(string taskId, int? sinceRound = null, CancellationToken ct = default)
+    {
+        var sql = "SELECT * FROM c WHERE c.taskId = @taskId"
+            + (sinceRound is null ? "" : " AND c.round >= @since")
+            + " ORDER BY c.timestamp ASC";
+        var query = new QueryDefinition(sql).WithParameter("@taskId", taskId);
+        if (sinceRound is not null) query = query.WithParameter("@since", sinceRound.Value);
+        return (await QueryAsync<RunEvent>(RunEventsContainer, query, taskId, ct)).ToList();
+    }
+
     // ── Generic query helper ──────────────────────────────────────────────────
 
     private async Task<IEnumerable<T>> QueryAsync<T>(string containerName, QueryDefinition query, string? partitionKey, CancellationToken ct)
