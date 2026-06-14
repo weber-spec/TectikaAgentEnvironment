@@ -140,7 +140,10 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         return threadId;
     }
 
-    public async Task<AgentRunOutcome> RunTurnAsync(AgentRunRequest req, CancellationToken ct = default)
+    /// <summary>Max model⇄tool rounds per turn before we stop with BudgetExceeded.</summary>
+    private const int MaxToolRounds = 12;
+
+    public async Task<AgentRunOutcome> RunTurnAsync(AgentRunRequest req, IProjectExplorer explorer, CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(req.Role.FoundryAgentId))
             return Fail(req, "Role has no Foundry agent — ensure the agent first.");
@@ -150,30 +153,54 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         try
         {
             var http = await ClientAsync(ct).ConfigureAwait(false);
-            var body = new ResponsesRequest(
-                req.UserMessage,
-                new AgentRef(req.Role.FoundryAgentId!, "agent_reference"),
-                string.IsNullOrEmpty(req.ThreadId) ? null : req.ThreadId,
-                req.MaxCompletionTokens > 0 ? req.MaxCompletionTokens : null);
-            var resp = await http.PostAsJsonAsync($"{_base}/openai/v1/responses", body, Json, ct).ConfigureAwait(false);
-            await EnsureOkAsync(resp, ct).ConfigureAwait(false);
-            var r = await resp.Content.ReadFromJsonAsync<ResponsesResult>(Json, ct).ConfigureAwait(false)
-                    ?? throw new Exception("Empty response from Foundry.");
+            var loop = new AgentToolLoop(explorer);
+            var first = true;
+            var lastResponseId = "";
 
-            OnStatus?.Invoke(r.Status ?? "");
-            var content = ExtractText(r);
-            var usage = new TokenUsage { Input = r.Usage?.InputTokens ?? 0, Output = r.Usage?.OutputTokens ?? 0 };
-            if (!string.IsNullOrEmpty(content)) OnText?.Invoke(content);
-
-            var outcome = r.Status switch
+            // One Foundry round: first round sends the user message; later rounds submit the prior
+            // round's tool outputs as function_call_output items into the same conversation (verified contract).
+            AgentToolLoop.SendRound send = async (toolOutputs, c) =>
             {
-                "completed" => new AgentRunOutcome(AgentRunStatus.Completed, content, DetectType(content, req.Role), usage, r.Id ?? ""),
-                "incomplete" => new AgentRunOutcome(AgentRunStatus.BudgetExceeded, content, ArtifactContentType.Markdown, usage, r.Id ?? ""),
-                _ => Fail(req, $"Foundry response status '{r.Status}': {r.Error?.Message}"),
+                object input = first
+                    ? req.UserMessage
+                    : toolOutputs.Select(o => (object)new FunctionCallOutput("function_call_output", o.CallId, o.Output)).ToArray();
+                first = false;
+
+                var body = new ResponsesRequest(
+                    input,
+                    new AgentRef(req.Role.FoundryAgentId!, "agent_reference"),
+                    string.IsNullOrEmpty(req.ThreadId) ? null : req.ThreadId,
+                    req.MaxCompletionTokens > 0 ? req.MaxCompletionTokens : null);
+                var resp = await http.PostAsJsonAsync($"{_base}/openai/v1/responses", body, Json, c).ConfigureAwait(false);
+                await EnsureOkAsync(resp, c).ConfigureAwait(false);
+                var r = await resp.Content.ReadFromJsonAsync<ResponsesResult>(Json, c).ConfigureAwait(false)
+                        ?? throw new Exception("Empty response from Foundry.");
+                lastResponseId = r.Id ?? lastResponseId;
+                OnStatus?.Invoke(r.Status ?? "");
+                var usage = new TokenUsage { Input = r.Usage?.InputTokens ?? 0, Output = r.Usage?.OutputTokens ?? 0 };
+
+                var calls = new List<ToolCall>();
+                if (r.Output is not null)
+                    foreach (var item in r.Output)
+                        if (item.Type == "function_call" && item.Name is not null && item.CallId is not null)
+                            calls.Add(new ToolCall(item.Name, item.Arguments ?? "{}", item.CallId));
+
+                if (calls.Count > 0) return new RoundResponse { ToolCalls = calls, Usage = usage };
+                return RoundResponse.Final(ExtractText(r), usage);
             };
-            _logger.LogInformation("[FoundryAgentInvoke] turn complete agent={AgentId} status={Status} tokens={Tokens} output={Output}",
-                req.Role.FoundryAgentId, outcome.Status, outcome.TokenUsage.Input + outcome.TokenUsage.Output,
-                SensitiveContent.Format(outcome.Content, _logSensitive));
+
+            var result = await loop.RunAsync(send, MaxToolRounds,
+                onToolCall: (name, _) => OnText?.Invoke($"\n[using tool: {name}]\n"), ct).ConfigureAwait(false);
+
+            if (!string.IsNullOrEmpty(result.FinalText)) OnText?.Invoke(result.FinalText);
+
+            var status = result.MaxRoundsHit ? AgentRunStatus.BudgetExceeded : AgentRunStatus.Completed;
+            var outcome = new AgentRunOutcome(status, result.FinalText, DetectType(result.FinalText, req.Role),
+                result.Usage, lastResponseId, BriefUpdate: result.BriefUpdate, RoundIntent: result.RoundIntent,
+                Control: result.Control);
+            _logger.LogInformation("[FoundryAgentInvoke] turn complete agent={AgentId} status={Status} rounds={Rounds} tokens={Tokens} control={Control}",
+                req.Role.FoundryAgentId, outcome.Status, result.Rounds, outcome.TokenUsage.Input + outcome.TokenUsage.Output,
+                outcome.Control?.Kind.ToString() ?? "none");
             return outcome;
         }
         catch (Exception ex)
@@ -233,10 +260,14 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         [property: JsonPropertyName("name")] string Name,
         [property: JsonPropertyName("type")] string Type);
     private sealed record ResponsesRequest(
-        [property: JsonPropertyName("input")] string Input,
+        [property: JsonPropertyName("input")] object Input,   // string (first round) OR FunctionCallOutput[] (tool rounds)
         [property: JsonPropertyName("agent_reference")] AgentRef AgentReference,
         [property: JsonPropertyName("conversation")] string? Conversation,
         [property: JsonPropertyName("max_output_tokens")] int? MaxOutputTokens);
+    private sealed record FunctionCallOutput(
+        [property: JsonPropertyName("type")] string Type,
+        [property: JsonPropertyName("call_id")] string CallId,
+        [property: JsonPropertyName("output")] string Output);
     private sealed class ResponsesResult
     {
         [JsonPropertyName("id")] public string? Id { get; set; }
@@ -249,6 +280,10 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
     {
         [JsonPropertyName("type")] public string? Type { get; set; }
         [JsonPropertyName("content")] public List<ContentItem>? Content { get; set; }
+        // function_call items:
+        [JsonPropertyName("name")] public string? Name { get; set; }
+        [JsonPropertyName("call_id")] public string? CallId { get; set; }
+        [JsonPropertyName("arguments")] public string? Arguments { get; set; }
     }
     private sealed class ContentItem
     {

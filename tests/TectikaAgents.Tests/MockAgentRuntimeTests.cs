@@ -37,7 +37,7 @@ public class MockAgentRuntimeTests
     {
         var rt = new MockAgentRuntime();
         var req = new AgentRunRequest(Role(), Task(), "thread-1", "## Task: Do it", 4096, "run-123456", 0);
-        var outcome = await rt.RunTurnAsync(req);
+        var outcome = await rt.RunTurnAsync(req, new NullProjectExplorer());
         Assert.Equal(AgentRunStatus.Completed, outcome.Status);
         Assert.Contains("Do it", outcome.Content);
         Assert.True(outcome.TokenUsage.Input > 0);

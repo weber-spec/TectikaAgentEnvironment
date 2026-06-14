@@ -31,7 +31,7 @@ public sealed class MockAgentRuntime : IAgentRuntime
         return Task.FromResult(id);
     }
 
-    public Task<AgentRunOutcome> RunTurnAsync(AgentRunRequest req, CancellationToken ct = default)
+    public Task<AgentRunOutcome> RunTurnAsync(AgentRunRequest req, IProjectExplorer explorer, CancellationToken ct = default)
     {
         var content =
             $"# {req.Role.DisplayName} output for: {req.Task.Title}\n\n" +

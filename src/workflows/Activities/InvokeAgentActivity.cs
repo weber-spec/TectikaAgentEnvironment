@@ -113,8 +113,11 @@ public class InvokeAgentActivity
             _logger.LogDebug("[InvokeAgent] user content role={Role} task={Task} content={Content}",
                 role.Id, input.TaskId, SensitiveContent.Format(userContent, _logSensitive));
 
+            // Board-scoped exploration tools for this turn (agent cannot reach other boards).
+            var explorer = new BoardProjectExplorer(_cosmos, input.BoardId, input.TenantId);
             outcome = await _runtime.RunTurnAsync(
-                new AgentRunRequest(role, task, threadId, userContent, _maxCompletionTokens, input.RunId, input.Step), ct);
+                new AgentRunRequest(role, task, threadId, userContent, _maxCompletionTokens, input.RunId, input.Step),
+                explorer, ct);
 
             _logger.LogInformation("[InvokeAgent] runtime returned role={Role} task={Task} step={Step} status={Status} completion={Completion}",
                 role.Id, input.TaskId, input.Step, outcome.Status, outcome.CompletionId);
