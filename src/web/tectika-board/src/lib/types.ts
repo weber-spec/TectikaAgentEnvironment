@@ -15,6 +15,11 @@ export type ApprovalStatus = 'Pending' | 'Approved' | 'Rejected' | 'Expired';
 export type InteractionType = 'Approval' | 'Selection' | 'Question';
 export type InteractionStatus = 'Pending' | 'Responded' | 'Expired';
 
+export type BoardRunPhase =
+  | { kind: 'idle' }
+  | { kind: 'running'; taskIds: string[] }
+  | { kind: 'done'; status: 'AwaitingInteraction' | 'Failed' | 'Completed' };
+
 export interface Board {
   id: string;
   tenantId: string;
