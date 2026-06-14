@@ -31,14 +31,20 @@ resource cosmosDb 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2024-11-15
   properties: { resource: { id: databaseName } }
 }
 
-// Partition keys are immutable and must match the live containers (the running app
-// is the source of truth). tasks is partitioned by /boardId.
+// Partition keys are immutable and must match the live containers (the running app,
+// CosmosDbService.ContainerDefinitions, is the source of truth). tasks is partitioned by /boardId.
 var containers = [
+  { name: 'boards', pk: '/tenantId' }
   { name: 'tasks', pk: '/boardId' }
-  { name: 'agents', pk: '/id' }
-  { name: 'runs', pk: '/taskId' }
+  { name: 'agentRoles', pk: '/tenantId' }
+  { name: 'workflowRuns', pk: '/taskId' }
+  { name: 'artifacts', pk: '/taskId' }
   { name: 'approvals', pk: '/runId' }
-  { name: 'audit', pk: '/runId' }
+  { name: 'auditLog', pk: '/tenantId' }
+  { name: 'humanInteractions', pk: '/runId' }
+  { name: 'taskEdges', pk: '/boardId' }
+  { name: 'runEvents', pk: '/taskId' }
+  { name: 'pendingMessages', pk: '/runId' }
 ]
 
 resource cosmosContainers 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-11-15' = [
