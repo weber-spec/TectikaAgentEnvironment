@@ -20,7 +20,13 @@ public sealed record AgentRunOutcome(
     TokenUsage TokenUsage,
     string CompletionId,
     string? BriefUpdate = null,
-    string? Error = null);
+    string? Error = null,
+    string? RoundIntent = null,
+    PendingControl? Control = null);
+
+/// <summary>A control-tool the agent invoked that the orchestrator must act on.</summary>
+public sealed record PendingControl(PendingControlKind Kind, string Text, IReadOnlyList<string>? Options = null);
+public enum PendingControlKind { HumanInput, Approval, Revision }
 
 /// <summary>Result of ensuring a role's Foundry agent exists/updated.</summary>
 public sealed record AgentSyncResult(string? FoundryAgentId, bool Synced, string? Error = null);
