@@ -216,6 +216,8 @@ public class InMemoryCosmosDbService : ICosmosDbService
         => Task.FromResult((IReadOnlyList<RunEvent>)_runEvents.Values
             .Where(e => e.TaskId == taskId && (sinceRound is null || e.Round >= sinceRound))
             .OrderBy(e => e.Timestamp).ToList());
+    public Task<RunEvent> CreateRunEventAsync(RunEvent e, CancellationToken ct = default)
+    { _runEvents[e.Id] = e; return Task.FromResult(e); }
 
     public Task DeleteEdgesForTaskAsync(string boardId, string taskId, CancellationToken ct = default)
     {

@@ -354,6 +354,12 @@ public class CosmosDbService : ICosmosDbService
         return (await QueryAsync<RunEvent>(RunEventsContainer, query, taskId, ct)).ToList();
     }
 
+    public async Task<RunEvent> CreateRunEventAsync(RunEvent e, CancellationToken ct = default)
+    {
+        var res = await GetContainer(RunEventsContainer).CreateItemAsync(e, new PartitionKey(e.TaskId), cancellationToken: ct);
+        return res.Resource;
+    }
+
     // ── Generic query helper ──────────────────────────────────────────────────
 
     private async Task<IEnumerable<T>> QueryAsync<T>(string containerName, QueryDefinition query, string? partitionKey, CancellationToken ct)

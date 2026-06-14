@@ -12,11 +12,13 @@ public class TasksController : ControllerBase
 {
     private readonly ICosmosDbService _cosmos;
     private readonly IRunStartService _runStart;
+    private readonly IChatService _chat;
 
-    public TasksController(ICosmosDbService cosmos, IRunStartService runStart)
+    public TasksController(ICosmosDbService cosmos, IRunStartService runStart, IChatService chat)
     {
         _cosmos = cosmos;
         _runStart = runStart;
+        _chat = chat;
     }
 
     private string TenantId => User.FindFirst("tid")?.Value ?? "default";
@@ -37,6 +39,15 @@ public class TasksController : ControllerBase
     [HttpGet("{taskId}/events")]
     public async Task<IActionResult> GetEvents(string boardId, string taskId, [FromQuery] int? sinceRound, CancellationToken ct) =>
         Ok(await _cosmos.GetRunEventsAsync(taskId, sinceRound, ct));
+
+    /// <summary>Chat with a task: start a steerable run seeded with the message, or inject it into the live run.</summary>
+    [HttpPost("{taskId}/chat")]
+    public async Task<IActionResult> Chat(string boardId, string taskId, [FromBody] ChatRequest req, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(req.Text)) return BadRequest("Message text is required.");
+        var result = await _chat.SendAsync(boardId, taskId, TenantId, req.Text.Trim(), ct);
+        return result is null ? NotFound("Task not found or has no assigned agent.") : Ok(result);
+    }
 
     [HttpPost]
     public async Task<IActionResult> Create(string boardId, [FromBody] CreateTaskRequest req, CancellationToken ct)
@@ -73,6 +84,7 @@ public class TasksController : ControllerBase
         if (req.DueAt is not null) task.DueAt = req.DueAt.Value.UtcDateTime == default ? null : req.DueAt;
         if (req.HumanAuditorId is not null) task.HumanAuditorId = req.HumanAuditorId;
         if (req.CanvasPosition is not null) task.CanvasPosition = req.CanvasPosition;
+        if (req.Prompt is not null) task.Prompt = req.Prompt;
 
         var updated = await _cosmos.UpdateTaskAsync(task, ct);
         return Ok(updated);
@@ -179,4 +191,7 @@ public record UpdateTaskRequest(
     TaskAssignee? Assignee,
     DateTimeOffset? DueAt,
     string? HumanAuditorId,
-    CanvasPosition? CanvasPosition);
+    CanvasPosition? CanvasPosition,
+    string? Prompt = null);
+
+public record ChatRequest(string Text);

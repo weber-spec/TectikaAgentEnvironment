@@ -47,6 +47,49 @@ public class HttpTrigger
         return response;
     }
 
+    [Function(nameof(StartSteerablePipeline))]
+    public async Task<HttpResponseData> StartSteerablePipeline(
+        [HttpTrigger(AuthorizationLevel.Function, "post", Route = "pipelines/steerable/start")] HttpRequestData req,
+        [DurableClient] DurableTaskClient durableClient,
+        FunctionContext context)
+    {
+        var body = await req.ReadAsStringAsync();
+        var input = JsonSerializer.Deserialize<SteerableRunInput>(body ?? "{}");
+        if (input is null)
+        {
+            var bad = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
+            await bad.WriteStringAsync("Invalid steerable run input");
+            return bad;
+        }
+
+        var instanceId = await durableClient.ScheduleNewOrchestrationInstanceAsync(
+            nameof(SteerableAgentOrchestrator), input);
+
+        _logger.LogInformation("[HttpTrigger] started steerable run {InstanceId} task {TaskId} run {RunId}",
+            instanceId, input.TaskId, input.RunId);
+
+        var response = req.CreateResponse(System.Net.HttpStatusCode.Accepted);
+        await response.WriteAsJsonAsync(new { instanceId, runId = input.RunId });
+        return response;
+    }
+
+    [Function(nameof(RaiseUserMessage))]
+    public async Task<HttpResponseData> RaiseUserMessage(
+        [HttpTrigger(AuthorizationLevel.Function, "post", Route = "pipelines/{instanceId}/message")] HttpRequestData req,
+        string instanceId,
+        [DurableClient] DurableTaskClient durableClient,
+        FunctionContext context)
+    {
+        var body = await req.ReadAsStringAsync();
+        var payload = JsonSerializer.Deserialize<UserMessagePayload>(body ?? "{}");
+        await durableClient.RaiseEventAsync(instanceId, "user_message", payload?.Text ?? "");
+
+        _logger.LogInformation("[HttpTrigger] raised user_message to instance {InstanceId}", instanceId);
+        var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
+        await response.WriteStringAsync("user_message raised");
+        return response;
+    }
+
     [Function(nameof(RaiseApprovalEvent))]
     public async Task<HttpResponseData> RaiseApprovalEvent(
         [HttpTrigger(AuthorizationLevel.Function, "post", Route = "pipelines/{instanceId}/approval/{step}")] HttpRequestData req,
@@ -74,3 +117,4 @@ public class HttpTrigger
 }
 
 public record ApprovalEventPayload(bool Approved, string? Notes);
+public record UserMessagePayload(string Text);

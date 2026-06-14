@@ -66,5 +66,6 @@ public interface ICosmosDbService
     // ── Run trace ────────────────────────────────────────────────────────────────
     /// <summary>Steerable run trace for a task (Activity tab replay), ordered oldest-first.</summary>
     Task<IReadOnlyList<RunEvent>> GetRunEventsAsync(string taskId, int? sinceRound = null, CancellationToken ct = default);
+    Task<RunEvent> CreateRunEventAsync(RunEvent e, CancellationToken ct = default);
     Task DeleteEdgesForTaskAsync(string boardId, string taskId, CancellationToken ct = default);
 }

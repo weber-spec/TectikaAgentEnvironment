@@ -106,6 +106,7 @@ builder.Services.AddHttpClient();
 
 // ── Run orchestration service ────────────────────────────────────────────────
 builder.Services.AddScoped<IRunStartService, RunStartService>();
+builder.Services.AddScoped<IChatService, ChatService>();
 
 // ── Controllers + OpenAPI ────────────────────────────────────────────────────
 // Serialize enums as their string names (e.g. "InProgress") so the Next.js client's
