@@ -93,11 +93,25 @@ Stops dumping everything. New assembly:
 - `GetArtifact(taskId, version?)` → full artifact content.
 - Implemented over `WorkflowCosmosService`, **board id baked in at construction** (no cross-board reach).
 
+### Tool registration — VERIFIED Foundry contract (2026-06-14 live probe)
+**Foundry rejects per-request `tools` in `agent_reference` mode** (HTTP 400 "Not allowed when agent
+is specified"). Tools **must be attached to the agent definition** at provisioning time, flat shape:
+`definition.tools = [{ type:"function", name, description, parameters }]` (nested `{function:{…}}` is
+rejected). Therefore:
+- `IAgentProvisioner.EnsureAgentAsync` attaches the **fixed Tectika tool schema** (explore + control
+  tools below) to **every** agent definition. The toolset is identical across agents.
+- `AgentInstructionsHash` includes a **tool-schema version** so changing the toolset republishes the
+  agent version (today it hashes only prompt+model).
+- The loop drives via the **conversation**: send input → Foundry returns `function_call` output items
+  → execute → submit `function_call_output` items into the **same conversation** → repeat until a
+  plain `message` is returned. (Round-trip verified end-to-end.)
+
 ### The loop (`RunTurnAsync` → multi-round, inside an activity)
-1. Send conversation + tool definitions to Foundry `/responses`.
-2. Reply has tool calls → execute via `IProjectExplorer` / control tools, emit `tool_call`/`tool_result`
-   events, submit outputs, loop.
-3. Reply is final → parse, write/patch artifact, done.
+1. Send input + `agent_reference` + `conversation` to Foundry `/responses` (NO per-request tools).
+2. Reply has `function_call` item(s) → execute via `IProjectExplorer` (explore tools) or surface
+   control tools to the caller, emit `tool_call`/`tool_result` events, submit `function_call_output`
+   into the conversation, loop.
+3. Reply is a plain `message` → parse, write/patch artifact, done.
 4. Guardrails: max rounds + token budget; on exhaustion → clean failure (never partial-as-success).
 
 ### Control actions become tools (kills format-drift)
@@ -190,12 +204,13 @@ No new top-level Azure resources; no Foundry/region/quota changes.
 - Integration (mock): chat-when-idle starts run; chat-when-running injects; `RunEvent`s persisted and
   replay matches live.
 
-## Build-time risk to verify early
+## Build-time risk — RESOLVED (2026-06-14 live probe against proj-agentteam)
 
-Confirm Foundry `/responses` with `agent_reference` accepts **per-request function `tools`** and the
-**submit-tool-outputs** flow (function_call → function_call_output). If `agent_reference` does not
-compose with per-request tools, fall back to attaching tools to the provisioned agent definition (the
-`IProjectExplorer`/loop callers are unaffected — only the runtime's request shape changes).
+Verified directly: `agent_reference` mode **rejects** per-request `tools` (HTTP 400). Tools **must be
+on the agent definition** (flat function shape); the `function_call → function_call_output` round-trip
+via the conversation works end-to-end. The design above reflects the verified contract. See memory
+`foundry-tool-calling-verified`. (Note: the agentteam Foundry resource lives only in the Visual Studio
+Enterprise subscription — the deploy memory's endpoint is correct but it is NOT in CloudEdge-Rhenium.)
 
 ## Scope
 
