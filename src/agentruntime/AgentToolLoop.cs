@@ -61,55 +61,17 @@ public sealed class AgentToolLoop
                 return result;
             }
 
-            var outputs = new List<ToolOutput>();
-            foreach (var call in resp.ToolCalls)
+            var processed = await RoundExecutor.ExecuteOneRoundAsync(resp, _explorer, onToolCall, ct);
+            if (processed.RoundIntent is not null) result.RoundIntent = processed.RoundIntent;
+            if (processed.BriefUpdate is not null) result.BriefUpdate = processed.BriefUpdate;
+            if (processed.Control is not null)
             {
-                onToolCall(call.Name, call.ArgumentsJson);
-                using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(call.ArgumentsJson) ? "{}" : call.ArgumentsJson);
-                var args = doc.RootElement;
-
-                switch (call.Name)
-                {
-                    case "round_intent":
-                        result.RoundIntent = Str(args, "text");
-                        outputs.Add(new(call.CallId, "ok")); break;
-                    case "update_brief":
-                        result.BriefUpdate = Str(args, "text");
-                        outputs.Add(new(call.CallId, "ok")); break;
-                    case "request_human_input":
-                        result.Control = new(PendingControlKind.HumanInput, Str(args, "question"), StrArr(args, "options"));
-                        return result;                       // pause: orchestrator takes over
-                    case "request_approval":
-                        result.Control = new(PendingControlKind.Approval, Str(args, "description"));
-                        return result;
-                    case "request_revision":
-                        result.Control = new(PendingControlKind.Revision, Str(args, "reason"));
-                        return result;
-                    case "get_board_overview":
-                        outputs.Add(new(call.CallId, JsonSerializer.Serialize(await _explorer.GetBoardOverviewAsync(ct)))); break;
-                    case "search_tasks":
-                        outputs.Add(new(call.CallId, JsonSerializer.Serialize(await _explorer.SearchTasksAsync(Str(args, "query"), ct)))); break;
-                    case "get_task":
-                        outputs.Add(new(call.CallId, JsonSerializer.Serialize(await _explorer.GetTaskAsync(Str(args, "taskId"), ct)))); break;
-                    case "get_artifact":
-                        outputs.Add(new(call.CallId, JsonSerializer.Serialize(await _explorer.GetArtifactAsync(
-                            Str(args, "taskId"), IntOrNull(args, "version"), ct)))); break;
-                    default:
-                        outputs.Add(new(call.CallId, $"error: unknown tool '{call.Name}'")); break;
-                }
+                result.Control = processed.Control;          // pause: orchestrator takes over
+                return result;
             }
-            pending = outputs;
+            pending = processed.ToolOutputs;
         }
         result.MaxRoundsHit = true;
         return result;
     }
-
-    private static string Str(JsonElement e, string p) =>
-        e.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()! : "";
-    private static int? IntOrNull(JsonElement e, string p) =>
-        e.TryGetProperty(p, out var v) && v.TryGetInt32(out var i) ? i : null;
-    private static IReadOnlyList<string>? StrArr(JsonElement e, string p) =>
-        e.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.Array
-            ? v.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList()
-            : null;
 }
