@@ -246,7 +246,7 @@ public class WorkflowCosmosService
     public async Task<List<AgentTask>> GetBoardTasksAsync(string boardId, CancellationToken ct = default)
     {
         var query = new QueryDefinition(
-            "SELECT c.id, c.title, c.status, c.taskBrief FROM c WHERE c.boardId = @boardId")
+            "SELECT c.id, c.title, c.description, c.status, c.assignee, c.taskBrief, c.artifactSummary FROM c WHERE c.boardId = @boardId")
             .WithParameter("@boardId", boardId);
 
         var iter = C("tasks").GetItemQueryIterator<AgentTask>(query,
