@@ -56,5 +56,7 @@ public class AgentEvent
         public const string CliConnected = "cli_connected";
         public const string CliDisconnected = "cli_disconnected";
         public const string CliOutput = "cli_output";
+        public const string AgentCreated = "agent_created";
+        public const string AgentDeleted = "agent_deleted";
     }
 }

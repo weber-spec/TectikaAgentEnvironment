@@ -98,6 +98,19 @@ else
 builder.Services.AddSingleton<SseConnectionManager>();
 builder.Services.AddHostedService<ServiceBusListenerService>();
 
+// ── Notifications ─────────────────────────────────────────────────────────────
+builder.Services.AddSingleton<NotificationConnectionManager>();
+if (!useMockDatabase)
+{
+    builder.Services.AddSingleton<NotificationRepository>();
+    builder.Services.AddSingleton<UserSettingsRepository>();
+}
+else
+{
+    builder.Services.AddSingleton<NotificationRepository, InMemoryNotificationRepository>();
+    builder.Services.AddSingleton<UserSettingsRepository, InMemoryUserSettingsRepository>();
+}
+
 // ── CLI Bridge WebSocket ─────────────────────────────────────────────────────
 builder.Services.AddSingleton<CliBridgeManager>();
 

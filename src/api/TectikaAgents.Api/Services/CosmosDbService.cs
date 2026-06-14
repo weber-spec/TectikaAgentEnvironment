@@ -24,6 +24,8 @@ public class CosmosDbService : ICosmosDbService
     public const string AuditLogContainer = "auditLog";
     public const string HumanInteractionsContainer = "humanInteractions";
     public const string TaskEdgesContainer = "taskEdges";
+    public const string NotificationsContainer = "notifications";
+    public const string UserSettingsContainer = "userSettings";
 
     public CosmosDbService(CosmosClient client, IOptions<CosmosDbSettings> settings, ILogger<CosmosDbService> logger)
     {
@@ -51,6 +53,8 @@ public class CosmosDbService : ICosmosDbService
             (AuditLogContainer,           "/tenantId"),
             (HumanInteractionsContainer,  "/runId"),
             (TaskEdgesContainer,          "/boardId"),
+            (NotificationsContainer,      "/tenantId"),
+            (UserSettingsContainer,       "/userId"),
         };
 
         foreach (var (name, pk) in containers)

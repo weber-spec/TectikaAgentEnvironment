@@ -2,67 +2,25 @@
 
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
-import { NotificationPanel, type Notification } from './NotificationPanel';
+import { NotificationPanel } from './NotificationPanel';
 import { UserPanel } from './UserPanel';
 import { useSettings } from '@/lib/settings-context';
+import { useNotifications } from '@/lib/useNotifications';
 import { SearchBar } from './SearchBar';
 import { Avatar } from '@/components/ui/primitives';
 import { CURRENT_USER } from '@/lib/collaboration';
 
-const MOCK_NOTIFICATIONS: Notification[] = [
-  {
-    id: '1',
-    type: 'approval',
-    title: 'Deploy to Production needs approval',
-    subtitle: 'Board: Backend Pipeline',
-    boardId: undefined,
-    taskId: undefined,
-    timestamp: new Date(Date.now() - 2 * 60 * 1000),
-    read: false,
-  },
-  {
-    id: '2',
-    type: 'completed',
-    title: 'Generate API docs — Done',
-    subtitle: 'Agent: DocWriter finished successfully',
-    timestamp: new Date(Date.now() - 15 * 60 * 1000),
-    read: false,
-  },
-  {
-    id: '3',
-    type: 'failed',
-    title: 'Run tests — Failed',
-    subtitle: 'CI agent encountered an error',
-    timestamp: new Date(Date.now() - 40 * 60 * 1000),
-    read: true,
-  },
-  {
-    id: '4',
-    type: 'agent',
-    title: 'Coder agent started new task',
-    subtitle: 'Implementing auth middleware',
-    timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
-    read: true,
-  },
-];
-
 export function Navbar() {
   const { t } = useSettings();
-  const [notifications, setNotifications] = useState<Notification[]>(MOCK_NOTIFICATIONS);
+  const { notifications, unreadCount, markAllRead } = useNotifications();
   const [showPanel, setShowPanel] = useState(false);
   const [showUser, setShowUser] = useState(false);
-
-  const unreadCount = notifications.filter(n => !n.read).length;
 
   useEffect(() => {
     const openUser = () => setShowUser(true);
     window.addEventListener('agentboard:open-user', openUser);
     return () => window.removeEventListener('agentboard:open-user', openUser);
   }, []);
-
-  function markAllRead() {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-  }
 
   return (
     <header className="sticky top-0 z-50 h-12 bg-[var(--background)] border-b border-[var(--border)] flex items-center px-4 gap-3 shadow-[0_1px_4px_rgba(0,0,0,0.08)]">
@@ -103,7 +61,7 @@ export function Navbar() {
           {showPanel && (
             <NotificationPanel
               notifications={notifications}
-              onMarkAllRead={markAllRead}
+              onMarkAllRead={() => { void markAllRead(); }}
               onClose={() => setShowPanel(false)}
             />
           )}

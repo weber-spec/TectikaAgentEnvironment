@@ -374,8 +374,9 @@ export interface AppNotification {
   subtitle?: string;
   boardId?: string;
   taskId?: string;
+  runId?: string;
   timestamp: string;
-  read: boolean;
+  sourceEventType: string;
 }
 
 // ── Automations ─────────────────────────────────────────────────────────────

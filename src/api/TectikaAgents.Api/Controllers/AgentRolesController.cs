@@ -13,11 +13,19 @@ public class AgentRolesController : ControllerBase
 {
     private readonly ICosmosDbService _cosmos;
     private readonly IAgentProvisioner _provisioner;
+    private readonly NotificationRepository _notificationRepo;
+    private readonly NotificationConnectionManager _notificationManager;
 
-    public AgentRolesController(ICosmosDbService cosmos, IAgentProvisioner provisioner)
+    public AgentRolesController(
+        ICosmosDbService cosmos,
+        IAgentProvisioner provisioner,
+        NotificationRepository notificationRepo,
+        NotificationConnectionManager notificationManager)
     {
         _cosmos = cosmos;
         _provisioner = provisioner;
+        _notificationRepo = notificationRepo;
+        _notificationManager = notificationManager;
     }
 
     private string TenantId => User.FindFirst("tid")?.Value ?? "default";
@@ -53,6 +61,21 @@ public class AgentRolesController : ControllerBase
         // than throwing). The user keeps their edits and sees a "not synced" indicator; because the stored
         // hash still won't match, the next save retries provisioning. Returns the saved role + sync state.
         var saved = await _cosmos.UpsertAgentRoleAsync(role, ct);
+
+        var isNew = existing is null;
+        if (isNew)
+        {
+            var notif = new NotificationDocument
+            {
+                TenantId = TenantId,
+                Type = "agent",
+                Title = $"Agent \"{saved.DisplayName}\" created",
+                SourceEventType = AgentEvent.Types.AgentCreated,
+            };
+            await _notificationRepo.SaveAsync(notif, ct);
+            await _notificationManager.BroadcastAsync(notif, ct);
+        }
+
         return Ok(new { role = saved, synced = sync.Synced, error = sync.Error });
     }
 
@@ -63,6 +86,17 @@ public class AgentRolesController : ControllerBase
         if (role is null) return NotFound();
         await _provisioner.DeleteAgentAsync(role.FoundryAgentId, ct);
         await _cosmos.DeleteAgentRoleAsync(TenantId, id, ct);
+
+        var notif = new NotificationDocument
+        {
+            TenantId = TenantId,
+            Type = "agent",
+            Title = $"Agent \"{role.DisplayName}\" deleted",
+            SourceEventType = AgentEvent.Types.AgentDeleted,
+        };
+        await _notificationRepo.SaveAsync(notif, ct);
+        await _notificationManager.BroadcastAsync(notif, ct);
+
         return NoContent();
     }
 }
