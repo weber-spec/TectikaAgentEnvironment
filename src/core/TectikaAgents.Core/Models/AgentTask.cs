@@ -58,6 +58,9 @@ public class AgentTask
     [JsonPropertyName("prompt")]
     public string? Prompt { get; set; }
 
+    [JsonPropertyName("chatClearedAt")]
+    public DateTimeOffset? ChatClearedAt { get; set; }
+
     [JsonPropertyName("artifactSummary")]
     public string? ArtifactSummary { get; set; }
 

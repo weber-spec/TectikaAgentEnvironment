@@ -25,7 +25,7 @@ public class RoundExecutorTests
     public async Task NoToolCalls_IsFinal()
     {
         var r = await RoundExecutor.ExecuteOneRoundAsync(
-            RoundResponse.Final("DONE", new TokenUsage()), new FakeExplorer(), (_, __) => { }, default);
+            RoundResponse.Final("DONE", new TokenUsage()), new FakeExplorer(), (_, __) => { }, null, null, null, default);
         Assert.True(r.IsFinal);
         Assert.Equal("DONE", r.FinalText);
         Assert.Empty(r.ToolOutputs);
@@ -35,7 +35,7 @@ public class RoundExecutorTests
     public async Task ExploreTool_ProducesOutput_NotFinal()
     {
         var r = await RoundExecutor.ExecuteOneRoundAsync(
-            RoundResponse.Tools(new[] { FC("get_board_overview", new { }) }), new FakeExplorer(), (_, __) => { }, default);
+            RoundResponse.Tools(new[] { FC("get_board_overview", new { }) }), new FakeExplorer(), (_, __) => { }, null, null, null, default);
         Assert.False(r.IsFinal);
         Assert.Null(r.Control);
         Assert.Single(r.ToolOutputs);
@@ -53,7 +53,7 @@ public class RoundExecutorTests
                 FC("get_board_overview", new { }),
                 FC("request_human_input", new { question = "Which?", options = new[] { "A", "B" } }),
             }),
-            new FakeExplorer(), (_, __) => { }, default);
+            new FakeExplorer(), (_, __) => { }, null, null, null, default);
 
         Assert.False(r.IsFinal);
         Assert.Equal("Plan", r.RoundIntent);
