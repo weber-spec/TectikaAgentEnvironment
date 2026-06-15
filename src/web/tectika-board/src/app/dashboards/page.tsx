@@ -12,7 +12,7 @@ import { formatCurrency, formatCompact, displayName, formatDateShort, daysUntil 
 
 interface Data { boards: Board[]; tasks: AgentTask[]; runs: WorkflowRun[]; roles: AgentRole[] }
 
-export function useWorkspaceData() {
+function useWorkspaceData() {
   const [data, setData] = useState<Data | null>(null);
   useEffect(() => {
     (async () => {
