@@ -9,9 +9,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using OpenTelemetry;
 using Azure.Monitor.OpenTelemetry.Exporter;
+using TectikaAgents.AgentRuntime;
+using TectikaAgents.AgentRuntime.GitHub;
 using TectikaAgents.Core.Configuration;
 using TectikaAgents.Core.Interfaces;
-using TectikaAgents.AgentRuntime;
 using TectikaAgents.Workflows.Services;
 
 var builder = FunctionsApplication.CreateBuilder(args);
@@ -60,9 +61,18 @@ builder.Services.AddSingleton(sp =>
 
 builder.Services.AddSingleton<WorkflowEventPublisher>();
 
+// ── Secret Provider + GitHub ──────────────────────────────────────────────────
+var keyVaultUri = builder.Configuration["KeyVault:VaultUri"];
+var useMockDatabase = builder.Configuration.GetValue<bool>("MockDatabase:Enabled");
+if (useMockDatabase || string.IsNullOrEmpty(keyVaultUri))
+    builder.Services.AddSingleton<ISecretProvider, ConfigSecretProvider>();
+else
+    builder.Services.AddSingleton<ISecretProvider, KeyVaultSecretProvider>();
+
+builder.Services.AddSingleton<IGitHubToolExecutor, OctokitGitHubToolExecutor>();
+
 // ── Agent runtime (Foundry or Mock) ──────────────────────────────────────────
-var useMockAgents = builder.Configuration.GetValue<bool>("Foundry:UseMock",
-    builder.Configuration.GetValue<bool>("MockDatabase:Enabled"));
+var useMockAgents = builder.Configuration.GetValue<bool>("Foundry:UseMock", useMockDatabase);
 // Transient: Durable Functions resolves activities from the root scope, and the activity mutates
 // FoundryAgentRuntime.OnText per call — a shared instance would race across concurrent activities.
 if (useMockAgents)

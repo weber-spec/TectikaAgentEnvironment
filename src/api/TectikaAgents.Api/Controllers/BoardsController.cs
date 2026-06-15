@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TectikaAgents.Api.Services;
+using TectikaAgents.Core.Interfaces;
 using TectikaAgents.Core.Models;
 
 namespace TectikaAgents.Api.Controllers;
@@ -11,8 +12,13 @@ namespace TectikaAgents.Api.Controllers;
 public class BoardsController : ControllerBase
 {
     private readonly ICosmosDbService _cosmos;
+    private readonly ISecretProvider _secrets;
 
-    public BoardsController(ICosmosDbService cosmos) => _cosmos = cosmos;
+    public BoardsController(ICosmosDbService cosmos, ISecretProvider secrets)
+    {
+        _cosmos = cosmos;
+        _secrets = secrets;
+    }
 
     private string TenantId => User.FindFirst("tid")?.Value ?? "default";
 
@@ -64,7 +70,41 @@ public class BoardsController : ControllerBase
         var created = await _cosmos.CreateBoardAsync(board, ct);
         return CreatedAtAction(nameof(Get), new { boardId = created.Id }, created);
     }
+    [HttpPut("{boardId}/github")]
+    public async Task<IActionResult> ConnectGitHub(string boardId,
+        [FromBody] ConnectGitHubRequest req, CancellationToken ct)
+    {
+        var board = await _cosmos.GetBoardAsync(TenantId, boardId, ct);
+        if (board is null) return NotFound();
+
+        // Parse owner/repo from URL (https://github.com/owner/repo)
+        var uri = new Uri(req.RepoUrl.TrimEnd('/'));
+        var parts = uri.AbsolutePath.TrimStart('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2) return BadRequest("RepoUrl must be in the form https://github.com/owner/repo");
+
+        var secretName = $"github-pat-board-{boardId}";
+        await _secrets.SetSecretAsync(secretName, req.Pat, ct);
+
+        board.GitHub = new GitHubRepoConnection
+        {
+            RepoUrl = req.RepoUrl,
+            Owner = parts[0],
+            Repo = parts[1],
+            PatSecretName = secretName
+        };
+        return Ok(await _cosmos.UpdateBoardAsync(board, ct));
+    }
+
+    [HttpDelete("{boardId}/github")]
+    public async Task<IActionResult> DisconnectGitHub(string boardId, CancellationToken ct)
+    {
+        var board = await _cosmos.GetBoardAsync(TenantId, boardId, ct);
+        if (board is null) return NotFound();
+        board.GitHub = null;
+        return Ok(await _cosmos.UpdateBoardAsync(board, ct));
+    }
 }
 
 public record CreateBoardRequest(string Name, string? Description);
 public record UpdateBoardRequest(string Name, string? Description);
+public record ConnectGitHubRequest(string RepoUrl, string Pat);

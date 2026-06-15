@@ -2,6 +2,21 @@ using System.Text.Json.Serialization;
 
 namespace TectikaAgents.Core.Models;
 
+public class GitHubRepoConnection
+{
+    [JsonPropertyName("repoUrl")]
+    public string RepoUrl { get; set; } = string.Empty;
+
+    [JsonPropertyName("owner")]
+    public string Owner { get; set; } = string.Empty;
+
+    [JsonPropertyName("repo")]
+    public string Repo { get; set; } = string.Empty;
+
+    [JsonPropertyName("patSecretName")]
+    public string PatSecretName { get; set; } = string.Empty;
+}
+
 public class Board
 {
     [JsonPropertyName("id")]
@@ -24,4 +39,7 @@ public class Board
 
     [JsonPropertyName("createdAt")]
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    [JsonPropertyName("github")]
+    public GitHubRepoConnection? GitHub { get; set; }
 }

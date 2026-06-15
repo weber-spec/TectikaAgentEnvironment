@@ -5,6 +5,7 @@ using Azure.Core;
 using Azure.Identity;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using TectikaAgents.AgentRuntime.GitHub;
 using TectikaAgents.Core.Configuration;
 using TectikaAgents.Core.Interfaces;
 using TectikaAgents.Core.Models;
@@ -43,19 +44,22 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
     private readonly bool _logSensitive;
     private readonly TokenCredential _credential = new DefaultAzureCredential();
     private readonly string _base;
+    private readonly IGitHubToolExecutor? _gitHub;
 
     /// <summary>Optional per-turn sink for the agent's output text (one event, non-streaming).</summary>
     public Action<string>? OnText { get; set; }
     public Action<string>? OnStatus { get; set; }
 
     public FoundryAgentRuntime(IHttpClientFactory httpFactory, IOptions<FoundrySettings> settings,
-        IOptions<LoggingSettings> logging, ILogger<FoundryAgentRuntime> logger)
+        IOptions<LoggingSettings> logging, ILogger<FoundryAgentRuntime> logger,
+        IGitHubToolExecutor? gitHub = null)
     {
         _httpFactory = httpFactory;
         _settings = settings.Value;
         _logger = logger;
         _logSensitive = logging.Value.LogSensitiveContent;
         _base = _settings.ProjectEndpoint.TrimEnd('/');
+        _gitHub = gitHub;
     }
 
     private async Task<HttpClient> ClientAsync(CancellationToken ct)
@@ -72,9 +76,9 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         {
             var model = role.ModelOverride ?? _settings.DefaultModel;
             _logger.LogInformation("[FoundryEnsureAgent] ensuring agent role={RoleId} model={Model}", role.Id, model);
-            var hash = AgentInstructionsHash.Compute(role.SystemPrompt, model, TectikaToolSchema.Version);
+            var hash = AgentInstructionsHash.Compute(role.SystemPrompt, model, TectikaToolSchema.Version, role.GitHubPermissions);
             var definition = new AgentDefinition("prompt", model, role.SystemPrompt, role.DisplayName,
-                TectikaToolSchema.ToFoundryToolsJson());
+                TectikaToolSchema.ToFoundryToolsJson(role.GitHubPermissions));
             var http = await ClientAsync(ct).ConfigureAwait(false);
 
             // Stable agent id: reuse the stored one; mint a fresh random id only for a brand-new role.
@@ -153,7 +157,7 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         try
         {
             var http = await ClientAsync(ct).ConfigureAwait(false);
-            var loop = new AgentToolLoop(explorer);
+            var loop = new AgentToolLoop(explorer, _gitHub, req.BoardGitHub, req.Role);
             var first = true;
             var lastResponseId = "";
 
@@ -244,7 +248,8 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
                 : RoundResponse.Final(ExtractText(r), usage);
 
             var p = await RoundExecutor.ExecuteOneRoundAsync(round, explorer,
-                (n, _) => OnText?.Invoke($"\n[using tool: {n}]\n"), ct).ConfigureAwait(false);
+                (n, _) => OnText?.Invoke($"\n[using tool: {n}]\n"),
+                _gitHub, req.BoardGitHub, req.Role, ct).ConfigureAwait(false);
             var next = p.ToolOutputs.Select(o => new PriorToolOutput(o.CallId, o.Output)).ToList();
             var id = r.Id ?? $"round-{req.RunId}-{req.Round}";
 

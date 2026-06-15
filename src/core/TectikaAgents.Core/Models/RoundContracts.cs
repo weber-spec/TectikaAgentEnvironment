@@ -13,7 +13,8 @@ public sealed record RoundRequest(
     IReadOnlyList<PriorToolOutput> PendingToolOutputs,  // function_call_outputs to submit from the previous round
     int MaxCompletionTokens,
     string RunId,
-    int Round);
+    int Round,
+    GitHubRepoConnection? BoardGitHub = null);
 
 /// <summary>A function_call_output to submit on the next round (call_id + the tool's result text).</summary>
 public sealed record PriorToolOutput(string CallId, string Output);

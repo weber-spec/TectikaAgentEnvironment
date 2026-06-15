@@ -20,6 +20,20 @@ export type BoardRunPhase =
   | { kind: 'running'; taskIds: string[] }
   | { kind: 'done'; status: 'AwaitingInteraction' | 'Failed' | 'Completed' };
 
+export interface GitHubRepoConnection {
+  repoUrl: string;
+  owner: string;
+  repo: string;
+  patSecretName: string;
+}
+
+export interface GitHubPermissions {
+  canRead: boolean;
+  canCreateBranch: boolean;
+  canPush: boolean;
+  canCreatePr: boolean;
+}
+
 export interface Board {
   id: string;
   tenantId: string;
@@ -28,6 +42,7 @@ export interface Board {
   ownerId: string;
   columns: string[];
   createdAt: string;
+  github?: GitHubRepoConnection | null;
 }
 
 export interface TaskAssignee {
@@ -124,6 +139,7 @@ export interface AgentRole {
   permissions: AgentPermissions;
   escalateTo?: string;
   modelOverride?: string;
+  githubPermissions?: GitHubPermissions | null;
   createdAt?: string;
   updatedAt?: string;
 }

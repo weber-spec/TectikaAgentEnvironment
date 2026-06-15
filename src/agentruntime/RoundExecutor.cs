@@ -1,4 +1,5 @@
 using System.Text.Json;
+using TectikaAgents.AgentRuntime.GitHub;
 using TectikaAgents.Core.Interfaces;
 using TectikaAgents.Core.Models;
 
@@ -21,7 +22,9 @@ public sealed record RoundProcessResult(
 public static class RoundExecutor
 {
     public static async Task<RoundProcessResult> ExecuteOneRoundAsync(
-        RoundResponse resp, IProjectExplorer explorer, Action<string, string> onToolCall, CancellationToken ct)
+        RoundResponse resp, IProjectExplorer explorer, Action<string, string> onToolCall,
+        IGitHubToolExecutor? gitHub, GitHubRepoConnection? boardRepo, AgentRole? role,
+        CancellationToken ct)
     {
         if (resp.ToolCalls is null || resp.ToolCalls.Count == 0)
             return new RoundProcessResult(true, resp.FinalText ?? "", [], null, null, null, null, []);
@@ -72,6 +75,13 @@ public static class RoundExecutor
                     outputs.Add(new(call.CallId, await Serialize(explorer.GetArtifactAsync(Str(args, "taskId"), IntOrNull(args, "version"), ct))));
                     traced.Add(new("get_artifact", Str(args, "taskId"), Summarize(outputs[^1].Output))); break;
                 default:
+                    if (gitHub is not null && role is not null && gitHub.CanHandle(call.Name))
+                    {
+                        var ghResult = await gitHub.ExecuteAsync(call.Name, args, boardRepo, role, ct);
+                        outputs.Add(new(call.CallId, ghResult));
+                        traced.Add(new(call.Name, call.ArgumentsJson, Summarize(ghResult)));
+                        break;
+                    }
                     outputs.Add(new(call.CallId, $"error: unknown tool '{call.Name}'"));
                     traced.Add(new(call.Name, "", "unknown tool")); break;
             }

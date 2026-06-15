@@ -3,6 +3,7 @@ using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Identity.Web;
+using TectikaAgents.AgentRuntime.GitHub;
 using TectikaAgents.Core.Configuration;
 using TectikaAgents.Api.Auth;
 using TectikaAgents.Api.Services;
@@ -85,6 +86,16 @@ else
 
 // ── Identity Service (App Registration — MVP) ────────────────────────────────
 builder.Services.AddSingleton<IAgentIdentityService, AppRegistrationIdentityService>();
+
+// ── Secret Provider ────────────────────────────────────────────────────────
+var keyVaultUri = builder.Configuration["KeyVault:VaultUri"];
+if (useMockDatabase || string.IsNullOrEmpty(keyVaultUri))
+    builder.Services.AddSingleton<ISecretProvider, ConfigSecretProvider>();
+else
+    builder.Services.AddSingleton<ISecretProvider, KeyVaultSecretProvider>();
+
+// ── GitHub Tool Executor ──────────────────────────────────────────────────
+builder.Services.AddSingleton<IGitHubToolExecutor, OctokitGitHubToolExecutor>();
 
 // ── Foundry / Agent provisioning ─────────────────────────────────────────────
 // "Foundry:UseMock" selects mock vs real Foundry provisioning; defaults to the DB flag.

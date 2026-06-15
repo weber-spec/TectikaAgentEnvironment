@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using TectikaAgents.Core.Models;
 
 namespace TectikaAgents.AgentRuntime;
 
@@ -7,7 +8,7 @@ namespace TectikaAgents.AgentRuntime;
 /// whenever the toolset changes so AgentInstructionsHash republishes agent versions.</summary>
 public static class TectikaToolSchema
 {
-    public const string Version = "tools-v1";
+    public const string Version = "tools-v2";
 
     public sealed record ToolProp(string Type, string? Description = null, string[]? Enum = null);
     public sealed record ToolDef(
@@ -42,13 +43,71 @@ public static class TectikaToolSchema
             new Dictionary<string, ToolProp> { ["reason"] = new("string", "What must be fixed.") }, ["reason"]),
     };
 
-    /// <summary>Project the catalog into the Foundry flat function-tool array (definition.tools).</summary>
-    public static IReadOnlyList<object> ToFoundryToolsJson() =>
-        Definitions.Select(d => (object)new FoundryTool(
-            "function", d.Name, d.Description,
-            new FoundryParams("object",
-                d.Properties.ToDictionary(p => p.Key, p => new FoundryProp(p.Value.Type, p.Value.Description, p.Value.Enum)),
-                d.Required))).ToList();
+    // ── GitHub tools (appended per agent permissions) ─────────────────────────
+    private static readonly IReadOnlyList<(ToolDef Def, Func<GitHubPermissions, bool> Allowed)> GitHubTools =
+    [
+        (new("github_read_file",
+            "Read the content of a file from the connected GitHub repository.",
+            new Dictionary<string, ToolProp> {
+                ["path"] = new("string", "File path relative to repo root, e.g. 'src/main.cs'."),
+                ["branch"] = new("string", "Branch name. Defaults to the repo default branch if omitted.") },
+            ["path"]),
+         gh => gh.CanRead),
+
+        (new("github_list_files",
+            "List files and directories at a path in the connected GitHub repository.",
+            new Dictionary<string, ToolProp> {
+                ["path"] = new("string", "Directory path, e.g. 'src/'. Use '' or '/' for root."),
+                ["branch"] = new("string", "Branch name. Defaults to the repo default branch if omitted.") },
+            ["path"]),
+         gh => gh.CanRead),
+
+        (new("github_create_branch",
+            "Create a new branch in the connected GitHub repository.",
+            new Dictionary<string, ToolProp> {
+                ["branch"] = new("string", "Name for the new branch."),
+                ["from"] = new("string", "Base branch or commit SHA to branch from. Defaults to default branch.") },
+            ["branch"]),
+         gh => gh.CanCreateBranch),
+
+        (new("github_push_file",
+            "Create or update a file on a branch in the connected GitHub repository.",
+            new Dictionary<string, ToolProp> {
+                ["path"] = new("string", "File path relative to repo root."),
+                ["content"] = new("string", "Full UTF-8 file content."),
+                ["branch"] = new("string", "Target branch name."),
+                ["message"] = new("string", "Commit message.") },
+            ["path", "content", "branch", "message"]),
+         gh => gh.CanPush),
+
+        (new("github_create_pr",
+            "Open a pull request in the connected GitHub repository.",
+            new Dictionary<string, ToolProp> {
+                ["title"] = new("string", "PR title."),
+                ["body"] = new("string", "PR description (markdown)."),
+                ["head"] = new("string", "Source branch name."),
+                ["base"] = new("string", "Target branch name (e.g. 'main').") },
+            ["title", "head", "base"]),
+         gh => gh.CanCreatePr),
+    ];
+
+    /// <summary>Project the catalog into the Foundry flat function-tool array (definition.tools).
+    /// Pass <paramref name="github"/> to append the permitted GitHub tools.</summary>
+    public static IReadOnlyList<object> ToFoundryToolsJson(GitHubPermissions? github = null)
+    {
+        var tools = Definitions.Select(d => (object)ToFoundryTool(d)).ToList();
+        if (github is not null)
+            tools.AddRange(GitHubTools
+                .Where(t => t.Allowed(github))
+                .Select(t => (object)ToFoundryTool(t.Def)));
+        return tools;
+    }
+
+    private static FoundryTool ToFoundryTool(ToolDef d) => new(
+        "function", d.Name, d.Description,
+        new FoundryParams("object",
+            d.Properties.ToDictionary(p => p.Key, p => new FoundryProp(p.Value.Type, p.Value.Description, p.Value.Enum)),
+            d.Required));
 
     // Foundry wire shapes (flat function tool).
     private sealed record FoundryTool(

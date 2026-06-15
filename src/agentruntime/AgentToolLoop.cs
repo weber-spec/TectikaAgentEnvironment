@@ -1,4 +1,5 @@
 using System.Text.Json;
+using TectikaAgents.AgentRuntime.GitHub;
 using TectikaAgents.Core.Interfaces;
 using TectikaAgents.Core.Models;
 
@@ -36,8 +37,18 @@ public sealed class LoopResult
 public sealed class AgentToolLoop
 {
     private readonly IProjectExplorer _explorer;
+    private readonly IGitHubToolExecutor? _gitHub;
+    private readonly GitHubRepoConnection? _boardRepo;
+    private readonly AgentRole? _role;
 
-    public AgentToolLoop(IProjectExplorer explorer) => _explorer = explorer;
+    public AgentToolLoop(IProjectExplorer explorer, IGitHubToolExecutor? gitHub = null,
+        GitHubRepoConnection? boardRepo = null, AgentRole? role = null)
+    {
+        _explorer = explorer;
+        _gitHub = gitHub;
+        _boardRepo = boardRepo;
+        _role = role;
+    }
 
     public delegate Task<RoundResponse> SendRound(IReadOnlyList<ToolOutput> toolOutputs, CancellationToken ct);
 
@@ -61,7 +72,8 @@ public sealed class AgentToolLoop
                 return result;
             }
 
-            var processed = await RoundExecutor.ExecuteOneRoundAsync(resp, _explorer, onToolCall, ct);
+            var processed = await RoundExecutor.ExecuteOneRoundAsync(resp, _explorer, onToolCall,
+                _gitHub, _boardRepo, _role, ct);
             if (processed.RoundIntent is not null) result.RoundIntent = processed.RoundIntent;
             if (processed.BriefUpdate is not null) result.BriefUpdate = processed.BriefUpdate;
             if (processed.Control is not null)

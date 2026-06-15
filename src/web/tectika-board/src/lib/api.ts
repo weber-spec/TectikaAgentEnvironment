@@ -60,6 +60,12 @@ export const api = {
       fetchApi<Board>(`/api/boards/${boardId}`, { method: 'PUT', body: JSON.stringify({ name, description }) }),
     remove: (boardId: string) =>
       fetchApi<void>(`/api/boards/${boardId}`, { method: 'DELETE' }),
+    connectGitHub: (boardId: string, repoUrl: string, pat: string) =>
+      fetchApi<Board>(`/api/boards/${boardId}/github`, {
+        method: 'PUT', body: JSON.stringify({ repoUrl, pat }),
+      }),
+    disconnectGitHub: (boardId: string) =>
+      fetchApi<Board>(`/api/boards/${boardId}/github`, { method: 'DELETE' }),
   },
 
   tasks: {

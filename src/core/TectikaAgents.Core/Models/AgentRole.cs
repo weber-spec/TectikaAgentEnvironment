@@ -38,11 +38,29 @@ public class AgentRole
     [JsonPropertyName("modelOverride")]
     public string? ModelOverride { get; set; }
 
+    [JsonPropertyName("githubPermissions")]
+    public GitHubPermissions? GitHubPermissions { get; set; }
+
     [JsonPropertyName("createdAt")]
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     [JsonPropertyName("updatedAt")]
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public class GitHubPermissions
+{
+    [JsonPropertyName("canRead")]
+    public bool CanRead { get; set; }
+
+    [JsonPropertyName("canCreateBranch")]
+    public bool CanCreateBranch { get; set; }
+
+    [JsonPropertyName("canPush")]
+    public bool CanPush { get; set; }
+
+    [JsonPropertyName("canCreatePr")]
+    public bool CanCreatePr { get; set; }
 }
 
 public class AgentPermissions

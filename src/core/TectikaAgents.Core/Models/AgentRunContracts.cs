@@ -11,7 +11,8 @@ public sealed record AgentRunRequest(
     string UserMessage,
     int MaxCompletionTokens,
     string RunId,
-    int Step);
+    int Step,
+    GitHubRepoConnection? BoardGitHub = null);
 
 public sealed record AgentRunOutcome(
     AgentRunStatus Status,
