@@ -2,8 +2,11 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useSettings } from './settings-context';
+import { api } from './api';
 import type { AppNotification } from './types';
 import type { Notification } from '@/components/layout/NotificationPanel';
+
+const API_BASE = api.base;
 
 // Maps settings keys to the sourceEventType values they cover
 const PREF_MAP: Record<string, string[]> = {
@@ -48,7 +51,7 @@ export function useNotifications() {
     async function init() {
       // 1. Load user settings from backend (preferences + lastReadAt)
       try {
-        const res = await fetch('/api/settings/notifications');
+        const res = await fetch(`${API_BASE}/api/settings/notifications`);
         if (res.ok) {
           const data = await res.json();
           setLastReadAt(new Date(data.notificationsLastReadAt ?? 0));
@@ -66,7 +69,7 @@ export function useNotifications() {
 
       // 2. Load notification history
       try {
-        const res = await fetch('/api/notifications?limit=50');
+        const res = await fetch(`${API_BASE}/api/notifications?limit=50`);
         if (res.ok) {
           const data: AppNotification[] = await res.json();
           setRaw(data.filter(n => isEnabled(n.sourceEventType)));
@@ -76,7 +79,7 @@ export function useNotifications() {
       }
 
       // 3. Subscribe to live SSE stream
-      es = new EventSource('/api/notifications/stream');
+      es = new EventSource(`${API_BASE}/api/notifications/stream`);
       es.onmessage = (e) => {
         const n: AppNotification = JSON.parse(e.data as string);
         if (isEnabled(n.sourceEventType)) {
@@ -92,7 +95,7 @@ export function useNotifications() {
 
   const markAllRead = useCallback(async () => {
     try {
-      const res = await fetch('/api/notifications/mark-all-read', { method: 'PATCH' });
+      const res = await fetch(`${API_BASE}/api/notifications/mark-all-read`, { method: 'PATCH' });
       if (res.ok) {
         const data = await res.json() as { lastReadAt: string };
         setLastReadAt(new Date(data.lastReadAt));
