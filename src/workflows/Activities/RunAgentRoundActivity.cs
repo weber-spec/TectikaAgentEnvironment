@@ -52,9 +52,12 @@ public class RunAgentRoundActivity
         var board = await _cosmos.GetBoardAsync(input.BoardId, input.TenantId, ct)
             ?? throw new Exception($"Board '{input.BoardId}' not found");
 
-        // Ensure the conversation thread (idempotent; persist only when freshly created).
+        // EnsureThreadAsync mutates task.FoundryThreadId in place, so capture whether it existed
+        // BEFORE the call. Otherwise the guard never fires, the thread is never persisted, and every
+        // round creates a fresh Foundry conversation (orphaning the prior round's tool calls).
+        var hadThread = !string.IsNullOrEmpty(task.FoundryThreadId);
         var threadId = await _runtime.EnsureThreadAsync(task, ct);
-        if (task.FoundryThreadId != threadId)
+        if (!hadThread)
             await _cosmos.PatchTaskThreadIdAsync(input.BoardId, input.TaskId, threadId, ct);
 
         // Round 0 seeds the conversation with assembled task context (+ any user/chat message).
