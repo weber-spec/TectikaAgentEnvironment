@@ -12,7 +12,7 @@ import { CURRENT_USER } from '@/lib/collaboration';
 
 export function Navbar() {
   const { t } = useSettings();
-  const { notifications, unreadCount, markAllRead } = useNotifications();
+  const { panelNotifications, unreadCount, markAllRead } = useNotifications();
   const [showPanel, setShowPanel] = useState(false);
   const [showUser, setShowUser] = useState(false);
 
@@ -21,6 +21,13 @@ export function Navbar() {
     window.addEventListener('agentboard:open-user', openUser);
     return () => window.removeEventListener('agentboard:open-user', openUser);
   }, []);
+
+  function togglePanel() {
+    setShowPanel(prev => {
+      if (!prev) void markAllRead(); // auto-mark-as-read when opening
+      return !prev;
+    });
+  }
 
   return (
     <header className="sticky top-0 z-50 h-12 bg-[var(--background)] border-b border-[var(--border)] flex items-center px-4 gap-3 shadow-[0_1px_4px_rgba(0,0,0,0.08)]">
@@ -44,7 +51,7 @@ export function Navbar() {
         {/* Notification bell */}
         <div className="relative">
           <button
-            onClick={() => setShowPanel(v => !v)}
+            onClick={togglePanel}
             className="w-8 h-8 flex items-center justify-center rounded-full text-[var(--muted)] hover:bg-[var(--surface)] transition-colors relative"
             aria-label={t('notifications')}
           >
@@ -60,7 +67,7 @@ export function Navbar() {
 
           {showPanel && (
             <NotificationPanel
-              notifications={notifications}
+              notifications={panelNotifications}
               onMarkAllRead={() => { void markAllRead(); }}
               onClose={() => setShowPanel(false)}
             />

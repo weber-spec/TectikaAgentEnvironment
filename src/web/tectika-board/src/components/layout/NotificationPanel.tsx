@@ -137,10 +137,10 @@ export function NotificationPanel({ notifications, onMarkAllRead, onClose }: Pro
       {/* Footer */}
       <div className="px-4 py-2.5 border-t border-[var(--border)] bg-[var(--surface)]">
         <button
-          onClick={() => { router.push('/approvals'); onClose(); }}
+          onClick={() => { router.push('/notifications'); onClose(); }}
           className="text-xs text-[var(--primary)] font-semibold hover:underline"
         >
-          View all approvals →
+          View all notifications →
         </button>
       </div>
     </div>
