@@ -76,6 +76,7 @@ export interface AgentTask {
   artifactSummary?: string;
   foundryThreadId?: string;
   prompt?: string;
+  chatClearedAt?: string;
   createdAt: string;
   dueAt?: string;
 }

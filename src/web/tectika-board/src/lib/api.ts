@@ -87,6 +87,13 @@ export const api = {
     /** Persisted run trace (Activity tab + chat transcript), oldest-first. */
     events: (boardId: string, taskId: string, sinceRound?: number) =>
       fetchApi<RunEvent[]>(`/api/boards/${boardId}/tasks/${taskId}/events${sinceRound != null ? `?sinceRound=${sinceRound}` : ''}`),
+    /** Slash-command effects. */
+    clear: (boardId: string, taskId: string) =>
+      fetchApi<void>(`/api/boards/${boardId}/tasks/${taskId}/clear`, { method: 'POST' }),
+    stop: (boardId: string, taskId: string) =>
+      fetchApi<void>(`/api/boards/${boardId}/tasks/${taskId}/stop`, { method: 'POST' }),
+    compact: (boardId: string, taskId: string) =>
+      fetchApi<{ summarized: boolean }>(`/api/boards/${boardId}/tasks/${taskId}/compact`, { method: 'POST' }),
   },
 
   edges: {
