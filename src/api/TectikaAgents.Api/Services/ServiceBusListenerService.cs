@@ -13,16 +13,22 @@ namespace TectikaAgents.Api.Services;
 public class ServiceBusListenerService : BackgroundService
 {
     private readonly SseConnectionManager _sse;
+    private readonly NotificationRepository _notificationRepo;
+    private readonly NotificationConnectionManager _notificationManager;
     private readonly ServiceBusSettings _settings;
     private readonly ILogger<ServiceBusListenerService> _logger;
     private ServiceBusProcessor? _processor;
 
     public ServiceBusListenerService(
         SseConnectionManager sse,
+        NotificationRepository notificationRepo,
+        NotificationConnectionManager notificationManager,
         IOptions<ServiceBusSettings> settings,
         ILogger<ServiceBusListenerService> logger)
     {
         _sse = sse;
+        _notificationRepo = notificationRepo;
+        _notificationManager = notificationManager;
         _settings = settings.Value;
         _logger = logger;
     }
@@ -61,6 +67,13 @@ public class ServiceBusListenerService : BackgroundService
             {
                 await _sse.BroadcastAsync(agentEvent, args.CancellationToken);
                 _logger.LogInformation("[ServiceBusListener] dispatched event {EventType} for run {RunId}", agentEvent.Type, agentEvent.RunId);
+
+                var notification = NotificationMapper.Map(agentEvent, tenantId: "default");
+                if (notification is not null)
+                {
+                    await _notificationRepo.SaveAsync(notification, args.CancellationToken);
+                    await _notificationManager.BroadcastAsync(notification, args.CancellationToken);
+                }
             }
 
             await args.CompleteMessageAsync(args.Message);

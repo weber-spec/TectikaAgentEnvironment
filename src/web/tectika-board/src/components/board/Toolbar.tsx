@@ -2,14 +2,14 @@
 
 import React, { useRef, useState } from 'react';
 import { useBoard } from '@/lib/board-context';
-import type { SortRule } from '@/lib/types';
+import type { BoardRunPhase, SortRule } from '@/lib/types';
 import { Popover, Menu } from '@/components/ui/overlays';
 import { Button, Avatar } from '@/components/ui/primitives';
 import { Icon } from '@/components/ui/icons';
 import { FilterBuilder } from './FilterBuilder';
 
 export function Toolbar() {
-  const { activeView, addTask, groups, runBoard } = useBoard();
+  const { activeView, addTask, groups, runBoard, runPhase } = useBoard();
   const showGrouping = activeView.kind === 'table' || activeView.kind === 'kanban';
   const showColumns = activeView.kind === 'table';
 
@@ -31,7 +31,7 @@ export function Toolbar() {
       {showGrouping && <GroupControl />}
       {showColumns && <ColumnsControl />}
       <div className="flex-1" />
-      <button onClick={runBoard} className="inline-flex items-center gap-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap px-2.5 py-1.5 text-white bg-green-600 hover:bg-green-700 shadow-sm"><Icon.play aria-hidden="true" size={15} /> Run Board</button>
+      <RunBoardButton runBoard={runBoard} runPhase={runPhase} />
     </div>
   );
 }
@@ -175,5 +175,37 @@ function ColumnsControl() {
         </div>
       </Popover>
     </>
+  );
+}
+
+const RUN_STATUS_COLORS: Record<string, string> = {
+  AwaitingInteraction: '#66ccff',
+  Failed: '#e2445c',
+  Completed: '#00c875',
+};
+
+function RunBoardButton({ runBoard, runPhase }: { runBoard: () => Promise<void>; runPhase: BoardRunPhase }) {
+  const isRunning = runPhase.kind === 'running';
+  const isDone = runPhase.kind === 'done';
+  return (
+    <button
+      onClick={runBoard}
+      disabled={isRunning}
+      className={`inline-flex items-center gap-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap px-2.5 py-1.5 text-white shadow-sm ${
+        isRunning ? 'bg-green-600 opacity-70 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
+      }`}
+    >
+      {isRunning ? (
+        <div className="border-2 border-white border-t-transparent rounded-full animate-spin flex-shrink-0" style={{ width: 13, height: 13 }} />
+      ) : isDone ? (
+        <div
+          className="rounded-full flex-shrink-0"
+          style={{ width: 11, height: 11, background: RUN_STATUS_COLORS[(runPhase as Extract<BoardRunPhase, { kind: 'done' }>).status] }}
+        />
+      ) : (
+        <Icon.play aria-hidden="true" size={15} />
+      )}
+      Run Board
+    </button>
   );
 }

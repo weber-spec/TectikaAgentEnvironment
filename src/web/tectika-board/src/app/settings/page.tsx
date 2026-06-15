@@ -133,19 +133,35 @@ function LanguagePicker() {
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
-const NOTIFICATION_KEYS: Array<{
+type NotificationKey = {
   key: keyof AppSettings['notifications'];
   labelKey: TranslationKey;
   descKey: TranslationKey;
   icon: IconName;
   color: string;
+};
+
+const NOTIFICATION_GROUPS: Array<{
+  groupKey: TranslationKey;
+  keys: NotificationKey[];
 }> = [
-  { key: 'taskCompleted',      labelKey: 'taskCompleted',      descKey: 'taskCompletedDesc',      icon: 'check',   color: 'var(--status-done)' },
-  { key: 'approvalRequired',   labelKey: 'approvalRequired',   descKey: 'approvalRequiredDesc',   icon: 'clock',   color: 'var(--status-approval)' },
-  { key: 'taskFailed',         labelKey: 'taskFailed',         descKey: 'taskFailedDesc',         icon: 'x',       color: 'var(--status-failed)' },
-  { key: 'agentUpdate',        labelKey: 'agentUpdate',        descKey: 'agentUpdateDesc',        icon: 'robot',   color: 'var(--primary)' },
-  { key: 'taskBlocked',        labelKey: 'taskBlocked',        descKey: 'taskBlockedDesc',        icon: 'ban',     color: 'var(--status-blocked)' },
-  { key: 'dependencyResolved', labelKey: 'dependencyResolved', descKey: 'dependencyResolvedDesc', icon: 'unlock',  color: 'var(--status-working)' },
+  {
+    groupKey: 'taskUpdatesGroup',
+    keys: [
+      { key: 'taskCompleted',      labelKey: 'taskCompleted',      descKey: 'taskCompletedDesc',      icon: 'check',   color: 'var(--status-done)' },
+      { key: 'approvalRequired',   labelKey: 'approvalRequired',   descKey: 'approvalRequiredDesc',   icon: 'clock',   color: 'var(--status-approval)' },
+      { key: 'taskFailed',         labelKey: 'taskFailed',         descKey: 'taskFailedDesc',         icon: 'x',       color: 'var(--status-failed)' },
+      { key: 'taskBlocked',        labelKey: 'taskBlocked',        descKey: 'taskBlockedDesc',        icon: 'ban',     color: 'var(--status-blocked)' },
+      { key: 'dependencyResolved', labelKey: 'dependencyResolved', descKey: 'dependencyResolvedDesc', icon: 'unlock',  color: 'var(--status-working)' },
+    ],
+  },
+  {
+    groupKey: 'agentUpdatesGroup',
+    keys: [
+      { key: 'agentCreated', labelKey: 'agentCreated', descKey: 'agentCreatedDesc', icon: 'robot', color: 'var(--primary)' },
+      { key: 'agentDeleted', labelKey: 'agentDeleted', descKey: 'agentDeletedDesc', icon: 'robot', color: 'var(--status-failed)' },
+    ],
+  },
 ];
 
 export default function SettingsPage() {
@@ -204,27 +220,36 @@ export default function SettingsPage() {
         <SectionCard>
           <SectionHeader icon={<Icon.bell size={18} />} titleKey="notifications" />
           <p className="text-xs text-[var(--muted)] -mt-2">{t('notificationsDesc')}</p>
-          <div className="flex flex-col gap-4">
-            {NOTIFICATION_KEYS.map(({ key, labelKey, descKey, icon, color }) => {
-              const I = Icon[icon];
-              return (
-                <SettingRow
-                  key={key}
-                  label={
-                    <span className="inline-flex items-center gap-2">
-                      <span className="flex items-center" style={{ color }}><I size={16} /></span>
-                      {t(labelKey)}
-                    </span>
-                  }
-                  description={t(descKey)}
-                >
-                  <Toggle
-                    checked={settings.notifications[key]}
-                    onChange={v => updateNotification(key, v)}
-                  />
-                </SettingRow>
-              );
-            })}
+          <div className="flex flex-col gap-6">
+            {NOTIFICATION_GROUPS.map(({ groupKey, keys }) => (
+              <div key={groupKey} className="flex flex-col gap-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
+                  {t(groupKey)}
+                </p>
+                <div className="flex flex-col gap-4">
+                  {keys.map(({ key, labelKey, descKey, icon, color }) => {
+                    const I = Icon[icon];
+                    return (
+                      <SettingRow
+                        key={key}
+                        label={
+                          <span className="inline-flex items-center gap-2">
+                            <span className="flex items-center" style={{ color }}><I size={16} /></span>
+                            {t(labelKey)}
+                          </span>
+                        }
+                        description={t(descKey)}
+                      >
+                        <Toggle
+                          checked={settings.notifications[key]}
+                          onChange={v => updateNotification(key, v)}
+                        />
+                      </SettingRow>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </SectionCard>
 

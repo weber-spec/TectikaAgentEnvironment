@@ -5,7 +5,7 @@ import { api, type TaskPatch } from './api';
 import type {
   Board, AgentTask, AgentRole, WorkflowRun, Person, TaskEdge,
   ColumnDef, ColumnKind, ViewDef, ViewKind, FilterGroup, SortRule,
-  Comment, ActivityEntry, AutomationRecipe, AgentTaskStatus, ChatTurn,
+  Comment, ActivityEntry, AutomationRecipe, AgentTaskStatus, ChatTurn, BoardRunPhase,
 } from './types';
 import { defaultColumns, KIND_META, type CellContext } from './columns';
 import { applyFilter, applySearch, applySort, groupTasks, type TaskGroup } from './board-engine';
@@ -150,6 +150,7 @@ interface BoardContextValue {
 
   // run board
   runBoard: () => Promise<void>;
+  runPhase: BoardRunPhase;
 
   // agent config + interactive workspace chat
   saveRole: (role: AgentRole) => Promise<void>;
@@ -209,6 +210,15 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   const [liveState, setLiveState] = useState<'live' | 'paused' | 'reconnecting'>('live');
   const lastEditRef = useRef(0);
 
+  // run phase — tracks spinner/status-dot state for the Run Board button
+  const [runPhase, setRunPhase] = useState<BoardRunPhase>(() => {
+    if (typeof window === 'undefined') return { kind: 'idle' };
+    try {
+      const saved = localStorage.getItem(`tectika:board:${boardId}:runPhase`);
+      return saved ? (JSON.parse(saved) as BoardRunPhase) : { kind: 'idle' };
+    } catch { return { kind: 'idle' }; }
+  });
+
   // ── load ────────────────────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
@@ -262,6 +272,33 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     if (!hydrated.current || typeof window === 'undefined') return;
     try { localStorage.setItem(storageKey(boardId), JSON.stringify(cfg)); } catch { /* quota */ }
   }, [cfg, boardId]);
+
+  // ── persist runPhase ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try { localStorage.setItem(`tectika:board:${boardId}:runPhase`, JSON.stringify(runPhase)); } catch { /* quota */ }
+  }, [boardId, runPhase]);
+
+  // ── detect run batch completion ───────────────────────────────────────────────
+  useEffect(() => {
+    if (runPhase.kind !== 'running') return;
+    const batchTaskIds = runPhase.taskIds;
+    const batchRuns = batchTaskIds
+      .map(id => tasks.find(t => t.id === id))
+      .filter((t): t is AgentTask => !!t)
+      .map(t => t.workflowRunId ? runsById[t.workflowRunId] : undefined)
+      .filter((r): r is WorkflowRun => !!r);
+
+    if (batchRuns.length === 0) return;
+
+    const TERMINAL = new Set(['AwaitingInteraction', 'Completed', 'Failed', 'Cancelled']);
+    if (!batchRuns.every(r => TERMINAL.has(r.status))) return;
+
+    let status: 'AwaitingInteraction' | 'Failed' | 'Completed' = 'Completed';
+    if (batchRuns.some(r => r.status === 'AwaitingInteraction')) status = 'AwaitingInteraction';
+    else if (batchRuns.some(r => r.status === 'Failed' || r.status === 'Cancelled')) status = 'Failed';
+    setRunPhase({ kind: 'done', status });
+  }, [runPhase, tasks, runsById]);
 
   // ── live sync (PRD §2) ────────────────────────────────────────────────────────
   // Real-time updates via SSE on each active run, with a polling reconcile as a
@@ -561,6 +598,8 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
         t.status === 'Backlog' &&
         !edges.some(e => e.targetTaskId === t.id && e.kind === 'Dependency'),
     );
+    if (tasksToRun.length === 0) return;
+    setRunPhase({ kind: 'running', taskIds: tasksToRun.map(t => t.id) });
     await Promise.allSettled(tasksToRun.map(t => api.runs.start(boardId, t.id)));
   }, [boardId, tasks, edges]);
 
@@ -584,7 +623,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     selectedIds, toggleSelect, selectAll, clearSelection,
     updateTask, setStatus, setCustomCell, addTask, deleteTasks, moveCanvas,
     edges, upstreamIds, downstreamIds, connectEdge, disconnectEdge, updateEdge,
-    runBoard,
+    runBoard, runPhase,
     saveRole, chatThreads: cfg.chatThreads, pushChatTurns,
     liveEnabled, liveState, toggleLive,
     openTaskId, openTask: setOpenTaskId,

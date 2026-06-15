@@ -8,12 +8,15 @@ export interface AppSettings {
   theme: 'light' | 'dark';
   language: 'en' | 'he';
   notifications: {
+    // Task updates
     taskCompleted: boolean;
     approvalRequired: boolean;
     taskFailed: boolean;
-    agentUpdate: boolean;
     taskBlocked: boolean;
     dependencyResolved: boolean;
+    // Agent updates
+    agentCreated: boolean;
+    agentDeleted: boolean;
   };
 }
 
@@ -24,9 +27,10 @@ const DEFAULT_SETTINGS: AppSettings = {
     taskCompleted: true,
     approvalRequired: true,
     taskFailed: true,
-    agentUpdate: false,
     taskBlocked: false,
     dependencyResolved: false,
+    agentCreated: true,
+    agentDeleted: true,
   },
 };
 
@@ -65,18 +69,22 @@ export const TRANSLATIONS = {
     language: 'Language',
     directionNote: 'Hebrew automatically switches layout to right-to-left',
     notificationsDesc: 'Choose which actions send you a notification',
+    taskUpdatesGroup: 'Task Updates',
     taskCompleted: 'Task Completed',
     taskCompletedDesc: 'When an agent finishes a task successfully',
     approvalRequired: 'Approval Required',
     approvalRequiredDesc: 'When a task needs your sign-off to continue',
     taskFailed: 'Task Failed',
     taskFailedDesc: 'When an agent run encounters an error',
-    agentUpdate: 'Agent Update',
-    agentUpdateDesc: 'When an agent posts a progress update',
     taskBlocked: 'Task Blocked',
     taskBlockedDesc: 'When a task is stuck waiting on a dependency',
     dependencyResolved: 'Dependency Resolved',
     dependencyResolvedDesc: 'When a blocker upstream is cleared',
+    agentUpdatesGroup: 'Agent Updates',
+    agentCreated: 'Agent Created',
+    agentCreatedDesc: 'When a new agent is added to the workspace',
+    agentDeleted: 'Agent Deleted',
+    agentDeletedDesc: 'When an agent is removed from the workspace',
     about: 'About',
     version: 'Version',
     poweredBy: 'Powered by Tectika AI',
@@ -114,18 +122,22 @@ export const TRANSLATIONS = {
     language: 'שפה',
     directionNote: 'עברית עוברת אוטומטית לפריסה מימין לשמאל',
     notificationsDesc: 'בחר על אילו פעולות לקבל התראה',
+    taskUpdatesGroup: 'עדכוני משימות',
     taskCompleted: 'משימה הושלמה',
     taskCompletedDesc: 'כשסוכן מסיים משימה בהצלחה',
     approvalRequired: 'נדרש אישור',
     approvalRequiredDesc: 'כשמשימה צריכה את אישורך כדי להמשיך',
     taskFailed: 'משימה נכשלה',
     taskFailedDesc: 'כשסוכן נתקל בשגיאה',
-    agentUpdate: 'עדכון סוכן',
-    agentUpdateDesc: 'כשסוכן מפרסם עדכון התקדמות',
     taskBlocked: 'משימה חסומה',
     taskBlockedDesc: 'כשמשימה ממתינה לתלות שלא הושלמה',
     dependencyResolved: 'תלות נפתרה',
     dependencyResolvedDesc: 'כשחסם בזרם עולה הוסר',
+    agentUpdatesGroup: 'עדכוני סוכנים',
+    agentCreated: 'סוכן נוצר',
+    agentCreatedDesc: 'כשסוכן חדש מתווסף לסביבת העבודה',
+    agentDeleted: 'סוכן נמחק',
+    agentDeletedDesc: 'כשסוכן מוסר מסביבת העבודה',
     about: 'אודות',
     version: 'גרסה',
     poweredBy: 'מופעל על ידי Tectika AI',
