@@ -164,7 +164,7 @@ function renderMentions(body: string) {
 
 // ── Live + replayable run trace (shared by Chat and Activity) ─────────────────
 // Loads the persisted RunEvents for a task, then appends live `run_event`s over SSE.
-function useRunEvents(task: AgentTask): RunEvent[] {
+function useRunEvents(task: AgentTask, activeRunId?: string): RunEvent[] {
   const [events, setEvents] = useState<RunEvent[]>([]);
 
   useEffect(() => {
@@ -176,7 +176,7 @@ function useRunEvents(task: AgentTask): RunEvent[] {
   }, [task.boardId, task.id]);
 
   useEffect(() => {
-    const runId = task.workflowRunId;
+    const runId = activeRunId ?? task.workflowRunId;
     if (!runId) return;
     const stop = api.streamRun(runId, (e) => {
       if (e.type !== 'run_event') return;
@@ -190,7 +190,7 @@ function useRunEvents(task: AgentTask): RunEvent[] {
       setEvents(prev => prev.some(x => x.id === re.id) ? prev : [...prev, re]);
     });
     return stop;
-  }, [task.workflowRunId, task.id]);
+  }, [activeRunId, task.workflowRunId, task.id]);
 
   return events;
 }
@@ -391,7 +391,8 @@ function AgentConfigEditor({ role }: { role: AgentRole }) {
 type Bubble = { id: string; author: 'human' | 'agent' | 'tool'; text: string; toolName?: string; at: string };
 
 function ChatTab({ task, role }: { task: AgentTask; role?: AgentRole }) {
-  const events = useRunEvents(task);
+  const [activeRunId, setActiveRunId] = useState<string | undefined>(task.workflowRunId);
+  const events = useRunEvents(task, activeRunId);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [pending, setPending] = useState<Bubble[]>([]);   // optimistic human turns (echo isn't streamed)
@@ -399,7 +400,7 @@ function ChatTab({ task, role }: { task: AgentTask; role?: AgentRole }) {
 
   // Reset optimistic turns when switching tasks.
   // eslint-disable-next-line react-hooks/set-state-in-effect -- clear pending bubbles on task change
-  useEffect(() => { setPending([]); }, [task.id]);
+  useEffect(() => { setPending([]); setActiveRunId(task.workflowRunId); }, [task.id]);
 
   const bubbles = useMemo<Bubble[]>(() => {
     const fromEvents = events
@@ -429,7 +430,7 @@ function ChatTab({ task, role }: { task: AgentTask; role?: AgentRole }) {
     setPending(p => [...p, { id: `local-${at}`, author: 'human', text, at }]);
     setDraft('');
     setSending(true);
-    try { await api.tasks.chat(task.boardId, task.id, text); }
+    try { const res = await api.tasks.chat(task.boardId, task.id, text); setActiveRunId(res.runId); }
     catch { toast('Could not send message', 'error'); }
     finally { setSending(false); }
   };

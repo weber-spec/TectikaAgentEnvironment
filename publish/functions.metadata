@@ -1,0 +1,187 @@
+[
+  {
+    "name": "StartPipeline",
+    "scriptFile": "TectikaAgents.Workflows.dll",
+    "entryPoint": "TectikaAgents.Workflows.Triggers.HttpTrigger.StartPipeline",
+    "language": "dotnet-isolated",
+    "properties": {
+      "IsCodeless": false
+    },
+    "bindings": [
+      {
+        "name": "req",
+        "direction": "In",
+        "type": "httpTrigger",
+        "authLevel": "Function",
+        "methods": [
+          "post"
+        ],
+        "route": "pipelines/start",
+        "properties": {}
+      },
+      {
+        "name": "durableClient",
+        "direction": "In",
+        "type": "durableClient",
+        "properties": {}
+      },
+      {
+        "name": "$return",
+        "type": "http",
+        "direction": "Out"
+      }
+    ]
+  },
+  {
+    "name": "RaiseApprovalEvent",
+    "scriptFile": "TectikaAgents.Workflows.dll",
+    "entryPoint": "TectikaAgents.Workflows.Triggers.HttpTrigger.RaiseApprovalEvent",
+    "language": "dotnet-isolated",
+    "properties": {
+      "IsCodeless": false
+    },
+    "bindings": [
+      {
+        "name": "req",
+        "direction": "In",
+        "type": "httpTrigger",
+        "authLevel": "Function",
+        "methods": [
+          "post"
+        ],
+        "route": "pipelines/{instanceId}/approval/{step}",
+        "properties": {}
+      },
+      {
+        "name": "durableClient",
+        "direction": "In",
+        "type": "durableClient",
+        "properties": {}
+      },
+      {
+        "name": "$return",
+        "type": "http",
+        "direction": "Out"
+      }
+    ]
+  },
+  {
+    "name": "TaskPipelineOrchestrator",
+    "scriptFile": "TectikaAgents.Workflows.dll",
+    "entryPoint": "TectikaAgents.Workflows.Orchestrators.TaskPipelineOrchestrator.RunOrchestration",
+    "language": "dotnet-isolated",
+    "properties": {
+      "IsCodeless": false
+    },
+    "bindings": [
+      {
+        "name": "context",
+        "direction": "In",
+        "type": "orchestrationTrigger",
+        "properties": {}
+      }
+    ]
+  },
+  {
+    "name": "AppendTaskBriefActivity",
+    "scriptFile": "TectikaAgents.Workflows.dll",
+    "entryPoint": "TectikaAgents.Workflows.Activities.AppendTaskBriefActivity.Run",
+    "language": "dotnet-isolated",
+    "properties": {
+      "IsCodeless": false
+    },
+    "bindings": [
+      {
+        "name": "input",
+        "direction": "In",
+        "type": "activityTrigger",
+        "properties": {}
+      }
+    ]
+  },
+  {
+    "name": "InvokeAgentActivity",
+    "scriptFile": "TectikaAgents.Workflows.dll",
+    "entryPoint": "TectikaAgents.Workflows.Activities.InvokeAgentActivity.Run",
+    "language": "dotnet-isolated",
+    "properties": {
+      "IsCodeless": false
+    },
+    "bindings": [
+      {
+        "name": "input",
+        "direction": "In",
+        "type": "activityTrigger",
+        "properties": {}
+      }
+    ]
+  },
+  {
+    "name": "UpdateRunStatusActivity",
+    "scriptFile": "TectikaAgents.Workflows.dll",
+    "entryPoint": "TectikaAgents.Workflows.Activities.UpdateRunStatusActivity.Run",
+    "language": "dotnet-isolated",
+    "properties": {
+      "IsCodeless": false
+    },
+    "bindings": [
+      {
+        "name": "input",
+        "direction": "In",
+        "type": "activityTrigger",
+        "properties": {}
+      }
+    ]
+  },
+  {
+    "name": "WriteApprovalActivity",
+    "scriptFile": "TectikaAgents.Workflows.dll",
+    "entryPoint": "TectikaAgents.Workflows.Activities.WriteApprovalActivity.Run",
+    "language": "dotnet-isolated",
+    "properties": {
+      "IsCodeless": false
+    },
+    "bindings": [
+      {
+        "name": "input",
+        "direction": "In",
+        "type": "activityTrigger",
+        "properties": {}
+      }
+    ]
+  },
+  {
+    "name": "WriteAuditActivity",
+    "scriptFile": "TectikaAgents.Workflows.dll",
+    "entryPoint": "TectikaAgents.Workflows.Activities.WriteAuditActivity.Run",
+    "language": "dotnet-isolated",
+    "properties": {
+      "IsCodeless": false
+    },
+    "bindings": [
+      {
+        "name": "input",
+        "direction": "In",
+        "type": "activityTrigger",
+        "properties": {}
+      }
+    ]
+  },
+  {
+    "name": "WriteInteractionActivity",
+    "scriptFile": "TectikaAgents.Workflows.dll",
+    "entryPoint": "TectikaAgents.Workflows.Activities.WriteInteractionActivity.Run",
+    "language": "dotnet-isolated",
+    "properties": {
+      "IsCodeless": false
+    },
+    "bindings": [
+      {
+        "name": "input",
+        "direction": "In",
+        "type": "activityTrigger",
+        "properties": {}
+      }
+    ]
+  }
+]
