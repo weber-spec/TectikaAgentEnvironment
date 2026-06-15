@@ -49,6 +49,16 @@ public class TasksController : ControllerBase
         return result is null ? NotFound("Task not found or has no assigned agent.") : Ok(result);
     }
 
+    /// <summary>/clear — reset the agent's context (new conversation, cleared brief + transcript boundary).</summary>
+    [HttpPost("{taskId}/clear")]
+    public async Task<IActionResult> Clear(string boardId, string taskId, CancellationToken ct) =>
+        await _chat.ClearAsync(boardId, taskId, ct) ? Ok() : NotFound("Task not found.");
+
+    /// <summary>/stop — terminate the task's active run.</summary>
+    [HttpPost("{taskId}/stop")]
+    public async Task<IActionResult> Stop(string boardId, string taskId, CancellationToken ct) =>
+        await _chat.StopAsync(boardId, taskId, ct) ? Ok() : Ok(new { stopped = false }); // no active run → benign
+
     [HttpPost]
     public async Task<IActionResult> Create(string boardId, [FromBody] CreateTaskRequest req, CancellationToken ct)
     {

@@ -90,6 +90,20 @@ public class HttpTrigger
         return response;
     }
 
+    [Function(nameof(Terminate))]
+    public async Task<HttpResponseData> Terminate(
+        [HttpTrigger(AuthorizationLevel.Function, "post", Route = "pipelines/{instanceId}/terminate")] HttpRequestData req,
+        string instanceId,
+        [DurableClient] DurableTaskClient durableClient,
+        FunctionContext context)
+    {
+        await durableClient.TerminateInstanceAsync(instanceId, "user /stop");
+        _logger.LogInformation("[HttpTrigger] terminated instance {InstanceId}", instanceId);
+        var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
+        await response.WriteStringAsync("terminated");
+        return response;
+    }
+
     [Function(nameof(RaiseApprovalEvent))]
     public async Task<HttpResponseData> RaiseApprovalEvent(
         [HttpTrigger(AuthorizationLevel.Function, "post", Route = "pipelines/{instanceId}/approval/{step}")] HttpRequestData req,

@@ -14,6 +14,13 @@ public interface IChatService
     /// active, otherwise inject it as a steering message into the live run. Returns null if the task
     /// is not found or has no assigned agent.</summary>
     Task<ChatResult?> SendAsync(string boardId, string taskId, string tenantId, string text, CancellationToken ct = default);
+
+    /// <summary>Reset the agent's context: new conversation next run, cleared brief, and a transcript
+    /// boundary (ChatClearedAt). Non-destructive — RunEvents are kept, just hidden by the UI.</summary>
+    Task<bool> ClearAsync(string boardId, string taskId, CancellationToken ct = default);
+
+    /// <summary>Terminate the task's active run (Durable orchestration) and mark it Cancelled.</summary>
+    Task<bool> StopAsync(string boardId, string taskId, CancellationToken ct = default);
 }
 
 public class ChatService : IChatService
@@ -87,6 +94,30 @@ public class ChatService : IChatService
         {
             RunId = runId, TaskId = taskId, Round = round, Kind = RunEventKind.UserMessage, Title = text
         }, ct);
+
+    public async Task<bool> ClearAsync(string boardId, string taskId, CancellationToken ct = default)
+    {
+        var task = await _cosmos.GetTaskAsync(boardId, taskId, ct);
+        if (task is null) return false;
+        task.FoundryThreadId = null;
+        task.TaskBrief = "";
+        task.ChatClearedAt = DateTimeOffset.UtcNow;
+        await _cosmos.UpdateTaskAsync(task, ct);
+        _logger.LogInformation("[Chat] cleared task {TaskId}", taskId);
+        return true;
+    }
+
+    public async Task<bool> StopAsync(string boardId, string taskId, CancellationToken ct = default)
+    {
+        var task = await _cosmos.GetTaskAsync(boardId, taskId, ct);
+        var run = task?.WorkflowRunId is null ? null : await _cosmos.GetRunAsync(taskId, task.WorkflowRunId, ct);
+        if (run?.DurableFunctionInstanceId is null) return false;          // nothing running
+        await PostAsync(BuildUrl($"{run.DurableFunctionInstanceId}/terminate"), new { }, ct);
+        run.Status = RunStatus.Cancelled;
+        await _cosmos.UpdateRunAsync(run, ct);
+        _logger.LogInformation("[Chat] stopped run {RunId} task {TaskId}", run.Id, taskId);
+        return true;
+    }
 
     // DurableFunctionsSettings.StartUrl points at ".../api/pipelines/start"; derive sibling routes.
     private string BuildUrl(string suffix)
