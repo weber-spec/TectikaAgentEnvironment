@@ -79,11 +79,14 @@ function Inner() {
     setNodes(prev => {
       // Preserve existing node positions (from drag) unless the task has an explicit canvasPosition.
       const prevById = new Map(prev.map(n => [n.id, n]));
-      const ns: Node[] = tasks.map(t => ({
-        id: t.id, type: 'agent',
-        position: t.canvasPosition ?? prevById.get(t.id)?.position ?? { x: 0, y: 0 },
-        data: { taskId: t.id },
-      }));
+      const ns: Node[] = tasks.map(t => {
+        const existing = prevById.get(t.id);
+        const position = t.canvasPosition ?? existing?.position ?? { x: 0, y: 0 };
+        // Reuse the existing node object when nothing changed so React Flow doesn't
+        // re-adopt it (which transiently drops edge positions and remounts edges).
+        if (existing && existing.position.x === position.x && existing.position.y === position.y) return existing;
+        return { id: t.id, type: 'agent', position, data: existing?.data ?? { taskId: t.id } };
+      });
       const hasPos = tasks.some(t => t.canvasPosition) || prev.length > 0;
       return hasPos ? ns : layout(ns, es);
     });
