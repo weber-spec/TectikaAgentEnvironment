@@ -319,6 +319,14 @@ public class WorkflowCosmosService
 
     // ── HumanInteraction ──────────────────────────────────────────────────────
 
+    /// <summary>Idempotent create-or-replace by stable id — used for steerable interactions so a
+    /// Durable activity retry can't create a duplicate request.</summary>
+    public async Task<HumanInteraction> UpsertInteractionAsync(HumanInteraction interaction, CancellationToken ct = default)
+    {
+        var res = await C("humanInteractions").UpsertItemAsync(interaction, new PartitionKey(interaction.RunId), cancellationToken: ct);
+        return res.Resource;
+    }
+
     public async Task<HumanInteraction> CreateInteractionAsync(HumanInteraction interaction, CancellationToken ct = default)
     {
         var res = await C("humanInteractions").CreateItemAsync(interaction, new PartitionKey(interaction.RunId), cancellationToken: ct);

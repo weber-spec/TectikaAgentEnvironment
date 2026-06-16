@@ -19,7 +19,7 @@ public static class RunEventFactory
             Round = round,
             ParentId = null,
             Kind = RunEventKind.RoundStarted,
-            Title = string.IsNullOrWhiteSpace(outcome.RoundIntent) ? $"Round {round + 1}" : outcome.RoundIntent,
+            Title = RoundTitle.Synthesize(outcome, round),
             TokenUsage = outcome.Usage,
         };
         events.Add(parent);
@@ -86,4 +86,45 @@ public static class RunEventFactory
     }
 
     private static string Truncate(string s, int max) => s.Length <= max ? s : s[..max] + "…";
+}
+
+/// <summary>Produces a human-readable title for a round's RoundStarted event. Prefers the agent's
+/// own round_intent; otherwise synthesizes one from the round's real activity so the Activity tab
+/// never shows a bare "Round n".</summary>
+public static class RoundTitle
+{
+    public static string Synthesize(RoundOutcome outcome, int round)
+    {
+        if (!string.IsNullOrWhiteSpace(outcome.RoundIntent))
+            return outcome.RoundIntent!.Trim();
+
+        if (outcome.Kind == RoundKind.Final && !string.IsNullOrWhiteSpace(outcome.FinalText))
+            return Truncate(outcome.FinalText!.Trim(), 70);
+
+        var verbs = outcome.ToolCalls
+            .Select(tc => tc.Name)
+            .Where(n => n is not "round_intent" and not "update_brief")
+            .Distinct()
+            .Take(3)
+            .Select(FriendlyVerb)
+            .ToList();
+        if (verbs.Count > 0)
+            return Capitalize(string.Join(", ", verbs));
+
+        return $"Round {round + 1}";
+    }
+
+    private static string FriendlyVerb(string tool) => tool switch
+    {
+        "get_board_overview" => "read board",
+        "search_tasks" => "searched board",
+        "get_task" => "read task",
+        "get_artifact" => "read artifact",
+        _ when tool.Contains("github") || tool.Contains("branch") || tool.Contains("pull_request")
+            || tool.Contains("push") || tool.Contains("commit") => "used GitHub",
+        _ => tool,
+    };
+
+    private static string Capitalize(string s) => string.IsNullOrEmpty(s) ? s : char.ToUpperInvariant(s[0]) + s[1..];
+    private static string Truncate(string s, int max) => s.Length <= max ? s : s[..max].TrimEnd() + "…";
 }

@@ -32,14 +32,16 @@ public class ChatService : IChatService
     private readonly ICosmosDbService _cosmos;
     private readonly IHttpClientFactory _httpFactory;
     private readonly DurableFunctionsSettings _settings;
+    private readonly SseConnectionManager _sse;
     private readonly ILogger<ChatService> _logger;
 
     public ChatService(ICosmosDbService cosmos, IHttpClientFactory httpFactory,
-        IOptions<DurableFunctionsSettings> settings, ILogger<ChatService> logger)
+        IOptions<DurableFunctionsSettings> settings, SseConnectionManager sse, ILogger<ChatService> logger)
     {
         _cosmos = cosmos;
         _httpFactory = httpFactory;
         _settings = settings.Value;
+        _sse = sse;
         _logger = logger;
     }
 
@@ -56,6 +58,10 @@ public class ChatService : IChatService
         {
             await EchoUserMessageAsync(run!.Id, taskId, run.CurrentStep, text, ct);
             await PostAsync(BuildUrl($"{run.DurableFunctionInstanceId}/message"), new { Text = text }, ct);
+            // If the run was paused on a steerable request, a free-typed reply answers it — resolve the
+            // record so it leaves the chat card, the Approvals tab, and the notification list.
+            if (run.Status == RunStatus.AwaitingInteraction)
+                await ResolvePendingSteerableInteractionAsync(tenantId, taskId, text, ct);
             _logger.LogInformation("[Chat] injected message into run {RunId} task {TaskId}", run.Id, taskId);
             return new ChatResult(run.Id, Injected: true);
         }
@@ -93,11 +99,39 @@ public class ChatService : IChatService
         return new ChatResult(newRun.Id, Injected: false);
     }
 
-    private Task EchoUserMessageAsync(string runId, string taskId, int round, string text, CancellationToken ct) =>
-        _cosmos.CreateRunEventAsync(new RunEvent
+    private async Task EchoUserMessageAsync(string runId, string taskId, int round, string text, CancellationToken ct)
+    {
+        var ev = await _cosmos.CreateRunEventAsync(new RunEvent
         {
             RunId = runId, TaskId = taskId, Round = round, Kind = RunEventKind.UserMessage, Title = text
         }, ct);
+        // Push to everyone watching this run's SSE stream (same API instance) so other participants see
+        // the message in real time; best-effort — a broadcast failure must never abort the send (the
+        // message is already persisted, and the client's 4s poll is the backstop).
+        try { await _sse.BroadcastAsync(AgentEvent.FromRunEvent(ev), ct); }
+        catch (Exception ex) { _logger.LogWarning(ex, "[Chat] failed to broadcast user message for run {RunId}", runId); }
+    }
+
+    private async Task ResolvePendingSteerableInteractionAsync(string tenantId, string taskId, string text, CancellationToken ct)
+    {
+        try
+        {
+            var pending = await _cosmos.GetPendingInteractionsAsync(tenantId, ct);
+            var match = pending.FirstOrDefault(i =>
+                i.TaskId == taskId && i.Origin == InteractionOrigin.Steerable && i.Status == InteractionStatus.Pending);
+            if (match is null) return;
+
+            match.Status = InteractionStatus.Responded;
+            match.RespondedAt = DateTimeOffset.UtcNow;
+            match.Answer = text;   // free-typed reply; Approval decision is left null (answered as text)
+            await _cosmos.UpdateInteractionAsync(match, ct);
+            _logger.LogInformation("[Chat] resolved steerable interaction {Id} via free-typed reply", match.Id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Chat] failed to resolve pending steerable interaction for task {TaskId}", taskId);
+        }
+    }
 
     public async Task<bool> ClearAsync(string boardId, string taskId, CancellationToken ct = default)
     {
