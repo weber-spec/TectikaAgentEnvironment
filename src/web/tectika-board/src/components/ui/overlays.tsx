@@ -111,8 +111,10 @@ export function Menu({ anchorRef, open, onClose, options, align, width = 200, he
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
 
-export function Modal({ open, onClose, children, title, width = 560, footer }: {
+export function Modal({ open, onClose, children, title, width = 560, footer, z = 1100 }: {
   open: boolean; onClose: () => void; children: React.ReactNode; title?: React.ReactNode; width?: number; footer?: React.ReactNode;
+  /** Stacking order. Default 1100; raise above the item panel (1200) when opened from within it. */
+  z?: number;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -123,8 +125,8 @@ export function Modal({ open, onClose, children, title, width = 560, footer }: {
 
   if (!open) return null;
   return createPortal(
-    <div className="fixed inset-0 z-[1100] flex items-start justify-center p-4 sm:p-8 overflow-auto"
-      style={{ background: 'rgba(0,0,0,0.45)' }} onMouseDown={onClose}>
+    <div className="fixed inset-0 flex items-start justify-center p-4 sm:p-8 overflow-auto"
+      style={{ background: 'rgba(0,0,0,0.45)', zIndex: z }} onMouseDown={onClose}>
       <div
         className="bg-[var(--background)] rounded-xl shadow-2xl border border-[var(--border)] my-auto animate-scale-in w-full"
         style={{ maxWidth: width }}
