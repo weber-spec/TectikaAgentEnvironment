@@ -53,7 +53,8 @@ export function getFeedbackPath(p: FeedbackPathParams): [string, number, number]
 
   // A cubic bezier's point at t=0.5 is 0.125*(P0+P3) + 0.375*(C1+C2). With both
   // control Ys equal to ctrlY, y(0.5) = 0.125*(sourceY+targetY) + 0.75*ctrlY.
-  // Solve ctrlY so the curve's lowest point lands exactly at clearY.
+  // Solve ctrlY so the curve passes through clearY at t=0.5. For level endpoints
+  // that is the arc's lowest point; for offset endpoints the arc dips at least that far.
   const ctrlY = (clearY - 0.125 * (sourceY + targetY)) / 0.75;
 
   const shoulder = Math.min(Math.max((xHi - xLo) * 0.3, MIN_SHOULDER), MAX_SHOULDER);
@@ -62,7 +63,7 @@ export function getFeedbackPath(p: FeedbackPathParams): [string, number, number]
 
   const path = `M${sourceX},${sourceY} C${c1x},${ctrlY} ${c2x},${ctrlY} ${targetX},${targetY}`;
   const labelX = (sourceX + targetX) / 2;
-  const labelY = 0.125 * (sourceY + targetY) + 0.75 * ctrlY; // == clearY by construction
+  const labelY = clearY; // the curve passes through clearY at t=0.5
 
   return [path, labelX, labelY];
 }

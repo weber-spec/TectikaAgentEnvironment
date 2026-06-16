@@ -13,6 +13,11 @@ test('returns a single cubic that starts at the source and dips downward', () =>
   assert.ok(labelY > 100, 'label/arc dips below the handle lane');
 });
 
+test('label y equals baseY + MARGIN (40) when there are no obstacles', () => {
+  const [, , labelY] = getFeedbackPath({ ...base, nodeBoxes: [] });
+  assert.equal(labelY, 140); // max(sourceY,targetY)=100 + MARGIN=40
+});
+
 test('dip clears an obstacle node sitting horizontally between the endpoints', () => {
   const obstacle: NodeBox = { id: 'M', x: 120, y: 100, width: 110, height: 200 }; // bottom = 300
   const [, , labelY] = getFeedbackPath({ ...base, nodeBoxes: [obstacle] });
