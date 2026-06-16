@@ -106,8 +106,10 @@ public class ChatService : IChatService
             RunId = runId, TaskId = taskId, Round = round, Kind = RunEventKind.UserMessage, Title = text
         }, ct);
         // Push to everyone watching this run's SSE stream (same API instance) so other participants see
-        // the message in real time; the client's 4s poll is the cross-instance / missed-event backstop.
-        await _sse.BroadcastAsync(AgentEvent.FromRunEvent(ev), ct);
+        // the message in real time; best-effort — a broadcast failure must never abort the send (the
+        // message is already persisted, and the client's 4s poll is the backstop).
+        try { await _sse.BroadcastAsync(AgentEvent.FromRunEvent(ev), ct); }
+        catch (Exception ex) { _logger.LogWarning(ex, "[Chat] failed to broadcast user message for run {RunId}", runId); }
     }
 
     private async Task ResolvePendingSteerableInteractionAsync(string tenantId, string taskId, string text, CancellationToken ct)
