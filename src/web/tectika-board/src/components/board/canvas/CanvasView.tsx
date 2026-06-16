@@ -25,6 +25,7 @@ const EDGE_COLOR_HOT = '#7a3bbf';      // forward, hovered/selected
 const FEEDBACK_COLOR = '#ff642e';      // feedback / error-routing (back-edge)
 const FORWARD_MARKER = { type: MarkerType.ArrowClosed, color: EDGE_COLOR, width: 18, height: 18 } as const;
 const FEEDBACK_MARKER = { type: MarkerType.ArrowClosed, color: FEEDBACK_COLOR, width: 18, height: 18 } as const;
+const NO_NODES: Node[] = []; // stable ref: forward edges don't subscribe to node movement
 
 function layout(nodes: Node[], edges: Edge[]): Node[] {
   const g = new Dagre.graphlib.Graph();
@@ -182,10 +183,9 @@ function Inner() {
 function PipelineEdge({ id, source, target, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, selected, data }: EdgeProps) {
   const ui = useContext(EdgeUiCtx);
   const feedback = !!(data as { feedback?: boolean })?.feedback;
-  // Subscribe to the nodes array (its identity changes whenever any node moves) so the
-  // feedback arc re-renders and re-clears obstacles live during drags. The flow canvas
-  // has no nested nodes, so each node's position is already absolute.
-  const nodes = useStore((s) => s.nodes);
+  // Only feedback edges need live node boxes (to dip below obstacles). Forward edges
+  // select a stable empty array so they don't re-render on every node drag.
+  const nodes = useStore((s) => (feedback ? s.nodes : NO_NODES));
   const nodeBoxes = useMemo<NodeBox[]>(
     () => nodes.map((n) => ({
       id: n.id,
