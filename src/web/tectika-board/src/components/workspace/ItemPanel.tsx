@@ -126,6 +126,17 @@ function HeaderPriority({ task, onPick }: { task: AgentTask; onPick: (p: AgentTa
     </Popover></div>;
 }
 
+// Union two event lists by id (incoming wins on collision). Returns the previous array unchanged when
+// `incoming` introduces no new ids, so a poll that finds nothing new triggers no re-render.
+function mergeById(prev: RunEvent[], incoming: RunEvent[]): RunEvent[] {
+  if (incoming.length === 0) return prev;
+  const map = new Map(prev.map(e => [e.id, e]));
+  let hasNew = false;
+  for (const e of incoming) { if (!map.has(e.id)) hasNew = true; map.set(e.id, e); }
+  if (!hasNew && map.size === prev.length) return prev;
+  return Array.from(map.values());
+}
+
 // ── Live + replayable run trace (shared by Chat and Activity) ─────────────────
 // Loads the persisted RunEvents for a task, then appends live `run_event`s over SSE.
 function useRunEvents(task: AgentTask, activeRunId?: string): RunEvent[] {
@@ -135,8 +146,17 @@ function useRunEvents(task: AgentTask, activeRunId?: string): RunEvent[] {
     let alive = true;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- clear stale trace when switching tasks
     setEvents([]);
-    api.tasks.events(task.boardId, task.id).then(list => { if (alive) setEvents(list); }).catch(() => {});
-    return () => { alive = false; };
+    const load = () => api.tasks.events(task.boardId, task.id)
+      .then(list => { if (alive) setEvents(prev => mergeById(prev, list)); })
+      .catch(() => {});
+    load();
+    // Poll as a backstop so messages from other users still appear within ~4s (covers a missed SSE
+    // frame, no active-run subscription yet, or another API instance). Paused when the tab is hidden.
+    const poll = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      load();
+    }, 4000);
+    return () => { alive = false; clearInterval(poll); };
   }, [task.boardId, task.id]);
 
   useEffect(() => {
