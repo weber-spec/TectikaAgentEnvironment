@@ -164,7 +164,9 @@ interface BoardContextValue {
   runPhase: BoardRunPhase;
   /** Trigger the agent for a single task. No-op unless the task is Agent-owned and idle. */
   runTask: (taskId: string) => Promise<void>;
-  /** True while the given task's agent is starting or actively running. */
+  /** Cancel a task's active run (terminates the orchestration, returns the task to Backlog). */
+  stopTask: (taskId: string) => Promise<void>;
+  /** True while the given task's agent is actively running. */
   isTaskRunning: (task: AgentTask) => boolean;
 
   // agent config + interactive workspace chat
@@ -671,6 +673,17 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     }
   }, [boardId, tasks, isTaskRunning]);
 
+  const stopTask = useCallback(async (taskId: string) => {
+    try {
+      await api.tasks.stop(boardId, taskId);
+      // backend returns the task to Backlog on stop — reflect it now, then reconcile.
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'Backlog' } : t));
+      refreshTask(taskId);
+    } catch {
+      toast('Could not stop the run', 'error');
+    }
+  }, [boardId, refreshTask]);
+
   const saveRole = useCallback(async (role: AgentRole) => {
     setRoles(prev => prev.map(r => r.id === role.id ? role : r));
     try { await api.agentRoles.upsert(role); } catch { toast('Could not save agent configuration', 'error'); }
@@ -691,7 +704,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     selectedIds, toggleSelect, selectAll, clearSelection,
     updateTask, refreshTask, setStatus, setCustomCell, addTask, deleteTasks, moveCanvas,
     edges, upstreamIds, downstreamIds, connectEdge, disconnectEdge, updateEdge,
-    runBoard, runPhase, runTask, isTaskRunning,
+    runBoard, runPhase, runTask, stopTask, isTaskRunning,
     saveRole, chatThreads: cfg.chatThreads, pushChatTurns,
     liveEnabled, liveState, toggleLive,
     openTaskId, openTask: setOpenTaskId,

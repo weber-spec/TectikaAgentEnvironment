@@ -119,6 +119,10 @@ public class ChatService : IChatService
         await PostAsync(BuildUrl($"{run.DurableFunctionInstanceId}/terminate"), new { }, ct);
         run.Status = RunStatus.Cancelled;
         await _cosmos.UpdateRunAsync(run, ct);
+        // The terminated orchestration never runs its terminal status activity, so reset the
+        // task here. Backlog = not running / re-runnable (there is no Cancelled task status).
+        task!.Status = AgentTaskStatus.Backlog;
+        await _cosmos.UpdateTaskAsync(task, ct);
         _logger.LogInformation("[Chat] stopped run {RunId} task {TaskId}", run.Id, taskId);
         return true;
     }
