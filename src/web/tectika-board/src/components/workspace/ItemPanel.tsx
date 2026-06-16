@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useBoard } from '@/lib/board-context';
 import { api } from '@/lib/api';
-import type { Artifact, AgentTask, AgentRole, RunEvent } from '@/lib/types';
+import type { Artifact, AgentTask, AgentRole, RunEvent, HumanInteraction } from '@/lib/types';
 import { STATUS_CONFIG, STATUS_ORDER, PRIORITY_CONFIG, PRIORITY_ORDER, textOn } from '@/lib/palette';
 import { Avatar, Pill, Button, Spinner } from '@/components/ui/primitives';
 import { Icon } from '@/components/ui/icons';
@@ -17,8 +17,9 @@ import { chatCommands, filterCommands, type ChatCommand, type ChatCommandContext
 import { RunTaskButton } from '@/components/board/RunTaskButton';
 import { LiveEdge } from './LiveEdge';
 import { contextFromEvents, sumTokens } from '@/lib/thinking-phrases';
+import { InteractionCard } from '@/components/InteractionCard';
 
-type Tab = 'chat' | 'updates' | 'activity' | 'details' | 'bridge';
+type Tab = 'chat' | 'activity' | 'details' | 'bridge';
 
 // Models offered in the in-panel agent configuration dropdown.
 const MODELS = ['default', 'gpt-4o', 'o3', 'claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5'];
@@ -77,13 +78,12 @@ function PanelInner({ task }: { task: AgentTask }) {
         {/* left: execution thread / config */}
         <div className="w-[420px] shrink-0 border-r border-[var(--border)] flex flex-col min-h-0">
           <div className="flex border-b border-[var(--border)] px-2 overflow-x-auto whitespace-nowrap">
-            {(['chat', 'updates', 'activity', 'details', 'bridge'] as Tab[]).map(t => (
+            {(['chat', 'activity', 'details', 'bridge'] as Tab[]).map(t => (
               <button key={t} onClick={() => setTab(t)} className={`px-3 py-2.5 text-[13px] font-medium capitalize border-b-2 -mb-px transition-colors shrink-0 ${tab === t ? 'border-[var(--primary)] text-[var(--primary)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'}`}>{t === 'chat' ? 'Chat' : t === 'bridge' ? 'CLI Bridge' : t}</button>
             ))}
           </div>
           <div className="flex-1 overflow-auto flex flex-col min-h-0">
             {tab === 'chat' && <ChatTab task={task} role={role} />}
-            {tab === 'updates' && <UpdatesTab task={task} />}
             {tab === 'activity' && <ActivityTab task={task} />}
             {tab === 'details' && <DetailsTab task={task} role={role} run={run} people={people} onAssign={(id, kind) => updateTask(task.id, { assignee: { type: kind, id } })} />}
             {tab === 'bridge' && <CliBridgeTab task={task} />}
@@ -126,46 +126,15 @@ function HeaderPriority({ task, onPick }: { task: AgentTask; onPick: (p: AgentTa
     </Popover></div>;
 }
 
-// ── Updates (comments) ────────────────────────────────────────────────────────
-function UpdatesTab({ task }: { task: AgentTask }) {
-  const { comments, addComment, peopleById } = useBoard();
-  const [draft, setDraft] = useState('');
-  const list = comments.filter(c => c.taskId === task.id).sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
-  return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-auto p-4 flex flex-col gap-3">
-        {list.length === 0 && <p className="text-sm text-[var(--muted)] text-center mt-8">No updates yet. Start the conversation.</p>}
-        {list.map(c => {
-          const p = peopleById[c.authorId];
-          return (
-            <div key={c.id} className="flex gap-2.5">
-              <Avatar person={p} name={c.authorId} size={30} />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-baseline gap-2"><span className="text-[13px] font-semibold text-[var(--foreground)]">{p?.name ?? displayName(c.authorId)}</span><span className="text-[11px] text-[var(--muted)]">{relativeTime(c.createdAt)}</span></div>
-                <div className="text-[13px] text-[var(--foreground)] mt-0.5 whitespace-pre-wrap break-words">{renderMentions(c.body)}</div>
-                {c.reactions && Object.entries(c.reactions).map(([emo, who]) => <span key={emo} className="inline-flex items-center gap-1 text-xs bg-[var(--surface)] rounded-full px-2 py-0.5 mt-1 mr-1">{emo} {who.length}</span>)}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="border-t border-[var(--border)] p-3">
-        <textarea value={draft} onChange={e => setDraft(e.target.value)} placeholder="Write an update… use @ to mention"
-          onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { if (draft.trim()) { addComment(task.id, draft.trim()); setDraft(''); } } }}
-          className="w-full text-sm bg-[var(--surface)] rounded-lg p-2.5 outline-none resize-none text-[var(--foreground)] border border-[var(--border)] focus:border-[var(--primary)]" rows={2} />
-        <div className="flex justify-between items-center mt-2">
-          <span className="text-[11px] text-[var(--muted-2)]">⌘+Enter to send</span>
-          <Button variant="primary" size="sm" disabled={!draft.trim()} onClick={() => { addComment(task.id, draft.trim()); setDraft(''); }}><Icon.send size={13} /> Update</Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function renderMentions(body: string) {
-  return body.split(/(@[\w.@-]+)/g).map((part, i) => part.startsWith('@')
-    ? <span key={i} className="text-[var(--primary)] font-medium bg-[var(--primary-light)] rounded px-1">{part}</span>
-    : <span key={i}>{part}</span>);
+// Union two event lists by id (incoming wins on collision). Returns the previous array unchanged when
+// `incoming` introduces no new ids, so a poll that finds nothing new triggers no re-render.
+function mergeById(prev: RunEvent[], incoming: RunEvent[]): RunEvent[] {
+  if (incoming.length === 0) return prev;
+  const map = new Map(prev.map(e => [e.id, e]));
+  let hasNew = false;
+  for (const e of incoming) { if (!map.has(e.id)) hasNew = true; map.set(e.id, e); }
+  if (!hasNew && map.size === prev.length) return prev;
+  return Array.from(map.values());
 }
 
 // ── Live + replayable run trace (shared by Chat and Activity) ─────────────────
@@ -177,8 +146,17 @@ function useRunEvents(task: AgentTask, activeRunId?: string): RunEvent[] {
     let alive = true;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- clear stale trace when switching tasks
     setEvents([]);
-    api.tasks.events(task.boardId, task.id).then(list => { if (alive) setEvents(list); }).catch(() => {});
-    return () => { alive = false; };
+    const load = () => api.tasks.events(task.boardId, task.id)
+      .then(list => { if (alive) setEvents(prev => mergeById(prev, list)); })
+      .catch(() => {});
+    load();
+    // Poll as a backstop so messages from other users still appear within ~4s (covers a missed SSE
+    // frame, no active-run subscription yet, or another API instance). Paused when the tab is hidden.
+    const poll = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      load();
+    }, 4000);
+    return () => { alive = false; clearInterval(poll); };
   }, [task.boardId, task.id]);
 
   useEffect(() => {
@@ -432,6 +410,22 @@ function AgentChat({ task, role }: { task: AgentTask; role?: AgentRole }) {
   const [sending, setSending] = useState(false);
   const [pending, setPending] = useState<Bubble[]>([]);   // optimistic human turns (echo isn't streamed live)
   const [justSent, setJustSent] = useState(false);        // bridge until task.status syncs to InProgress
+  const [pendingInteraction, setPendingInteraction] = useState<HumanInteraction | null>(null);
+
+  // When the run is paused on an agent request, load the pending interaction for this task so we can
+  // render its card inline. Cleared as soon as the task is no longer awaiting.
+  useEffect(() => {
+    if (task.status !== 'AwaitingInteraction') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clear card when not awaiting
+      setPendingInteraction(null);
+      return;
+    }
+    let alive = true;
+    api.interactions.pending()
+      .then(list => { if (alive) setPendingInteraction(list.find(i => i.taskId === task.id) ?? null); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [task.status, task.id]);
   const endRef = useRef<HTMLDivElement>(null);
 
   // Reset per-task UI state when switching tasks.
@@ -544,6 +538,12 @@ function AgentChat({ task, role }: { task: AgentTask; role?: AgentRole }) {
         {stream.map(it => it.kind === 'step'
           ? <HistoryStep key={it.id} ev={it.ev} />
           : <ChatBubble key={it.id} bubble={{ id: it.id, author: it.kind === 'user' ? 'human' : 'agent', text: it.text, at: it.at }} />)}
+        {pendingInteraction && (
+          <InteractionCard
+            interaction={pendingInteraction}
+            onResponded={() => { setPendingInteraction(null); refreshTask(task.id); }}
+          />
+        )}
         {working && <LiveEdge agentName={role?.displayName} context={liveContext} anchorAt={anchorAt} tokens={tokens} />}
         <div ref={endRef} />
       </div>
@@ -559,9 +559,9 @@ function AgentChat({ task, role }: { task: AgentTask; role?: AgentRole }) {
               if (e.key === 'Enter') { e.preventDefault(); runCmd(cmdItems[cmdActive]); return; }
               if (e.key === 'Escape') { e.preventDefault(); setDraft(''); return; }
             }
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
           }}
-          rows={2} placeholder="Message the agent…  (/ for commands, ⌘/Ctrl + Enter to send)"
+          rows={2} placeholder="Message the agent…  (/ for commands, Enter to send, Shift+Enter for newline)"
           className="w-full bg-[var(--surface)] rounded-lg p-2 text-[13px] outline-none resize-none text-[var(--foreground)] border border-[var(--border)] focus:border-[var(--primary)]" />
         <div className="flex justify-end mt-1.5">
           <Button variant="primary" size="sm" disabled={!draft.trim() || sending} onClick={send}><Icon.send size={13} /> Send</Button>
@@ -614,8 +614,11 @@ function stepLabel(ev: RunEvent): { verb: string; obj?: string; res?: string } {
 }
 
 // One real step in the history layer: round intent → subtle header; tool/artifact → ✓ line.
-// A step still in flight (no result yet) shows a spinner — future per-tool streaming lights it up.
+// Tool/artifact rows are click-to-expand: collapsed truncates to one line, expanded shows the full
+// untruncated tool/args/result. A step still in flight (no result yet) shows a spinner.
 function HistoryStep({ ev }: { ev: RunEvent }) {
+  const [open, setOpen] = useState(false);
+
   if (ev.toolName === 'round_intent') {
     const intent = ev.toolArgsSummary || ev.title;
     if (!intent) return null;
@@ -625,19 +628,24 @@ function HistoryStep({ ev }: { ev: RunEvent }) {
       </div>
     );
   }
+
   const running = !ev.resultSummary && ev.kind !== 'ArtifactWritten';
   const { verb, obj, res } = stepLabel(ev);
+  const expandable = !!(obj || res);
+
   return (
-    <div className="flex items-center gap-2 ml-1 text-[12px] text-[var(--foreground)]">
+    <button type="button" disabled={!expandable} onClick={() => setOpen(o => !o)}
+      className="w-full flex items-start gap-2 ml-1 text-[12px] text-[var(--foreground)] text-left">
       {running
-        ? <span className="w-3.5 h-3.5 rounded-full border-2 border-[var(--border)] border-t-[var(--primary)] animate-spin shrink-0" />
-        : <span className="w-4 h-4 rounded-full bg-[#00c875] text-white grid place-items-center text-[9px] shrink-0">✓</span>}
-      <span className="flex-1 min-w-0 truncate">
+        ? <span className="w-3.5 h-3.5 mt-0.5 rounded-full border-2 border-[var(--border)] border-t-[var(--primary)] animate-spin shrink-0" />
+        : <span className="w-4 h-4 mt-0.5 rounded-full bg-[#00c875] text-white grid place-items-center text-[9px] shrink-0">✓</span>}
+      <span className={`flex-1 min-w-0 ${open ? 'whitespace-pre-wrap break-words' : 'truncate'}`}>
         <span className="text-[var(--muted)]">{verb}</span>
         {obj && <span className="font-mono text-[var(--primary)]"> {obj}</span>}
         {res && <span className="text-[var(--muted-2)]"> · {res}</span>}
       </span>
-    </div>
+      {expandable && <Icon.chevronDown size={12} className={`mt-1 text-[var(--muted-2)] shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />}
+    </button>
   );
 }
 

@@ -184,9 +184,7 @@ interface BoardContextValue {
   toggleLive: () => void;
 
   // collaboration
-  comments: Comment[];
   activity: ActivityEntry[];
-  addComment: (taskId: string, body: string) => void;
   logActivity: (e: Omit<ActivityEntry, 'id' | 'createdAt'>) => void;
 
   // automations
@@ -507,12 +505,6 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   const logActivity = useCallback((e: Omit<ActivityEntry, 'id' | 'createdAt'>) => {
     setCfg(prev => ({ ...prev, activity: [...prev.activity, { ...e, id: uid('a'), createdAt: new Date().toISOString() }] }));
   }, []);
-  const addComment = useCallback((taskId: string, body: string) => {
-    const mentions = Array.from(body.matchAll(/@([\w.@-]+)/g)).map(m => m[1]);
-    const c: Comment = { id: uid('c'), taskId, authorId: CURRENT_USER.id, body, mentions, createdAt: new Date().toISOString() };
-    setCfg(prev => ({ ...prev, comments: [...prev.comments, c] }));
-  }, []);
-
   // ── automations ─────────────────────────────────────────────────────────────
   const saveAutomation = useCallback((a: AutomationRecipe) => setCfg(prev => ({
     ...prev,
@@ -708,7 +700,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     saveRole, chatThreads: cfg.chatThreads, pushChatTurns,
     liveEnabled, liveState, toggleLive,
     openTaskId, openTask: setOpenTaskId,
-    comments: cfg.comments, activity: cfg.activity, addComment, logActivity,
+    activity: cfg.activity, logActivity,
     automations: cfg.automations, saveAutomation, deleteAutomation, toggleAutomation,
   };
 

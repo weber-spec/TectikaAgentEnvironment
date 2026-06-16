@@ -280,6 +280,7 @@ export interface SearchResultItem {
 
 export interface HumanInteraction {
   id: string;
+  origin?: 'Pipeline' | 'Steerable';
   tenantId: string;
   runId: string;
   taskId: string;

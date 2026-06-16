@@ -124,6 +124,18 @@ public class RunAgentRoundActivity
             await _events.PublishRunEventAsync(saved, ct);
         }
 
+        // A steerable control tool paused the run — persist a HumanInteraction so the request surfaces
+        // in the Approvals tab + notifications (and the chat), answerable from any of them.
+        if (outcome.Kind == RoundKind.AwaitUser && outcome.Control is not null)
+        {
+            var interaction = SteerableInteractionFactory.Build(
+                input.RunId, input.TaskId, input.BoardId, input.TenantId, input.Round,
+                task.HumanAuditorId, outcome.Control);
+            var savedInteraction = await _cosmos.UpsertInteractionAsync(interaction, ct);
+            await _events.PublishInteractionRequiredAsync(
+                input.RunId, input.TaskId, input.Round, savedInteraction.Id, savedInteraction.Type.ToString(), ct);
+        }
+
         return new RoundActivityResult(outcome, artifactId);
     }
 

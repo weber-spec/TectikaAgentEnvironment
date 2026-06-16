@@ -114,10 +114,16 @@ public class InteractionsController : ControllerBase
             interaction.Approved,
             interaction.Notes);
 
-        // Wake up orchestrator
+        // Wake up orchestrator. Steerable runs resume on a `user_message` string; the old pipeline
+        // resumes on the structured `interaction-{step}` event.
         var run = await _cosmos.GetRunAsync(interaction.TaskId, req.RunId, ct);
         if (run?.DurableFunctionInstanceId is not null)
-            await RaiseInteractionEventAsync(run.DurableFunctionInstanceId, interaction.StepIndex, payload, ct);
+        {
+            if (interaction.Origin == InteractionOrigin.Steerable)
+                await RaiseUserMessageEventAsync(run.DurableFunctionInstanceId, SteerableInteractionReply.Render(interaction), ct);
+            else
+                await RaiseInteractionEventAsync(run.DurableFunctionInstanceId, interaction.StepIndex, payload, ct);
+        }
         else
             _logger.LogWarning("[InteractionReply] no DurableFunctionInstanceId for run {RunId} — cannot wake orchestrator", req.RunId);
 
@@ -159,6 +165,32 @@ public class InteractionsController : ControllerBase
         else
         {
             _logger.LogInformation("[InteractionEvent] raised interaction event '{Event}' on instance {Instance}", eventName, instanceId);
+        }
+    }
+
+    private async Task RaiseUserMessageEventAsync(string instanceId, string text, CancellationToken ct)
+    {
+        var baseUrl = _durableSettings.StartUrl;
+        var managementBase = baseUrl[..baseUrl.IndexOf("/api/", StringComparison.Ordinal)];
+        var url = $"{managementBase}/runtime/webhooks/durabletask/instances/{instanceId}/raiseEvent/user_message";
+        if (!string.IsNullOrEmpty(_durableSettings.ManagementKey))
+            url += $"?code={Uri.EscapeDataString(_durableSettings.ManagementKey)}";
+
+        // The steerable orchestrator awaits WaitForExternalEvent<string>("user_message"), so the event
+        // body is the JSON-encoded reply string.
+        var body = new StringContent(JsonSerializer.Serialize(text), Encoding.UTF8, "application/json");
+
+        var http = _httpFactory.CreateClient();
+        var response = await http.PostAsync(url, body, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var err = await response.Content.ReadAsStringAsync(ct);
+            _logger.LogError("[InteractionEvent] failed to raise user_message on instance {Instance}: {Status} {Error}", instanceId, response.StatusCode, err);
+        }
+        else
+        {
+            _logger.LogInformation("[InteractionEvent] raised user_message on instance {Instance}", instanceId);
         }
     }
 }
