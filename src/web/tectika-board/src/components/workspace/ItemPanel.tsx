@@ -615,7 +615,12 @@ function stepLabel(ev: RunEvent): { verb: string; obj?: string; res?: string } {
 
 // One real step in the history layer: round intent → subtle header; tool/artifact → ✓ line.
 // A step still in flight (no result yet) shows a spinner — future per-tool streaming lights it up.
+// One real step in the history layer: round intent → subtle header; tool/artifact → ✓ line.
+// Tool/artifact rows are click-to-expand: collapsed truncates to one line, expanded shows the full
+// untruncated tool/args/result. A step still in flight (no result yet) shows a spinner.
 function HistoryStep({ ev }: { ev: RunEvent }) {
+  const [open, setOpen] = useState(false);
+
   if (ev.toolName === 'round_intent') {
     const intent = ev.toolArgsSummary || ev.title;
     if (!intent) return null;
@@ -625,19 +630,24 @@ function HistoryStep({ ev }: { ev: RunEvent }) {
       </div>
     );
   }
+
   const running = !ev.resultSummary && ev.kind !== 'ArtifactWritten';
   const { verb, obj, res } = stepLabel(ev);
+  const expandable = !!(obj || res);
+
   return (
-    <div className="flex items-center gap-2 ml-1 text-[12px] text-[var(--foreground)]">
+    <button type="button" disabled={!expandable} onClick={() => setOpen(o => !o)}
+      className="w-full flex items-start gap-2 ml-1 text-[12px] text-[var(--foreground)] text-left">
       {running
-        ? <span className="w-3.5 h-3.5 rounded-full border-2 border-[var(--border)] border-t-[var(--primary)] animate-spin shrink-0" />
-        : <span className="w-4 h-4 rounded-full bg-[#00c875] text-white grid place-items-center text-[9px] shrink-0">✓</span>}
-      <span className="flex-1 min-w-0 truncate">
+        ? <span className="w-3.5 h-3.5 mt-0.5 rounded-full border-2 border-[var(--border)] border-t-[var(--primary)] animate-spin shrink-0" />
+        : <span className="w-4 h-4 mt-0.5 rounded-full bg-[#00c875] text-white grid place-items-center text-[9px] shrink-0">✓</span>}
+      <span className={`flex-1 min-w-0 ${open ? 'whitespace-pre-wrap break-words' : 'truncate'}`}>
         <span className="text-[var(--muted)]">{verb}</span>
         {obj && <span className="font-mono text-[var(--primary)]"> {obj}</span>}
         {res && <span className="text-[var(--muted-2)]"> · {res}</span>}
       </span>
-    </div>
+      {expandable && <Icon.chevronDown size={12} className={`mt-1 text-[var(--muted-2)] shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />}
+    </button>
   );
 }
 
