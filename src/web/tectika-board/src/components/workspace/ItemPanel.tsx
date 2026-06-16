@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useBoard } from '@/lib/board-context';
 import { api } from '@/lib/api';
-import type { Artifact, AgentTask, AgentRole, RunEvent } from '@/lib/types';
+import type { Artifact, AgentTask, AgentRole, RunEvent, HumanInteraction } from '@/lib/types';
 import { STATUS_CONFIG, STATUS_ORDER, PRIORITY_CONFIG, PRIORITY_ORDER, textOn } from '@/lib/palette';
 import { Avatar, Pill, Button, Spinner } from '@/components/ui/primitives';
 import { Icon } from '@/components/ui/icons';
@@ -17,6 +17,7 @@ import { chatCommands, filterCommands, type ChatCommand, type ChatCommandContext
 import { RunTaskButton } from '@/components/board/RunTaskButton';
 import { LiveEdge } from './LiveEdge';
 import { contextFromEvents, sumTokens } from '@/lib/thinking-phrases';
+import { InteractionCard } from '@/components/InteractionCard';
 
 type Tab = 'chat' | 'updates' | 'activity' | 'details' | 'bridge';
 
@@ -432,6 +433,22 @@ function AgentChat({ task, role }: { task: AgentTask; role?: AgentRole }) {
   const [sending, setSending] = useState(false);
   const [pending, setPending] = useState<Bubble[]>([]);   // optimistic human turns (echo isn't streamed live)
   const [justSent, setJustSent] = useState(false);        // bridge until task.status syncs to InProgress
+  const [pendingInteraction, setPendingInteraction] = useState<HumanInteraction | null>(null);
+
+  // When the run is paused on an agent request, load the pending interaction for this task so we can
+  // render its card inline. Cleared as soon as the task is no longer awaiting.
+  useEffect(() => {
+    if (task.status !== 'AwaitingInteraction') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clear card when not awaiting
+      setPendingInteraction(null);
+      return;
+    }
+    let alive = true;
+    api.interactions.pending()
+      .then(list => { if (alive) setPendingInteraction(list.find(i => i.taskId === task.id) ?? null); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [task.status, task.id]);
   const endRef = useRef<HTMLDivElement>(null);
 
   // Reset per-task UI state when switching tasks.
@@ -544,6 +561,12 @@ function AgentChat({ task, role }: { task: AgentTask; role?: AgentRole }) {
         {stream.map(it => it.kind === 'step'
           ? <HistoryStep key={it.id} ev={it.ev} />
           : <ChatBubble key={it.id} bubble={{ id: it.id, author: it.kind === 'user' ? 'human' : 'agent', text: it.text, at: it.at }} />)}
+        {pendingInteraction && (
+          <InteractionCard
+            interaction={pendingInteraction}
+            onResponded={() => { setPendingInteraction(null); refreshTask(task.id); }}
+          />
+        )}
         {working && <LiveEdge agentName={role?.displayName} context={liveContext} anchorAt={anchorAt} tokens={tokens} />}
         <div ref={endRef} />
       </div>
@@ -559,9 +582,9 @@ function AgentChat({ task, role }: { task: AgentTask; role?: AgentRole }) {
               if (e.key === 'Enter') { e.preventDefault(); runCmd(cmdItems[cmdActive]); return; }
               if (e.key === 'Escape') { e.preventDefault(); setDraft(''); return; }
             }
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
           }}
-          rows={2} placeholder="Message the agent…  (/ for commands, ⌘/Ctrl + Enter to send)"
+          rows={2} placeholder="Message the agent…  (/ for commands, Enter to send, Shift+Enter for newline)"
           className="w-full bg-[var(--surface)] rounded-lg p-2 text-[13px] outline-none resize-none text-[var(--foreground)] border border-[var(--border)] focus:border-[var(--primary)]" />
         <div className="flex justify-end mt-1.5">
           <Button variant="primary" size="sm" disabled={!draft.trim() || sending} onClick={send}><Icon.send size={13} /> Send</Button>
