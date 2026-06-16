@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1
 
 # ---- deps: install node_modules from lockfile ----
-FROM node:22-alpine AS deps
+FROM public.ecr.aws/docker/library/node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
 # ---- builder: produce the standalone Next.js output ----
-FROM node:22-alpine AS builder
+FROM public.ecr.aws/docker/library/node:22-alpine AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 # Public API base URL. NEXT_PUBLIC_* is inlined into the client bundle at build time,
@@ -19,7 +19,7 @@ COPY . .
 RUN npm run build -- --webpack
 
 # ---- runner: minimal runtime image ----
-FROM node:22-alpine AS runner
+FROM public.ecr.aws/docker/library/node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \

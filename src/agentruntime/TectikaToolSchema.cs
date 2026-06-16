@@ -8,7 +8,7 @@ namespace TectikaAgents.AgentRuntime;
 /// whenever the toolset changes so AgentInstructionsHash republishes agent versions.</summary>
 public static class TectikaToolSchema
 {
-    public const string Version = "tools-v2";
+    public const string Version = "tools-v3";
 
     public sealed record ToolProp(string Type, string? Description = null, string[]? Enum = null);
     public sealed record ToolDef(
@@ -91,15 +91,33 @@ public static class TectikaToolSchema
          gh => gh.CanCreatePr),
     ];
 
+    // ── Workspace tools (appended when an ACI workspace is provisioned for the run) ──
+    private static readonly ToolDef RunCommandTool = new(
+        "run_command",
+        "Run a bash shell command in the workspace (the cloned git repo). " +
+        "Returns stdout, stderr, and exit_code. " +
+        "The working directory is the repo root. " +
+        "Use this to read/write files, run builds (dotnet build, npm install), execute tests, git commit, git push, etc. " +
+        "Prefer small focused commands; chain them with &&. For file edits prefer 'cat > path <<EOF ... EOF'.",
+        new Dictionary<string, ToolProp>
+        {
+            ["cmd"] = new("string", "The bash command to run, e.g. 'dotnet build src/MyProject.csproj'."),
+            ["timeout"] = new("integer", "Max seconds to wait (default 60, max 300).")
+        },
+        ["cmd"]);
+
     /// <summary>Project the catalog into the Foundry flat function-tool array (definition.tools).
-    /// Pass <paramref name="github"/> to append the permitted GitHub tools.</summary>
-    public static IReadOnlyList<object> ToFoundryToolsJson(GitHubPermissions? github = null)
+    /// Pass <paramref name="github"/> to append the permitted GitHub tools.
+    /// Pass <paramref name="hasWorkspace"/> true to append the run_command tool.</summary>
+    public static IReadOnlyList<object> ToFoundryToolsJson(GitHubPermissions? github = null, bool hasWorkspace = false)
     {
         var tools = Definitions.Select(d => (object)ToFoundryTool(d)).ToList();
         if (github is not null)
             tools.AddRange(GitHubTools
                 .Where(t => t.Allowed(github))
                 .Select(t => (object)ToFoundryTool(t.Def)));
+        if (hasWorkspace)
+            tools.Add(ToFoundryTool(RunCommandTool));
         return tools;
     }
 

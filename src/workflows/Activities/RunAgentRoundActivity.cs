@@ -75,7 +75,12 @@ public class RunAgentRoundActivity
 
         var explorer = new BoardProjectExplorer(_cosmos, input.BoardId, input.TenantId);
         var outcome = await _runtime.RunRoundAsync(
-            new RoundRequest(role, task, threadId, userInput, input.PendingToolOutputs, _maxCompletionTokens, input.RunId, input.Round),
+            new RoundRequest(role, task, threadId, userInput, input.PendingToolOutputs, _maxCompletionTokens, input.RunId, input.Round)
+            {
+                BoardGitHub = board.GitHub,
+                WorkspaceEndpoint = input.WorkspaceEndpoint,
+                WorkspaceToken = input.WorkspaceToken,
+            },
             explorer, ct);
 
         // Fold a tool-driven brief update into the task brief.
@@ -131,6 +136,8 @@ public record RoundActivityInput(
     string AgentRoleId,
     int Round,
     string? UserInput,
-    List<PriorToolOutput> PendingToolOutputs);
+    List<PriorToolOutput> PendingToolOutputs,
+    string? WorkspaceEndpoint = null,
+    string? WorkspaceToken = null);
 
 public record RoundActivityResult(RoundOutcome Outcome, string? ArtifactId);

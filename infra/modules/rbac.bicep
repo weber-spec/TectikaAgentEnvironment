@@ -18,6 +18,8 @@ var roles = {
   acrPull: '7f951dda-4ed3-4680-a7ca-43fe172d538d'
   serviceBusDataOwner: '090c5cfd-751d-490a-894a-3ce6f1109419'
   keyVaultSecretsUser: '4633458b-17de-408a-b874-0445c86b69e6'
+  // Contributor on the RG — lets the workflows identity create/delete ACI container groups.
+  contributor: 'b24988ac-6180-42a0-ab88-20f7382dd24c'
   // "Azure AI User" (surfaced as "Foundry User" in some tenants). dataActions = Microsoft.CognitiveServices/*
   // → the Foundry data-plane role: Agent Service (accounts/AIServices/agents/* — create/update/delete agents,
   // threads, runs) AND OpenAI inference. Replaces the prior OpenAI-User + AI-Developer pair, which lacked
@@ -120,6 +122,17 @@ resource storageTable 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: storage
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.storageTableDataContributor)
+    principalId: workflowsMiPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// ── Contributor on RG: workflows (for ACI create/delete) ─────────────────────
+// Scoped to RG rather than subscription — least-privilege for container management.
+resource aciContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(resourceGroup().id, workflowsMiPrincipalId, roles.contributor)
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.contributor)
     principalId: workflowsMiPrincipalId
     principalType: 'ServicePrincipal'
   }

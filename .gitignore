@@ -37,3 +37,7 @@ Thumbs.db
 
 # Visual brainstorming companion (scratch)
 .superpowers/
+
+# Workflows publish output (build artifacts, not source)
+publish-workflows/
+publish-workflows*.zip

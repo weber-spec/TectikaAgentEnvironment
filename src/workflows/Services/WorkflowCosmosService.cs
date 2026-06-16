@@ -185,6 +185,19 @@ public class WorkflowCosmosService
         await C("workflowRuns").ReplaceItemAsync(run, run.Id, new PartitionKey(run.TaskId), cancellationToken: ct);
     }
 
+    public async Task PatchRunWorkspaceAsync(string runId, string containerName, CancellationToken ct = default)
+    {
+        // WorkflowRun partition key is taskId — we need to find the run first to get it.
+        var q = new QueryDefinition("SELECT * FROM c WHERE c.id=@id").WithParameter("@id", runId);
+        var iter = C("workflowRuns").GetItemQueryIterator<WorkflowRun>(q);
+        WorkflowRun? run = null;
+        while (iter.HasMoreResults && run is null)
+            foreach (var r in await iter.ReadNextAsync(ct)) run = r;
+        if (run is null) return;
+        run.WorkspaceContainerName = containerName;
+        await C("workflowRuns").ReplaceItemAsync(run, run.Id, new PartitionKey(run.TaskId), cancellationToken: ct);
+    }
+
     // ── Artifact ──────────────────────────────────────────────────────────────
 
     public async Task<Artifact> CreateArtifactAsync(Artifact artifact, CancellationToken ct = default)

@@ -39,6 +39,11 @@ public class WorkflowRun
 
     [JsonPropertyName("completedAt")]
     public DateTimeOffset? CompletedAt { get; set; }
+
+    /// <summary>ACI container group name for the workspace provisioned by this run. Null when no
+    /// GitHub repo is connected, or for pipeline runs that don't use the workspace.</summary>
+    [JsonPropertyName("workspaceContainerName")]
+    public string? WorkspaceContainerName { get; set; }
 }
 
 public class PipelineStep

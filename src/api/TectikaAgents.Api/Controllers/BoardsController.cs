@@ -101,14 +101,17 @@ public class BoardsController : ControllerBase
         }
 
         var secretName = $"github-pat-board-{boardId}";
-        try
+        if (!string.IsNullOrEmpty(req.Pat))
         {
-            await _secrets.SetSecretAsync(secretName, req.Pat, ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "[GitHubConnect] failed to store PAT secret {SecretName} for board {BoardId}", secretName, boardId);
-            throw;
+            try
+            {
+                await _secrets.SetSecretAsync(secretName, req.Pat, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[GitHubConnect] failed to store PAT secret {SecretName} for board {BoardId}", secretName, boardId);
+                throw;
+            }
         }
 
         board.GitHub = new GitHubRepoConnection

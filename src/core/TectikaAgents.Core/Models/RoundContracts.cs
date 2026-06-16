@@ -14,7 +14,9 @@ public sealed record RoundRequest(
     int MaxCompletionTokens,
     string RunId,
     int Round,
-    GitHubRepoConnection? BoardGitHub = null);
+    GitHubRepoConnection? BoardGitHub = null,
+    string? WorkspaceEndpoint = null,
+    string? WorkspaceToken = null);
 
 /// <summary>A function_call_output to submit on the next round (call_id + the tool's result text).</summary>
 public sealed record PriorToolOutput(string CallId, string Output);

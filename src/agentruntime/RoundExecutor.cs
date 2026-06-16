@@ -1,5 +1,6 @@
 using System.Text.Json;
 using TectikaAgents.AgentRuntime.GitHub;
+using TectikaAgents.AgentRuntime.Workspace;
 using TectikaAgents.Core.Interfaces;
 using TectikaAgents.Core.Models;
 
@@ -24,6 +25,7 @@ public static class RoundExecutor
     public static async Task<RoundProcessResult> ExecuteOneRoundAsync(
         RoundResponse resp, IProjectExplorer explorer, Action<string, string> onToolCall,
         IGitHubToolExecutor? gitHub, GitHubRepoConnection? boardRepo, AgentRole? role,
+        WorkspaceToolExecutor? workspace, string? workspaceEndpoint, string? workspaceToken,
         CancellationToken ct)
     {
         if (resp.ToolCalls is null || resp.ToolCalls.Count == 0)
@@ -74,6 +76,19 @@ public static class RoundExecutor
                 case "get_artifact":
                     outputs.Add(new(call.CallId, await Serialize(explorer.GetArtifactAsync(Str(args, "taskId"), IntOrNull(args, "version"), ct))));
                     traced.Add(new("get_artifact", Str(args, "taskId"), Summarize(outputs[^1].Output))); break;
+                case "run_command":
+                    if (workspace is not null && workspaceEndpoint is not null && workspaceToken is not null)
+                    {
+                        var wsResult = await workspace.ExecuteAsync(args, workspaceEndpoint, workspaceToken, ct);
+                        outputs.Add(new(call.CallId, wsResult));
+                        traced.Add(new("run_command", Str(args, "cmd"), Summarize(wsResult)));
+                    }
+                    else
+                    {
+                        outputs.Add(new(call.CallId, """{"error":"No workspace available for this run. The board has no GitHub repo connected."}"""));
+                        traced.Add(new("run_command", Str(args, "cmd"), "no workspace"));
+                    }
+                    break;
                 default:
                     if (gitHub is not null && role is not null && gitHub.CanHandle(call.Name))
                     {

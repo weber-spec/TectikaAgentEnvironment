@@ -11,6 +11,7 @@ using OpenTelemetry;
 using Azure.Monitor.OpenTelemetry.Exporter;
 using TectikaAgents.AgentRuntime;
 using TectikaAgents.AgentRuntime.GitHub;
+using TectikaAgents.AgentRuntime.Workspace;
 using TectikaAgents.Core.Configuration;
 using TectikaAgents.Core.Interfaces;
 using TectikaAgents.Workflows.Services;
@@ -70,6 +71,8 @@ else
     builder.Services.AddSingleton<ISecretProvider, KeyVaultSecretProvider>();
 
 builder.Services.AddSingleton<IGitHubToolExecutor, OctokitGitHubToolExecutor>();
+builder.Services.AddSingleton<IWorkspaceService, WorkspaceService>();
+builder.Services.AddSingleton<WorkspaceToolExecutor>();
 
 // ── Agent runtime (Foundry or Mock) ──────────────────────────────────────────
 var useMockAgents = builder.Configuration.GetValue<bool>("Foundry:UseMock", useMockDatabase);

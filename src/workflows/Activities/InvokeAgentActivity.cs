@@ -116,7 +116,8 @@ public class InvokeAgentActivity
             // Board-scoped exploration tools for this turn (agent cannot reach other boards).
             var explorer = new BoardProjectExplorer(_cosmos, input.BoardId, input.TenantId);
             outcome = await _runtime.RunTurnAsync(
-                new AgentRunRequest(role, task, threadId, userContent, _maxCompletionTokens, input.RunId, input.Step),
+                new AgentRunRequest(role, task, threadId, userContent, _maxCompletionTokens, input.RunId, input.Step)
+                    { BoardGitHub = board.GitHub },
                 explorer, ct);
 
             _logger.LogInformation("[InvokeAgent] runtime returned role={Role} task={Task} step={Step} status={Status} completion={Completion}",

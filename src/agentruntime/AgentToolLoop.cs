@@ -1,5 +1,6 @@
 using System.Text.Json;
 using TectikaAgents.AgentRuntime.GitHub;
+using TectikaAgents.AgentRuntime.Workspace;
 using TectikaAgents.Core.Interfaces;
 using TectikaAgents.Core.Models;
 
@@ -40,14 +41,21 @@ public sealed class AgentToolLoop
     private readonly IGitHubToolExecutor? _gitHub;
     private readonly GitHubRepoConnection? _boardRepo;
     private readonly AgentRole? _role;
+    private readonly WorkspaceToolExecutor? _workspace;
+    private readonly string? _workspaceEndpoint;
+    private readonly string? _workspaceToken;
 
     public AgentToolLoop(IProjectExplorer explorer, IGitHubToolExecutor? gitHub = null,
-        GitHubRepoConnection? boardRepo = null, AgentRole? role = null)
+        GitHubRepoConnection? boardRepo = null, AgentRole? role = null,
+        WorkspaceToolExecutor? workspace = null, string? workspaceEndpoint = null, string? workspaceToken = null)
     {
         _explorer = explorer;
         _gitHub = gitHub;
         _boardRepo = boardRepo;
         _role = role;
+        _workspace = workspace;
+        _workspaceEndpoint = workspaceEndpoint;
+        _workspaceToken = workspaceToken;
     }
 
     public delegate Task<RoundResponse> SendRound(IReadOnlyList<ToolOutput> toolOutputs, CancellationToken ct);
@@ -73,7 +81,7 @@ public sealed class AgentToolLoop
             }
 
             var processed = await RoundExecutor.ExecuteOneRoundAsync(resp, _explorer, onToolCall,
-                _gitHub, _boardRepo, _role, ct);
+                _gitHub, _boardRepo, _role, _workspace, _workspaceEndpoint, _workspaceToken, ct);
             if (processed.RoundIntent is not null) result.RoundIntent = processed.RoundIntent;
             if (processed.BriefUpdate is not null) result.BriefUpdate = processed.BriefUpdate;
             if (processed.Control is not null)

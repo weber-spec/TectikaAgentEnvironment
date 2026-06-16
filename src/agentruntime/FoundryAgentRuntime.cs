@@ -6,6 +6,7 @@ using Azure.Identity;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TectikaAgents.AgentRuntime.GitHub;
+using TectikaAgents.AgentRuntime.Workspace;
 using TectikaAgents.Core.Configuration;
 using TectikaAgents.Core.Interfaces;
 using TectikaAgents.Core.Models;
@@ -45,6 +46,7 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
     private readonly TokenCredential _credential = new DefaultAzureCredential();
     private readonly string _base;
     private readonly IGitHubToolExecutor? _gitHub;
+    private readonly WorkspaceToolExecutor? _workspaceExecutor;
 
     /// <summary>Optional per-turn sink for the agent's output text (one event, non-streaming).</summary>
     public Action<string>? OnText { get; set; }
@@ -52,7 +54,7 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
 
     public FoundryAgentRuntime(IHttpClientFactory httpFactory, IOptions<FoundrySettings> settings,
         IOptions<LoggingSettings> logging, ILogger<FoundryAgentRuntime> logger,
-        IGitHubToolExecutor? gitHub = null)
+        IGitHubToolExecutor? gitHub = null, WorkspaceToolExecutor? workspaceExecutor = null)
     {
         _httpFactory = httpFactory;
         _settings = settings.Value;
@@ -60,6 +62,7 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         _logSensitive = logging.Value.LogSensitiveContent;
         _base = _settings.ProjectEndpoint.TrimEnd('/');
         _gitHub = gitHub;
+        _workspaceExecutor = workspaceExecutor;
     }
 
     private async Task<HttpClient> ClientAsync(CancellationToken ct)
@@ -157,7 +160,8 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         try
         {
             var http = await ClientAsync(ct).ConfigureAwait(false);
-            var loop = new AgentToolLoop(explorer, _gitHub, req.BoardGitHub, req.Role);
+            var loop = new AgentToolLoop(explorer, _gitHub, req.BoardGitHub, req.Role,
+                _workspaceExecutor, workspaceEndpoint: null, workspaceToken: null);
             var first = true;
             var lastResponseId = "";
 
@@ -249,7 +253,8 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
 
             var p = await RoundExecutor.ExecuteOneRoundAsync(round, explorer,
                 (n, _) => OnText?.Invoke($"\n[using tool: {n}]\n"),
-                _gitHub, req.BoardGitHub, req.Role, ct).ConfigureAwait(false);
+                _gitHub, req.BoardGitHub, req.Role,
+                _workspaceExecutor, req.WorkspaceEndpoint, req.WorkspaceToken, ct).ConfigureAwait(false);
             var next = p.ToolOutputs.Select(o => new PriorToolOutput(o.CallId, o.Output)).ToList();
             var id = r.Id ?? $"round-{req.RunId}-{req.Round}";
 
