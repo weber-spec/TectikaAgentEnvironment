@@ -3,7 +3,7 @@
 import React, { useEffect, useCallback, useMemo, useRef, useState, useContext } from 'react';
 import {
   ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, Panel,
-  reconnectEdge, useNodesState, useEdgesState, useReactFlow,
+  reconnectEdge, useNodesState, useEdgesState, useReactFlow, useStore,
   Handle, Position, BaseEdge, EdgeLabelRenderer, getBezierPath, MarkerType, BackgroundVariant,
   type Node, type Edge, type Connection, type NodeChange, type NodeProps, type EdgeProps,
 } from '@xyflow/react';
@@ -16,6 +16,7 @@ import { Avatar, Pill } from '@/components/ui/primitives';
 import { Icon } from '@/components/ui/icons';
 import { formatCompact } from '@/lib/format';
 import { toast } from '@/lib/toast';
+import { getFeedbackPath, type NodeBox } from './feedbackEdgePath';
 
 interface NodeData { taskId: string }
 
@@ -178,10 +179,25 @@ function Inner() {
 }
 
 // ── Custom edge: feedback styling, hover/selection highlight, label + toolbar ────
-function PipelineEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, selected, data }: EdgeProps) {
+function PipelineEdge({ id, source, target, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, selected, data }: EdgeProps) {
   const ui = useContext(EdgeUiCtx);
-  const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
   const feedback = !!(data as { feedback?: boolean })?.feedback;
+  // Read live node boxes from the store so the feedback arc can dip below nodes
+  // that sit between its endpoints. nodeLookup changes identity when nodes move.
+  const nodeLookup = useStore((s) => s.nodeLookup);
+  const nodeBoxes = useMemo<NodeBox[]>(
+    () => Array.from(nodeLookup.values()).map((n) => ({
+      id: n.id,
+      x: n.internals.positionAbsolute.x,
+      y: n.internals.positionAbsolute.y,
+      width: n.measured.width ?? 0,
+      height: n.measured.height ?? 0,
+    })),
+    [nodeLookup],
+  );
+  const [path, labelX, labelY] = feedback
+    ? getFeedbackPath({ sourceX, sourceY, targetX, targetY, sourceId: source, targetId: target, nodeBoxes })
+    : getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
   const label = ((data as { label?: string })?.label) ?? '';
   const currentIterations = (data as { currentIterations?: number })?.currentIterations;
   const maxIterations = (data as { maxIterations?: number })?.maxIterations;
