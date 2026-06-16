@@ -4,6 +4,7 @@ import React from 'react';
 import { useBoard } from '@/lib/board-context';
 import { Avatar, Pill } from '@/components/ui/primitives';
 import { Icon } from '@/components/ui/icons';
+import { RunTaskButton } from '@/components/board/RunTaskButton';
 import { STATUS_CONFIG, PRIORITY_CONFIG } from '@/lib/palette';
 import { formatDateShort, daysUntil, relativeTime } from '@/lib/format';
 
@@ -18,13 +19,17 @@ export function CardsView() {
           const overdue = dd != null && dd < 0 && task.status !== 'Done';
           const st = STATUS_CONFIG[task.status];
           return (
-            <button key={task.id} onClick={() => openTask(task.id)}
-              className="text-left bg-[var(--background)] rounded-xl border border-[var(--border)] overflow-hidden hover:shadow-lg transition-shadow group">
+            <div key={task.id} onClick={() => openTask(task.id)} role="button" tabIndex={0}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTask(task.id); } }}
+              className="text-left bg-[var(--background)] rounded-xl border border-[var(--border)] overflow-hidden hover:shadow-lg transition-shadow group cursor-pointer">
               <div className="h-1.5" style={{ background: st.hex }} />
               <div className="p-3.5">
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <span className="text-sm font-semibold text-[var(--foreground)] line-clamp-2">{task.title}</span>
-                  <Avatar person={person} name={task.assignee.id} size={26} />
+                  <div className="flex items-center gap-1 shrink-0">
+                    <RunTaskButton task={task} mode="icon" />
+                    <Avatar person={person} name={task.assignee.id} size={26} />
+                  </div>
                 </div>
                 {task.description && <p className="text-xs text-[var(--muted)] line-clamp-2 mb-3">{task.description}</p>}
                 <div className="flex items-center gap-1.5 flex-wrap mb-2">
@@ -36,7 +41,7 @@ export function CardsView() {
                   <span>{relativeTime(task.createdAt)}</span>
                 </div>
               </div>
-            </button>
+            </div>
           );
         })}
       </div>

@@ -10,6 +10,7 @@ import type { AgentTask, AgentTaskStatus, TaskPriority } from '@/lib/types';
 import type { TaskGroup } from '@/lib/board-engine';
 import { Avatar, Pill } from '@/components/ui/primitives';
 import { Icon } from '@/components/ui/icons';
+import { RunTaskButton } from '@/components/board/RunTaskButton';
 import { STATUS_CONFIG, PRIORITY_CONFIG, alpha } from '@/lib/palette';
 import { formatDateShort, daysUntil } from '@/lib/format';
 
@@ -88,7 +89,7 @@ function Card({ task, onOpen, dragging }: { task: AgentTask; onOpen: (id: string
   const overdue = dd != null && dd < 0 && task.status !== 'Done';
   return (
     <div onClick={() => onOpen(task.id)}
-      className={`bg-[var(--background)] rounded-lg border border-[var(--border)] p-3 cursor-pointer hover:shadow-md transition-shadow ${dragging ? 'shadow-2xl rotate-2' : ''}`}
+      className={`group bg-[var(--background)] rounded-lg border border-[var(--border)] p-3 cursor-pointer hover:shadow-md transition-shadow ${dragging ? 'shadow-2xl rotate-2' : ''}`}
       style={{ borderLeft: `3px solid ${STATUS_CONFIG[task.status].hex}` }}>
       <div className="text-sm font-medium text-[var(--foreground)] mb-2 line-clamp-2">{task.title}</div>
       <div className="flex items-center gap-1.5 mb-2 flex-wrap">
@@ -97,9 +98,12 @@ function Card({ task, onOpen, dragging }: { task: AgentTask; onOpen: (id: string
       </div>
       <div className="flex items-center justify-between">
         <Avatar person={person} name={task.assignee.id} size={22} />
-        {linkCount > 0 && (
-          <span className="text-[11px] text-[var(--primary)] inline-flex items-center gap-0.5"><Icon.link size={11} />{linkCount}</span>
-        )}
+        <div className="flex items-center gap-1.5">
+          {linkCount > 0 && (
+            <span className="text-[11px] text-[var(--primary)] inline-flex items-center gap-0.5"><Icon.link size={11} />{linkCount}</span>
+          )}
+          <RunTaskButton task={task} mode="icon" />
+        </div>
       </div>
     </div>
   );
