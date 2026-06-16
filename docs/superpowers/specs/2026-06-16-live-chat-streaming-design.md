@@ -47,9 +47,10 @@ the chat shows almost nothing until the agent's final reply. Three concrete fail
   reloads from Cosmos (so the user bubble reappears), but nothing tells the UI the agent is
   still working.
 - **Plumbing already exists.** Events flow workflows → Service Bus → API SSE → browser, and
-  persisted events are replayed on mount via `GET /tasks/{id}/events`. Run status is streamed/
-  polled into `runsById` in board-context. We extend *what/when* we emit and *how* the UI
-  derives "working"; we do not build new transport.
+  persisted events are replayed on mount via `GET /tasks/{id}/events`. Task status (including the
+  `InProgress` working flag) is streamed/polled into board-context. We render the existing events
+  richly and derive "working" from the existing `task.status` signal; we build no new transport,
+  emission, or backend state.
 
 ## Design
 
@@ -69,31 +70,29 @@ The chat's running region is split into two layers:
 - **Live edge — ephemeral, lively.** Exactly one active element at the bottom, shown whenever
   the run is working. It is fed by a priority cascade and never sits static (section C).
 
-### B. Backend — make real signal flow
+### B. Backend — no change required
 
-Emit a `RoundStarted` event at the **start** of each round so the live edge is anchored and
-persisted the instant work begins, and so the long model-call gap is bracketed.
+During planning we confirmed the backend already provides everything the experience needs, so
+this is a **frontend-only** change (Decision D3):
 
-- In `RunAgentRoundActivity.Run`, before calling `RunRoundAsync`:
-  - Build a `RoundStarted` RunEvent with a deterministic id (`{runId}-r{round}` or a stable GUID
-    derived from runId+round) so it is idempotent across Durable activity retries and can serve
-    as the parent id for the round's children.
-  - Persist + publish it.
-- Refactor `RunEventFactory`:
-  - `BuildRoundStart(runId, taskId, round)` → the parent `RoundStarted` event (id is stable).
-  - `BuildRoundChildren(parentId, runId, taskId, round, outcome, artifactId)` → the children
-    (`ToolCall`, `ArtifactWritten`, `AgentMessage`, `InteractionRequired`/`ApprovalRequired`),
-    each carrying `ParentId = parentId`. No second `RoundStarted` is created at round end.
-- Round intent in the header: prefer to PATCH the parent `RoundStarted` title to the model's
-  `round_intent` (from `outcome.RoundIntent`) after the round completes. If that PATCH path is
-  non-trivial, leave the parent title generic ("Working…") and let the intent surface via the
-  first child line instead. Both are acceptable; the UI tolerates a generic header. Chosen at
-  implementation time.
-- Idempotency: event ids must be stable per (runId, round, ordinal) so an activity retry
-  re-publishing does not create duplicate persisted rows; the frontend already dedupes live
-  events by id (`ItemPanel.tsx:194`).
+- **Live visibility already streams.** `RoundStarted`, `ToolCall`, `ArtifactWritten`, and
+  `AgentMessage` are all published over SSE at round end (`RunAgentRoundActivity.cs:114-118`) and
+  the chat already receives them — it only fails to *render* them richly. The fix is rendering,
+  not transport.
+- **The working signal already exists and is live-synced.** `task.status === 'InProgress'` is
+  the authoritative "agent is working" flag the backend sets on run start and clears when work
+  stops; board-context keeps it fresh via SSE + polling (`board-context.tsx:659`,
+  `isTaskRunning`). The live edge is anchored on it — which also fixes the navigate-away bug,
+  because it is server state, not React state.
+- **Tokens already stream.** Each `RoundStarted` event carries that round's `tokenUsage`
+  (`RunEventFactory.cs:23`); summing across events gives the live cumulative count.
 
-This stays entirely inside the activity (replay-safe); the orchestrator is untouched.
+The long model-call gap is covered exactly as in the validated demo: the live edge is already up
+(from `task.status`) with rotating phrases + ticking timer, then each round's steps pop into
+history when the round completes. Emitting a `RoundStarted` event at round *start* (the earlier
+draft of this spec) would add only a cosmetic "round started" header before the first round
+finishes, at the cost of Durable Functions changes, retry idempotency, and a workflows redeploy —
+not worth it.
 
 ### C. Live edge mechanics (frontend module)
 
@@ -117,14 +116,17 @@ New `src/web/tectika-board/src/lib/thinking-phrases.ts` + a `useLiveEdge` hook.
 
 `working` is derived from server truth, not local state:
 
-- Primary: `runsById[activeRunId]?.status` is `Running` or `Pending`.
-- Bridge: an optimistic local flag covers the brief window between "user sent" and the run
-  record existing in `runsById`.
-- Hide the live edge when status is `Completed` / `Failed` / `Cancelled`, or when an
-  interaction/approval is pending (the existing interaction UI takes over).
+- Primary: `task.status === 'InProgress'`. This is the authoritative, live-synced signal the
+  backend maps every working state onto (it flips to `AwaitingApproval`/`AwaitingInteraction`/
+  `Review`/`Done`/`Failed` when the agent stops or pauses), already used by `isTaskRunning`.
+- Bridge: an optimistic local `justSent` flag covers the brief window between "user sent" and
+  `task.status` syncing to `InProgress`.
+- The live edge therefore shows iff `task.status === 'InProgress' || justSent`, and hides
+  automatically on any non-working status — including when an interaction/approval is pending,
+  where the existing interaction UI takes over.
 
-Because `runsById` is repopulated from the server on mount and kept fresh by SSE + polling,
-returning to the chat re-derives the true working state and the live edge persists.
+Because `task` comes from board-context (repopulated from the server on mount, kept fresh by SSE +
+polling), returning to the chat re-derives the true working state and the live edge persists.
 
 ### E. Event → UI mapping
 
@@ -140,42 +142,37 @@ returning to the chat re-derives the true working state and the live edge persis
 
 ## Decisions
 
-- **D1 — Within-round tool streaming: batch at round end (chosen).** Emit `RoundStarted` at
-  round start; all tool/artifact/message events publish together when the round finishes. Fast
-  board reads feel instant; the model-call gap is covered by the live edge. Simplest, no new
-  agentruntime→workflows callback. Tradeoff: slow tools (GitHub push/PR, future test runs) show
+- **D1 — Within-round tool streaming: batch at round end (chosen).** All tool/artifact/message
+  events publish together when the round finishes. Fast board reads feel instant; the model-call
+  gap is covered by the live edge. Tradeoff: slow tools (GitHub push/PR, future test runs) show
   their spinner→check only at round end, not mid-flight. The history component keeps the
   spinner→check affordance so per-tool streaming can be added later with no UI rework.
-- **D2 — Token display is honest.** Real cumulative tokens, updated at round boundaries; the
-  elapsed timer is the smooth element. No synthesized counts.
+- **D2 — Token display is honest.** Real cumulative tokens, summed from event `tokenUsage` at
+  round boundaries; the elapsed timer is the smooth element. No synthesized counts.
+- **D3 — Frontend-only (chosen).** All three problems are solved in the web app. The backend
+  already streams round events and exposes the `task.status === 'InProgress'` working signal, so
+  no Durable Functions / Cosmos / Service Bus changes and no workflows redeploy. Lower-risk and
+  simpler. Cost: no "round started" header before round 1 completes (the live edge covers it).
 
-## Files touched
+## Files touched (frontend-only)
 
-**Backend**
-- `src/workflows/Activities/RunAgentRoundActivity.cs` — emit `RoundStarted` before the model
-  call; emit children with the stable parent id after.
-- `src/workflows/Services/RunEventFactory.cs` — split into `BuildRoundStart` /
-  `BuildRoundChildren`; stable event ids.
-- `src/workflows/Services/WorkflowCosmosService.cs` — only if a round-intent title PATCH path is
-  used.
-
-**Frontend**
 - `src/web/tectika-board/src/lib/thinking-phrases.ts` — new: phrase pools, `tool→context` map,
-  selection helper.
+  and pure helpers (phrase picker, token sum, context-from-events).
+- `src/web/tectika-board/src/components/workspace/LiveEdge.tsx` — new: the live-edge component +
+  `useLiveEdge` hook (rotating phrase, elapsed timer, token count, presence orb).
 - `src/web/tectika-board/src/components/workspace/ItemPanel.tsx` — rework `AgentChat` running
-  region into history layer + live edge; derive `working` from run status; new `useLiveEdge`
-  hook (here or a sibling file).
+  region into history layer + live edge; derive `working` from `task.status`; render the full
+  activity stream (RoundStarted/ToolCall/ArtifactWritten/AgentMessage) as history.
 
 ## Testing
 
-- **Backend:** `dotnet build`; unit test `RunEventFactory` split (stable ids, parent/child
-  wiring, no duplicate `RoundStarted`).
 - **Frontend:** `npx tsc --noEmit`, `npx eslint`, `npm run build -- --webpack` (no JS test
-  runner in this app).
-- **Live smoke (deployed):** send a chat message; confirm `RoundStarted` appears immediately,
-  the live edge shows and rotates phrases with a ticking timer through the model-call gap, real
-  steps commit to history, and — critically — navigating away and back keeps the live edge
-  present while the run is still `Running`.
+  runner in this app). Pure helpers in `thinking-phrases.ts` are written to be unit-checkable by
+  inspection (deterministic given inputs; the only randomness is phrase choice).
+- **Live smoke (deployed):** send a chat message; confirm the live edge shows and rotates phrases
+  with a ticking timer through the model-call gap, real steps commit to history as each round
+  completes, and — critically — navigating away and back keeps the live edge present while
+  `task.status === 'InProgress'`.
 
 ## Edge cases
 
