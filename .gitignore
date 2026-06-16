@@ -34,3 +34,6 @@ Thumbs.db
 
 # local secrets
 .monday_tkn
+
+# Visual brainstorming companion (scratch)
+.superpowers/
