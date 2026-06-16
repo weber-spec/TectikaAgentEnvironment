@@ -15,6 +15,8 @@ import { CliInstallGuide } from './CliInstallGuide';
 import { CommandMenu } from './CommandMenu';
 import { chatCommands, filterCommands, type ChatCommand, type ChatCommandContext } from '@/lib/chat-commands';
 import { RunTaskButton } from '@/components/board/RunTaskButton';
+import { LiveEdge } from './LiveEdge';
+import { contextFromEvents, sumTokens } from '@/lib/thinking-phrases';
 
 type Tab = 'chat' | 'updates' | 'activity' | 'details' | 'bridge';
 
@@ -428,33 +430,66 @@ function AgentChat({ task, role }: { task: AgentTask; role?: AgentRole }) {
   const events = useRunEvents(task, activeRunId);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
-  const [pending, setPending] = useState<Bubble[]>([]);   // optimistic human turns (echo isn't streamed)
+  const [pending, setPending] = useState<Bubble[]>([]);   // optimistic human turns (echo isn't streamed live)
+  const [justSent, setJustSent] = useState(false);        // bridge until task.status syncs to InProgress
   const endRef = useRef<HTMLDivElement>(null);
 
-  // Reset optimistic turns when switching tasks.
+  // Reset per-task UI state when switching tasks.
   // eslint-disable-next-line react-hooks/set-state-in-effect -- clear pending bubbles on task change
-  useEffect(() => { setPending([]); setActiveRunId(task.workflowRunId); }, [task.id]);
+  useEffect(() => { setPending([]); setActiveRunId(task.workflowRunId); setJustSent(false); }, [task.id]);
 
-  const bubbles = useMemo<Bubble[]>(() => {
-    const fromEvents = events
-      .filter(e => e.kind === 'UserMessage' || e.kind === 'AgentMessage' || e.kind === 'ToolCall')
-      .map(e => ({
-        id: e.id,
-        author: e.kind === 'UserMessage' ? 'human' : e.kind === 'ToolCall' ? 'tool' : 'agent',
-        text: e.kind === 'ToolCall' ? `${e.toolName}${e.resultSummary ? ` → ${e.resultSummary}` : ''}` : (e.detail || e.title || ''),
-        toolName: e.toolName,
-        at: e.timestamp,
-      } as Bubble));
-    return [...fromEvents, ...pending].sort((a, b) => +new Date(a.at) - +new Date(b.at));
+  // Once the server reflects the run (status → InProgress), task.status drives `working`.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- clear the optimistic bridge once status syncs
+  useEffect(() => { if (task.status === 'InProgress') setJustSent(false); }, [task.status]);
+  // Safety: never let the optimistic bridge linger if the run never started.
+  useEffect(() => {
+    if (!justSent) return;
+    const id = setTimeout(() => setJustSent(false), 12000);
+    return () => clearTimeout(id);
+  }, [justSent]);
+
+  // ── Chronological stream: user/agent bubbles + tool/artifact history steps ──
+  type StreamItem =
+    | { kind: 'user' | 'agent'; id: string; text: string; at: string }
+    | { kind: 'step'; id: string; ev: RunEvent; at: string };
+
+  const stream = useMemo<StreamItem[]>(() => {
+    const items: StreamItem[] = [];
+    for (const e of events) {
+      if (e.kind === 'UserMessage') items.push({ kind: 'user', id: e.id, text: e.detail || e.title || '', at: e.timestamp });
+      else if (e.kind === 'AgentMessage') items.push({ kind: 'agent', id: e.id, text: e.detail || e.title || '', at: e.timestamp });
+      else if (e.kind === 'ToolCall' || e.kind === 'ArtifactWritten') items.push({ kind: 'step', id: e.id, ev: e, at: e.timestamp });
+    }
+    // optimistic human turns not yet present as a persisted UserMessage
+    for (const p of pending) {
+      if (!items.some(it => it.kind === 'user' && it.text === p.text)) items.push({ kind: 'user', id: p.id, text: p.text, at: p.at });
+    }
+    return items.sort((a, b) => +new Date(a.at) - +new Date(b.at));
   }, [events, pending]);
 
-  // Spinner stops once the agent has produced a message at/after our last send.
-  const lastAgentAt = useMemo(() =>
-    events.filter(e => e.kind === 'AgentMessage').map(e => e.timestamp).sort().at(-1), [events]);
-  const lastSentAt = pending.at(-1)?.at;
-  const thinking = sending || (!!lastSentAt && (!lastAgentAt || lastAgentAt < lastSentAt));
+  // Timer anchor: the current turn's user message (or, for a board-triggered run, the run start).
+  const anchorAt = useMemo(() => {
+    const lastUser = events.filter(e => e.kind === 'UserMessage').map(e => e.timestamp).sort().at(-1);
+    const fromPending = pending.at(-1)?.at;
+    if (fromPending && (!lastUser || fromPending > lastUser)) return fromPending;
+    if (lastUser) return lastUser;
+    return events.map(e => e.timestamp).sort()[0];
+  }, [events, pending]);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [bubbles.length, thinking]);
+  // The agent has answered the current turn once a Final AgentMessage lands after the anchor.
+  const answered = useMemo(
+    () => !!anchorAt && events.some(e => e.kind === 'AgentMessage' && e.timestamp > anchorAt),
+    [events, anchorAt],
+  );
+
+  // "Working" is server-derived (survives navigation): the task is InProgress, bridged by the
+  // optimistic just-sent flag, and not yet answered for this turn.
+  const working = (task.status === 'InProgress' || justSent || sending) && !answered;
+
+  const liveContext = useMemo(() => contextFromEvents(events), [events]);
+  const tokens = useMemo(() => sumTokens(events), [events]);
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [stream.length, working]);
 
   const send = async () => {
     const text = draft.trim();
@@ -463,8 +498,9 @@ function AgentChat({ task, role }: { task: AgentTask; role?: AgentRole }) {
     setPending(p => [...p, { id: `local-${at}`, author: 'human', text, at }]);
     setDraft('');
     setSending(true);
+    setJustSent(true);
     try { const res = await api.tasks.chat(task.boardId, task.id, text); setActiveRunId(res.runId); }
-    catch { toast('Could not send message', 'error'); }
+    catch { toast('Could not send message', 'error'); setJustSent(false); }
     finally { setSending(false); }
   };
 
@@ -477,9 +513,12 @@ function AgentChat({ task, role }: { task: AgentTask; role?: AgentRole }) {
   const cmdItems = useMemo(() => (slash ? filterCommands(cmdQuery) : []), [slash, cmdQuery]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- reset highlight as the command query changes
   useEffect(() => { setCmdActive(0); }, [cmdQuery]);
-  const lastUserText = useMemo(() => [...bubbles].reverse().find(b => b.author === 'human')?.text, [bubbles]);
+  const lastUserText = useMemo(() => {
+    const echoed = events.filter(e => e.kind === 'UserMessage').map(e => e.detail || e.title || '');
+    return pending.at(-1)?.text ?? echoed.at(-1);
+  }, [events, pending]);
   const cmdCtx: ChatCommandContext = {
-    boardId: task.boardId, taskId: task.id, isRunning: thinking, lastUserText,
+    boardId: task.boardId, taskId: task.id, isRunning: working, lastUserText,
     refreshTask: () => refreshTask(task.id),
     resend: (text) => { setDraft(''); api.tasks.chat(task.boardId, task.id, text).then(r => setActiveRunId(r.runId)).catch(() => toast('Could not resend', 'error')); },
     openHelp: () => setHelpOpen(true),
@@ -495,24 +534,17 @@ function AgentChat({ task, role }: { task: AgentTask; role?: AgentRole }) {
         <span className="ml-auto text-[var(--muted-2)]">messages steer the run live</span>
       </div>
       <div className="flex-1 overflow-auto p-3 flex flex-col gap-2.5">
-        {bubbles.length === 0 && !thinking && (
+        {stream.length === 0 && !working && (
           <div className="text-center text-sm text-[var(--muted)] mt-8">
             <Icon.robot size={36} className="mx-auto mb-2 text-[var(--muted-2)]" />
             Start a conversation with this agent.<br />
             <span className="text-xs">Message it to kick off a run, or steer one that&apos;s already working.</span>
           </div>
         )}
-        {bubbles.map(b => <ChatBubble key={b.id} bubble={b} />)}
-        {thinking && (
-          <div className="flex items-center gap-2 text-xs text-[var(--muted)] ml-1">
-            <span className="flex gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--muted-2)] animate-bounce" style={{ animationDelay: '0ms' }} />
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--muted-2)] animate-bounce" style={{ animationDelay: '120ms' }} />
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--muted-2)] animate-bounce" style={{ animationDelay: '240ms' }} />
-            </span>
-            {role?.displayName ?? 'Agent'} is working…
-          </div>
-        )}
+        {stream.map(it => it.kind === 'step'
+          ? <HistoryStep key={it.id} ev={it.ev} />
+          : <ChatBubble key={it.id} bubble={{ id: it.id, author: it.kind === 'user' ? 'human' : 'agent', text: it.text, at: it.at }} />)}
+        {working && <LiveEdge agentName={role?.displayName} context={liveContext} anchorAt={anchorAt} tokens={tokens} />}
         <div ref={endRef} />
       </div>
       <div className="border-t border-[var(--border)] p-2.5 relative">
@@ -552,13 +584,6 @@ function AgentChat({ task, role }: { task: AgentTask; role?: AgentRole }) {
 }
 
 function ChatBubble({ bubble }: { bubble: Bubble }) {
-  if (bubble.author === 'tool') {
-    return (
-      <div className="flex items-center gap-2 ml-1 text-[11px] text-[var(--muted)] font-mono">
-        <Icon.bolt size={12} className="text-[#fdab3d]" /> <span className="px-1.5 py-0.5 rounded bg-[var(--surface)]">{bubble.text}</span>
-      </div>
-    );
-  }
   const human = bubble.author === 'human';
   return (
     <div className={`flex ${human ? 'justify-end' : 'justify-start'}`}>
@@ -566,6 +591,52 @@ function ChatBubble({ bubble }: { bubble: Bubble }) {
         {!human && <div className="flex items-center gap-1 text-[10px] text-[var(--muted)] mb-0.5"><Icon.robot size={11} /> Agent</div>}
         {bubble.text}
       </div>
+    </div>
+  );
+}
+
+// Friendly labels for the board-exploration tools the agent calls.
+const TOOL_LABELS: Record<string, string> = {
+  get_board_overview: 'Read board',
+  search_tasks: 'Searched board',
+  get_task: 'Read task',
+  get_artifact: 'Read artifact',
+  update_brief: 'Updated brief',
+  request_human_input: 'Asked for input',
+  request_approval: 'Requested approval',
+  request_revision: 'Requested revision',
+};
+
+function stepLabel(ev: RunEvent): { verb: string; obj?: string; res?: string } {
+  if (ev.kind === 'ArtifactWritten') return { verb: 'Saved deliverable' };
+  const verb = TOOL_LABELS[ev.toolName ?? ''] ?? ev.toolName ?? String(ev.kind);
+  return { verb, obj: ev.toolArgsSummary || undefined, res: ev.resultSummary || undefined };
+}
+
+// One real step in the history layer: round intent → subtle header; tool/artifact → ✓ line.
+// A step still in flight (no result yet) shows a spinner — future per-tool streaming lights it up.
+function HistoryStep({ ev }: { ev: RunEvent }) {
+  if (ev.toolName === 'round_intent') {
+    const intent = ev.toolArgsSummary || ev.title;
+    if (!intent) return null;
+    return (
+      <div className="flex items-center gap-2 ml-1 mt-1 text-[11.5px] text-[var(--muted)]">
+        <span className="text-[var(--primary)]">▸</span><span className="italic truncate">{intent}</span>
+      </div>
+    );
+  }
+  const running = !ev.resultSummary && ev.kind !== 'ArtifactWritten';
+  const { verb, obj, res } = stepLabel(ev);
+  return (
+    <div className="flex items-center gap-2 ml-1 text-[12px] text-[var(--foreground)]">
+      {running
+        ? <span className="w-3.5 h-3.5 rounded-full border-2 border-[var(--border)] border-t-[var(--primary)] animate-spin shrink-0" />
+        : <span className="w-4 h-4 rounded-full bg-[#00c875] text-white grid place-items-center text-[9px] shrink-0">✓</span>}
+      <span className="flex-1 min-w-0 truncate">
+        <span className="text-[var(--muted)]">{verb}</span>
+        {obj && <span className="font-mono text-[var(--primary)]"> {obj}</span>}
+        {res && <span className="text-[var(--muted-2)]"> · {res}</span>}
+      </span>
     </div>
   );
 }
