@@ -56,6 +56,10 @@ public class ChatService : IChatService
         {
             await EchoUserMessageAsync(run!.Id, taskId, run.CurrentStep, text, ct);
             await PostAsync(BuildUrl($"{run.DurableFunctionInstanceId}/message"), new { Text = text }, ct);
+            // If the run was paused on a steerable request, a free-typed reply answers it — resolve the
+            // record so it leaves the chat card, the Approvals tab, and the notification list.
+            if (run.Status == RunStatus.AwaitingInteraction)
+                await ResolvePendingSteerableInteractionAsync(tenantId, taskId, text, ct);
             _logger.LogInformation("[Chat] injected message into run {RunId} task {TaskId}", run.Id, taskId);
             return new ChatResult(run.Id, Injected: true);
         }
@@ -98,6 +102,27 @@ public class ChatService : IChatService
         {
             RunId = runId, TaskId = taskId, Round = round, Kind = RunEventKind.UserMessage, Title = text
         }, ct);
+
+    private async Task ResolvePendingSteerableInteractionAsync(string tenantId, string taskId, string text, CancellationToken ct)
+    {
+        try
+        {
+            var pending = await _cosmos.GetPendingInteractionsAsync(tenantId, ct);
+            var match = pending.FirstOrDefault(i =>
+                i.TaskId == taskId && i.Origin == InteractionOrigin.Steerable && i.Status == InteractionStatus.Pending);
+            if (match is null) return;
+
+            match.Status = InteractionStatus.Responded;
+            match.RespondedAt = DateTimeOffset.UtcNow;
+            match.Answer = text;   // free-typed reply; Approval decision is left null (answered as text)
+            await _cosmos.UpdateInteractionAsync(match, ct);
+            _logger.LogInformation("[Chat] resolved steerable interaction {Id} via free-typed reply", match.Id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Chat] failed to resolve pending steerable interaction for task {TaskId}", taskId);
+        }
+    }
 
     public async Task<bool> ClearAsync(string boardId, string taskId, CancellationToken ct = default)
     {
