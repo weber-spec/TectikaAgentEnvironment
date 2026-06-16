@@ -5,7 +5,7 @@ import { api, type TaskPatch } from './api';
 import type {
   Board, AgentTask, AgentRole, WorkflowRun, Person, TaskEdge,
   ColumnDef, ColumnKind, ViewDef, ViewKind, FilterGroup, SortRule,
-  Comment, ActivityEntry, AutomationRecipe, AgentTaskStatus, ChatTurn, BoardRunPhase,
+  Comment, ActivityEntry, AutomationRecipe, AgentTaskStatus, ChatTurn, BoardRunPhase, RunStatus,
 } from './types';
 import { defaultColumns, KIND_META, type CellContext } from './columns';
 import { applyFilter, applySearch, applySort, groupTasks, type TaskGroup } from './board-engine';
@@ -13,6 +13,15 @@ import { buildPeople, seedCollaboration, uid, CURRENT_USER } from './collaborati
 import { STATUS_CONFIG, PRIORITY_CONFIG } from './palette';
 import { toast } from './toast';
 import { runAutomations } from './automations';
+
+/** Run statuses that mean the run has finished (no longer executing). */
+export const TERMINAL_RUN_STATUSES: ReadonlySet<RunStatus> = new Set<RunStatus>([
+  'AwaitingInteraction', 'Completed', 'Failed', 'Cancelled',
+]);
+/** True when a run exists and is still executing (not in a terminal state). */
+export function isRunActive(run?: WorkflowRun): boolean {
+  return !!run && !TERMINAL_RUN_STATUSES.has(run.status);
+}
 
 // ── Persisted per-board config ────────────────────────────────────────────────
 
@@ -132,6 +141,7 @@ interface BoardContextValue {
 
   // mutations
   updateTask: (id: string, patch: TaskPatch, opts?: { silent?: boolean }) => Promise<void>;
+  refreshTask: (id: string) => Promise<void>;
   setStatus: (id: string, status: AgentTaskStatus) => Promise<void>;
   setCustomCell: (taskId: string, colId: string, value: string) => void;
   addTask: (partial: Partial<AgentTask> & { title: string }, groupValue?: { colId: string; key: string }) => Promise<AgentTask | null>;
@@ -151,6 +161,10 @@ interface BoardContextValue {
   // run board
   runBoard: () => Promise<void>;
   runPhase: BoardRunPhase;
+  /** Trigger the agent for a single task. No-op unless the task is Agent-owned and idle. */
+  runTask: (taskId: string) => Promise<void>;
+  /** True while the given task's agent is starting or actively running. */
+  isTaskRunning: (task: AgentTask) => boolean;
 
   // agent config + interactive workspace chat
   saveRole: (role: AgentRole) => Promise<void>;
@@ -197,6 +211,8 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   const [edges, setEdges] = useState<TaskEdge[]>([]);
   const [roles, setRoles] = useState<AgentRole[]>([]);
   const [runsById, setRunsById] = useState<Record<string, WorkflowRun>>({});
+  // tasks whose run was just kicked off and hasn't surfaced in runsById yet (optimistic "running")
+  const [startingIds, setStartingIds] = useState<Set<string>>(() => new Set());
 
   const [cfg, setCfg] = useState<BoardConfig>(defaultConfig);
   const [search, setSearch] = useState('');
@@ -291,14 +307,48 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
 
     if (batchRuns.length === 0) return;
 
-    const TERMINAL = new Set(['AwaitingInteraction', 'Completed', 'Failed', 'Cancelled']);
-    if (!batchRuns.every(r => TERMINAL.has(r.status))) return;
+    if (!batchRuns.every(r => TERMINAL_RUN_STATUSES.has(r.status))) return;
 
     let status: 'AwaitingInteraction' | 'Failed' | 'Completed' = 'Completed';
     if (batchRuns.some(r => r.status === 'AwaitingInteraction')) status = 'AwaitingInteraction';
     else if (batchRuns.some(r => r.status === 'Failed' || r.status === 'Cancelled')) status = 'Failed';
     setRunPhase({ kind: 'done', status });
   }, [runPhase, tasks, runsById]);
+
+  // ── keep runsById fresh for active runs ───────────────────────────────────────
+  // runsById is seeded once at load; poll any run that is missing or still executing
+  // so per-task run state (and Run Board done-detection) reflects live status.
+  const pendingRunKey = tasks
+    .map(t => t.workflowRunId)
+    .filter((r): r is string => !!r)
+    .filter(rid => !TERMINAL_RUN_STATUSES.has(runsById[rid]?.status ?? ('' as RunStatus)))
+    .join(',');
+  useEffect(() => {
+    if (loading || error || !pendingRunKey) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const ids = new Set(pendingRunKey.split(','));
+    const targets = tasks.filter(t => t.workflowRunId && ids.has(t.workflowRunId));
+    const tick = async () => {
+      const fetched = await Promise.all(targets.map(t => api.runs.get(t.id, t.workflowRunId!).catch(() => null)));
+      if (cancelled) return;
+      const fresh = fetched.filter((r): r is WorkflowRun => !!r);
+      if (fresh.length) {
+        setRunsById(prev => { const next = { ...prev }; fresh.forEach(r => { next[r.id] = r; }); return next; });
+        // the run has surfaced — drop the optimistic "starting" marker
+        const surfaced = new Set(fresh.map(r => r.id));
+        setStartingIds(prev => {
+          if (prev.size === 0) return prev;
+          const next = new Set([...prev].filter(id => { const t = targets.find(x => x.id === id); return !(t?.workflowRunId && surfaced.has(t.workflowRunId)); }));
+          return next.size === prev.size ? prev : next;
+        });
+      }
+      if (!cancelled) timer = setTimeout(tick, 4000);
+    };
+    timer = setTimeout(tick, 1500);
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pendingRunKey captures the relevant run/task identity
+  }, [pendingRunKey, boardId, loading, error]);
 
   // ── live sync (PRD §2) ────────────────────────────────────────────────────────
   // Real-time updates via SSE on each active run, with a polling reconcile as a
@@ -500,6 +550,12 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     }
   }, [boardId, logActivity]);
 
+  // Re-fetch a task from the server (e.g. after a slash-command mutates it out-of-band).
+  const refreshTask = useCallback(async (id: string) => {
+    try { const t = await api.tasks.get(boardId, id); setTasks(prev => prev.map(x => x.id === id ? t : x)); }
+    catch { /* ignore — keep current */ }
+  }, [boardId]);
+
   const setStatus = useCallback(async (id: string, status: AgentTaskStatus) => {
     await updateTask(id, { status });
     // run client-side automations
@@ -603,6 +659,25 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     await Promise.allSettled(tasksToRun.map(t => api.runs.start(boardId, t.id)));
   }, [boardId, tasks, edges]);
 
+  const isTaskRunning = useCallback(
+    (task: AgentTask) => startingIds.has(task.id) || isRunActive(task.workflowRunId ? runsById[task.workflowRunId] : undefined),
+    [startingIds, runsById],
+  );
+
+  const runTask = useCallback(async (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task || task.assignee?.type !== 'Agent' || isTaskRunning(task)) return;
+    setStartingIds(prev => new Set(prev).add(taskId));
+    try {
+      const res = await api.runs.start(boardId, taskId);
+      // reflect the new run locally so the live poll picks it up (mirrors ChatTab)
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, workflowRunId: res.runId } : t));
+    } catch {
+      toast('Could not start run', 'error');
+      setStartingIds(prev => { const n = new Set(prev); n.delete(taskId); return n; });
+    }
+  }, [boardId, tasks, isTaskRunning]);
+
   const saveRole = useCallback(async (role: AgentRole) => {
     setRoles(prev => prev.map(r => r.id === role.id ? role : r));
     try { await api.agentRoles.upsert(role); } catch { toast('Could not save agent configuration', 'error'); }
@@ -621,9 +696,9 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     groups, visibleTasks,
     collapsedGroups: cfg.collapsedGroups, toggleGroup,
     selectedIds, toggleSelect, selectAll, clearSelection,
-    updateTask, setStatus, setCustomCell, addTask, deleteTasks, moveCanvas,
+    updateTask, refreshTask, setStatus, setCustomCell, addTask, deleteTasks, moveCanvas,
     edges, upstreamIds, downstreamIds, connectEdge, disconnectEdge, updateEdge,
-    runBoard, runPhase,
+    runBoard, runPhase, runTask, isTaskRunning,
     saveRole, chatThreads: cfg.chatThreads, pushChatTurns,
     liveEnabled, liveState, toggleLive,
     openTaskId, openTask: setOpenTaskId,

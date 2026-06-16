@@ -12,6 +12,9 @@ import { Popover } from '@/components/ui/overlays';
 import { formatDateTime, relativeTime, displayName } from '@/lib/format';
 import { toast } from '@/lib/toast';
 import { CliInstallGuide } from './CliInstallGuide';
+import { CommandMenu } from './CommandMenu';
+import { chatCommands, filterCommands, type ChatCommand, type ChatCommandContext } from '@/lib/chat-commands';
+import { RunTaskButton } from '@/components/board/RunTaskButton';
 
 type Tab = 'chat' | 'updates' | 'activity' | 'details' | 'bridge';
 
@@ -63,6 +66,7 @@ function PanelInner({ task }: { task: AgentTask }) {
             {task.dueAt && <span className="text-xs text-[var(--muted)] inline-flex items-center gap-1"><Icon.calendar size={13} /> {formatDateTime(task.dueAt)}</span>}
           </div>
         </div>
+        <RunTaskButton task={task} />
         <button onClick={() => openTask(undefined)} className="w-8 h-8 flex items-center justify-center rounded-md text-[var(--muted)] hover:bg-[var(--surface)] shrink-0"><Icon.x size={18} /></button>
       </div>
 
@@ -192,7 +196,11 @@ function useRunEvents(task: AgentTask, activeRunId?: string): RunEvent[] {
     return stop;
   }, [activeRunId, task.workflowRunId, task.id]);
 
-  return events;
+  // Hide events before the /clear boundary (non-destructive — they stay in the DB).
+  return useMemo(
+    () => (task.chatClearedAt ? events.filter(e => e.timestamp > task.chatClearedAt!) : events),
+    [events, task.chatClearedAt],
+  );
 }
 
 // ── Activity — hierarchical round → sub-activity timeline ─────────────────────
@@ -391,6 +399,31 @@ function AgentConfigEditor({ role }: { role: AgentRole }) {
 type Bubble = { id: string; author: 'human' | 'agent' | 'tool'; text: string; toolName?: string; at: string };
 
 function ChatTab({ task, role }: { task: AgentTask; role?: AgentRole }) {
+  // No agent owns this task → can't chat. Prompt to assign one first.
+  if (task.assignee.type !== 'Agent') return <AssignAgentPrompt task={task} />;
+  return <AgentChat task={task} role={role} />;
+}
+
+function AssignAgentPrompt({ task }: { task: AgentTask }) {
+  const { people, updateTask } = useBoard();
+  const agents = people.filter(p => p.kind === 'Agent');
+  return (
+    <div className="flex flex-col items-center justify-center h-full p-6 text-center">
+      <Icon.robot size={40} className="text-[var(--muted-2)] mb-3" />
+      <h3 className="text-sm font-semibold text-[var(--foreground)]">No agent assigned</h3>
+      <p className="text-xs text-[var(--muted)] mt-1 mb-4 max-w-[260px]">
+        Assign an agent to this task to start a conversation and run it.
+      </p>
+      <select value="" onChange={e => { if (e.target.value) updateTask(task.id, { assignee: { type: 'Agent', id: e.target.value } }); }}
+        className="w-full max-w-[260px] bg-[var(--surface)] rounded-lg p-2 text-[13px] outline-none text-[var(--foreground)] border border-[var(--border)] focus:border-[var(--primary)] cursor-pointer">
+        <option value="" disabled>Choose an agent…</option>
+        {agents.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function AgentChat({ task, role }: { task: AgentTask; role?: AgentRole }) {
   const [activeRunId, setActiveRunId] = useState<string | undefined>(task.workflowRunId);
   const events = useRunEvents(task, activeRunId);
   const [draft, setDraft] = useState('');
@@ -435,8 +468,27 @@ function ChatTab({ task, role }: { task: AgentTask; role?: AgentRole }) {
     finally { setSending(false); }
   };
 
+  // ── Slash-command palette ──────────────────────────────────────────────────
+  const { refreshTask } = useBoard();
+  const slash = draft.startsWith('/');
+  const cmdQuery = slash ? draft.slice(1) : '';
+  const [cmdActive, setCmdActive] = useState(0);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const cmdItems = useMemo(() => (slash ? filterCommands(cmdQuery) : []), [slash, cmdQuery]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- reset highlight as the command query changes
+  useEffect(() => { setCmdActive(0); }, [cmdQuery]);
+  const lastUserText = useMemo(() => [...bubbles].reverse().find(b => b.author === 'human')?.text, [bubbles]);
+  const cmdCtx: ChatCommandContext = {
+    boardId: task.boardId, taskId: task.id, isRunning: thinking, lastUserText,
+    refreshTask: () => refreshTask(task.id),
+    resend: (text) => { setDraft(''); api.tasks.chat(task.boardId, task.id, text).then(r => setActiveRunId(r.runId)).catch(() => toast('Could not resend', 'error')); },
+    openHelp: () => setHelpOpen(true),
+    toast,
+  };
+  const runCmd = (c: ChatCommand) => { if (c.enabled(cmdCtx)) { c.run(cmdCtx); setDraft(''); } };
+
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="relative flex flex-col h-full min-h-0">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border)] text-[11px] text-[var(--muted)]">
         <span className="w-1.5 h-1.5 rounded-full bg-[#00c875]" />
         <span>{role ? role.displayName : 'Agent'} · {role?.modelOverride ?? 'default model'}</span>
@@ -463,15 +515,38 @@ function ChatTab({ task, role }: { task: AgentTask; role?: AgentRole }) {
         )}
         <div ref={endRef} />
       </div>
-      <div className="border-t border-[var(--border)] p-2.5">
+      <div className="border-t border-[var(--border)] p-2.5 relative">
+        {slash && cmdItems.length > 0 && (
+          <CommandMenu items={cmdItems} active={cmdActive} ctx={cmdCtx} onHover={setCmdActive} onPick={runCmd} />
+        )}
         <textarea value={draft} onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } }}
-          rows={2} placeholder="Message the agent…  (⌘/Ctrl + Enter to send)"
+          onKeyDown={e => {
+            if (slash && cmdItems.length) {
+              if (e.key === 'ArrowDown') { e.preventDefault(); setCmdActive(a => Math.min(cmdItems.length - 1, a + 1)); return; }
+              if (e.key === 'ArrowUp') { e.preventDefault(); setCmdActive(a => Math.max(0, a - 1)); return; }
+              if (e.key === 'Enter') { e.preventDefault(); runCmd(cmdItems[cmdActive]); return; }
+              if (e.key === 'Escape') { e.preventDefault(); setDraft(''); return; }
+            }
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
+          }}
+          rows={2} placeholder="Message the agent…  (/ for commands, ⌘/Ctrl + Enter to send)"
           className="w-full bg-[var(--surface)] rounded-lg p-2 text-[13px] outline-none resize-none text-[var(--foreground)] border border-[var(--border)] focus:border-[var(--primary)]" />
         <div className="flex justify-end mt-1.5">
           <Button variant="primary" size="sm" disabled={!draft.trim() || sending} onClick={send}><Icon.send size={13} /> Send</Button>
         </div>
       </div>
+      {helpOpen && (
+        <div className="absolute inset-0 z-30 bg-[var(--background)]/95 p-4 overflow-auto" onClick={() => setHelpOpen(false)}>
+          <div className="text-sm font-semibold mb-2 text-[var(--foreground)]">Chat commands</div>
+          {chatCommands.map(c => (
+            <div key={c.name} className="py-1 text-[13px]">
+              <span className="font-mono text-[var(--primary)]">/{c.name}</span>{' '}
+              <span className="text-[var(--muted)]">{c.description}</span>
+            </div>
+          ))}
+          <div className="text-[11px] text-[var(--muted-2)] mt-3">Click anywhere to close</div>
+        </div>
+      )}
     </div>
   );
 }
