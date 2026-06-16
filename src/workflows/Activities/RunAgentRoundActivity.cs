@@ -51,6 +51,8 @@ public class RunAgentRoundActivity
             ?? throw new Exception($"Task '{input.TaskId}' not found in board '{input.BoardId}'");
         var board = await _cosmos.GetBoardAsync(input.BoardId, input.TenantId, ct)
             ?? throw new Exception($"Board '{input.BoardId}' not found");
+        _logger.LogInformation("[RunAgentRound] board={Board} hasGitHub={HasGitHub} owner={Owner}",
+            input.BoardId, board.GitHub != null, board.GitHub?.Owner ?? "(null)");
 
         // EnsureThreadAsync mutates task.FoundryThreadId in place, so capture whether it existed
         // BEFORE the call. Otherwise the guard never fires, the thread is never persisted, and every

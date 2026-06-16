@@ -220,6 +220,8 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
 
     public async Task<RoundOutcome> RunRoundAsync(RoundRequest req, IProjectExplorer explorer, CancellationToken ct = default)
     {
+        _logger.LogInformation("[RunRoundAsync] BoardGitHub={HasGitHub} Owner={Owner} gitHubExecutor={HasExecutor}",
+            req.BoardGitHub != null, req.BoardGitHub?.Owner ?? "(null)", _gitHub != null);
         if (string.IsNullOrEmpty(req.Role.FoundryAgentId))
             return new RoundOutcome(RoundKind.Final, "", [], null, null, null, null, [], new TokenUsage(),
                 $"round-{req.RunId}-{req.Round}", Error: "Role has no Foundry agent — ensure the agent first.");
