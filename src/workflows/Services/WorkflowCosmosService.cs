@@ -270,6 +270,19 @@ public class WorkflowCosmosService
         await C("tasks").PatchItemAsync<AgentTask>(taskId, new PartitionKey(boardId), patchOps, cancellationToken: ct);
     }
 
+    /// <summary>/compact + /clear effect: set the brief (the summary, or "" for a plain clear), null the
+    /// Foundry thread (fresh conversation next run), and set the ChatClearedAt transcript boundary.</summary>
+    public async Task ResetTaskContextAsync(string boardId, string taskId, string brief, CancellationToken ct = default)
+    {
+        var patchOps = new List<PatchOperation>
+        {
+            PatchOperation.Set("/taskBrief", brief),
+            PatchOperation.Set<string?>("/foundryThreadId", null),
+            PatchOperation.Set("/chatClearedAt", DateTimeOffset.UtcNow),
+        };
+        await C("tasks").PatchItemAsync<AgentTask>(taskId, new PartitionKey(boardId), patchOps, cancellationToken: ct);
+    }
+
     public async Task PatchArtifactSummaryAsync(string taskId, string artifactId, string summary, CancellationToken ct = default)
     {
         var patchOps = new List<PatchOperation> { PatchOperation.Set("/summary", summary) };

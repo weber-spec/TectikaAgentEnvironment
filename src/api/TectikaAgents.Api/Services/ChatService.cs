@@ -21,6 +21,10 @@ public interface IChatService
 
     /// <summary>Terminate the task's active run (Durable orchestration) and mark it Cancelled.</summary>
     Task<bool> StopAsync(string boardId, string taskId, CancellationToken ct = default);
+
+    /// <summary>Summarize the conversation into the brief, then reset (like /clear). Returns whether a
+    /// summary was produced (false = fell back to a plain clear).</summary>
+    Task<bool> CompactAsync(string boardId, string taskId, CancellationToken ct = default);
 }
 
 public class ChatService : IChatService
@@ -117,6 +121,20 @@ public class ChatService : IChatService
         await _cosmos.UpdateRunAsync(run, ct);
         _logger.LogInformation("[Chat] stopped run {RunId} task {TaskId}", run.Id, taskId);
         return true;
+    }
+
+    public async Task<bool> CompactAsync(string boardId, string taskId, CancellationToken ct = default)
+    {
+        try
+        {
+            var http = _httpFactory.CreateClient();
+            var content = new StringContent("{}", Encoding.UTF8, "application/json");
+            var res = await http.PostAsync(BuildUrl($"compact/{boardId}/{taskId}"), content, ct);
+            if (!res.IsSuccessStatusCode) { _logger.LogError("[Chat] compact failed status={Status}", res.StatusCode); return false; }
+            var data = JsonSerializer.Deserialize<JsonElement>(await res.Content.ReadAsStringAsync(ct));
+            return data.TryGetProperty("summarized", out var s) && s.ValueKind == JsonValueKind.True;
+        }
+        catch (Exception ex) { _logger.LogError(ex, "[Chat] compact threw task {TaskId}", taskId); return false; }
     }
 
     // DurableFunctionsSettings.StartUrl points at ".../api/pipelines/start"; derive sibling routes.

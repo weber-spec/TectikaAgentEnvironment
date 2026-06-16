@@ -59,6 +59,11 @@ public class TasksController : ControllerBase
     public async Task<IActionResult> Stop(string boardId, string taskId, CancellationToken ct) =>
         await _chat.StopAsync(boardId, taskId, ct) ? Ok() : Ok(new { stopped = false }); // no active run → benign
 
+    /// <summary>/compact — summarize the conversation into the brief, then reset.</summary>
+    [HttpPost("{taskId}/compact")]
+    public async Task<IActionResult> Compact(string boardId, string taskId, CancellationToken ct) =>
+        Ok(new { summarized = await _chat.CompactAsync(boardId, taskId, ct) });
+
     [HttpPost]
     public async Task<IActionResult> Create(string boardId, [FromBody] CreateTaskRequest req, CancellationToken ct)
     {
