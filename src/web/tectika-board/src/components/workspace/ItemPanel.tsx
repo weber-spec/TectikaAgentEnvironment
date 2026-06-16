@@ -614,8 +614,6 @@ function stepLabel(ev: RunEvent): { verb: string; obj?: string; res?: string } {
 }
 
 // One real step in the history layer: round intent → subtle header; tool/artifact → ✓ line.
-// A step still in flight (no result yet) shows a spinner — future per-tool streaming lights it up.
-// One real step in the history layer: round intent → subtle header; tool/artifact → ✓ line.
 // Tool/artifact rows are click-to-expand: collapsed truncates to one line, expanded shows the full
 // untruncated tool/args/result. A step still in flight (no result yet) shows a spinner.
 function HistoryStep({ ev }: { ev: RunEvent }) {
