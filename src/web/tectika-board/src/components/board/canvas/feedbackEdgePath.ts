@@ -57,6 +57,8 @@ export function getFeedbackPath(p: FeedbackPathParams): [string, number, number]
   // that is the arc's lowest point; for offset endpoints the arc dips at least that far.
   const ctrlY = (clearY - 0.125 * (sourceY + targetY)) / 0.75;
 
+  // Shoulders follow the handle directions (source handle on the right, target handle
+  // on the left) regardless of the nodes' relative positions.
   const shoulder = Math.min(Math.max((xHi - xLo) * 0.3, MIN_SHOULDER), MAX_SHOULDER);
   const c1x = sourceX + shoulder; // leave the source's right handle going right
   const c2x = targetX - shoulder; // approach the target's left handle from the left

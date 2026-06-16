@@ -182,18 +182,19 @@ function Inner() {
 function PipelineEdge({ id, source, target, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, selected, data }: EdgeProps) {
   const ui = useContext(EdgeUiCtx);
   const feedback = !!(data as { feedback?: boolean })?.feedback;
-  // Read live node boxes from the store so the feedback arc can dip below nodes
-  // that sit between its endpoints. nodeLookup changes identity when nodes move.
-  const nodeLookup = useStore((s) => s.nodeLookup);
+  // Subscribe to the nodes array (its identity changes whenever any node moves) so the
+  // feedback arc re-renders and re-clears obstacles live during drags. The flow canvas
+  // has no nested nodes, so each node's position is already absolute.
+  const nodes = useStore((s) => s.nodes);
   const nodeBoxes = useMemo<NodeBox[]>(
-    () => Array.from(nodeLookup.values()).map((n) => ({
+    () => nodes.map((n) => ({
       id: n.id,
-      x: n.internals.positionAbsolute.x,
-      y: n.internals.positionAbsolute.y,
-      width: n.measured.width ?? 0,
-      height: n.measured.height ?? 0,
+      x: n.position.x,
+      y: n.position.y,
+      width: n.measured?.width ?? 0,
+      height: n.measured?.height ?? 0,
     })),
-    [nodeLookup],
+    [nodes],
   );
   const [path, labelX, labelY] = feedback
     ? getFeedbackPath({ sourceX, sourceY, targetX, targetY, sourceId: source, targetId: target, nodeBoxes })
