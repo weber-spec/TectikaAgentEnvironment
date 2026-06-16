@@ -72,6 +72,12 @@ public class HumanInteraction
 
     [JsonPropertyName("identityToBeUsed")]
     public string? IdentityToBeUsed { get; set; }
+
+    /// <summary>Which orchestration created this request, so the responder resumes it correctly:
+    /// Pipeline = old TaskPipelineOrchestrator (interaction-{step} event); Steerable = chat run
+    /// (user_message event). Defaults to Pipeline so all existing records keep their behavior.</summary>
+    [JsonPropertyName("origin")]
+    public InteractionOrigin Origin { get; set; } = InteractionOrigin.Pipeline;
 }
 
 public class SearchResultItem
@@ -130,3 +136,5 @@ public record InteractionResponsePayload(
 
 public enum InteractionType { Approval, Selection, Question }
 public enum InteractionStatus { Pending, Responded, Expired }
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum InteractionOrigin { Pipeline, Steerable }
