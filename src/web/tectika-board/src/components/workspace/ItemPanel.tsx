@@ -19,7 +19,7 @@ import { LiveEdge } from './LiveEdge';
 import { contextFromEvents, sumTokens } from '@/lib/thinking-phrases';
 import { InteractionCard } from '@/components/InteractionCard';
 
-type Tab = 'chat' | 'updates' | 'activity' | 'details' | 'bridge';
+type Tab = 'chat' | 'activity' | 'details' | 'bridge';
 
 // Models offered in the in-panel agent configuration dropdown.
 const MODELS = ['default', 'gpt-4o', 'o3', 'claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5'];
@@ -78,13 +78,12 @@ function PanelInner({ task }: { task: AgentTask }) {
         {/* left: execution thread / config */}
         <div className="w-[420px] shrink-0 border-r border-[var(--border)] flex flex-col min-h-0">
           <div className="flex border-b border-[var(--border)] px-2 overflow-x-auto whitespace-nowrap">
-            {(['chat', 'updates', 'activity', 'details', 'bridge'] as Tab[]).map(t => (
+            {(['chat', 'activity', 'details', 'bridge'] as Tab[]).map(t => (
               <button key={t} onClick={() => setTab(t)} className={`px-3 py-2.5 text-[13px] font-medium capitalize border-b-2 -mb-px transition-colors shrink-0 ${tab === t ? 'border-[var(--primary)] text-[var(--primary)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'}`}>{t === 'chat' ? 'Chat' : t === 'bridge' ? 'CLI Bridge' : t}</button>
             ))}
           </div>
           <div className="flex-1 overflow-auto flex flex-col min-h-0">
             {tab === 'chat' && <ChatTab task={task} role={role} />}
-            {tab === 'updates' && <UpdatesTab task={task} />}
             {tab === 'activity' && <ActivityTab task={task} />}
             {tab === 'details' && <DetailsTab task={task} role={role} run={run} people={people} onAssign={(id, kind) => updateTask(task.id, { assignee: { type: kind, id } })} />}
             {tab === 'bridge' && <CliBridgeTab task={task} />}
@@ -125,48 +124,6 @@ function HeaderPriority({ task, onPick }: { task: AgentTask; onPick: (p: AgentTa
     <Popover anchorRef={ref} open={o} onClose={() => setO(false)} width={160} className="p-2 flex flex-col gap-1">
       {PRIORITY_ORDER.map(s => <button key={s} onClick={() => { onPick(s); setO(false); }} className="rounded px-2 py-1.5 text-[13px] font-semibold text-left" style={{ background: PRIORITY_CONFIG[s].hex, color: textOn(PRIORITY_CONFIG[s].hex) }}>{PRIORITY_CONFIG[s].label}</button>)}
     </Popover></div>;
-}
-
-// ── Updates (comments) ────────────────────────────────────────────────────────
-function UpdatesTab({ task }: { task: AgentTask }) {
-  const { comments, addComment, peopleById } = useBoard();
-  const [draft, setDraft] = useState('');
-  const list = comments.filter(c => c.taskId === task.id).sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
-  return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-auto p-4 flex flex-col gap-3">
-        {list.length === 0 && <p className="text-sm text-[var(--muted)] text-center mt-8">No updates yet. Start the conversation.</p>}
-        {list.map(c => {
-          const p = peopleById[c.authorId];
-          return (
-            <div key={c.id} className="flex gap-2.5">
-              <Avatar person={p} name={c.authorId} size={30} />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-baseline gap-2"><span className="text-[13px] font-semibold text-[var(--foreground)]">{p?.name ?? displayName(c.authorId)}</span><span className="text-[11px] text-[var(--muted)]">{relativeTime(c.createdAt)}</span></div>
-                <div className="text-[13px] text-[var(--foreground)] mt-0.5 whitespace-pre-wrap break-words">{renderMentions(c.body)}</div>
-                {c.reactions && Object.entries(c.reactions).map(([emo, who]) => <span key={emo} className="inline-flex items-center gap-1 text-xs bg-[var(--surface)] rounded-full px-2 py-0.5 mt-1 mr-1">{emo} {who.length}</span>)}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="border-t border-[var(--border)] p-3">
-        <textarea value={draft} onChange={e => setDraft(e.target.value)} placeholder="Write an update… use @ to mention"
-          onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { if (draft.trim()) { addComment(task.id, draft.trim()); setDraft(''); } } }}
-          className="w-full text-sm bg-[var(--surface)] rounded-lg p-2.5 outline-none resize-none text-[var(--foreground)] border border-[var(--border)] focus:border-[var(--primary)]" rows={2} />
-        <div className="flex justify-between items-center mt-2">
-          <span className="text-[11px] text-[var(--muted-2)]">⌘+Enter to send</span>
-          <Button variant="primary" size="sm" disabled={!draft.trim()} onClick={() => { addComment(task.id, draft.trim()); setDraft(''); }}><Icon.send size={13} /> Update</Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function renderMentions(body: string) {
-  return body.split(/(@[\w.@-]+)/g).map((part, i) => part.startsWith('@')
-    ? <span key={i} className="text-[var(--primary)] font-medium bg-[var(--primary-light)] rounded px-1">{part}</span>
-    : <span key={i}>{part}</span>);
 }
 
 // ── Live + replayable run trace (shared by Chat and Activity) ─────────────────
