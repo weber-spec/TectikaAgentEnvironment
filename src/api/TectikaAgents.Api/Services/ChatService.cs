@@ -32,14 +32,16 @@ public class ChatService : IChatService
     private readonly ICosmosDbService _cosmos;
     private readonly IHttpClientFactory _httpFactory;
     private readonly DurableFunctionsSettings _settings;
+    private readonly SseConnectionManager _sse;
     private readonly ILogger<ChatService> _logger;
 
     public ChatService(ICosmosDbService cosmos, IHttpClientFactory httpFactory,
-        IOptions<DurableFunctionsSettings> settings, ILogger<ChatService> logger)
+        IOptions<DurableFunctionsSettings> settings, SseConnectionManager sse, ILogger<ChatService> logger)
     {
         _cosmos = cosmos;
         _httpFactory = httpFactory;
         _settings = settings.Value;
+        _sse = sse;
         _logger = logger;
     }
 
@@ -97,11 +99,16 @@ public class ChatService : IChatService
         return new ChatResult(newRun.Id, Injected: false);
     }
 
-    private Task EchoUserMessageAsync(string runId, string taskId, int round, string text, CancellationToken ct) =>
-        _cosmos.CreateRunEventAsync(new RunEvent
+    private async Task EchoUserMessageAsync(string runId, string taskId, int round, string text, CancellationToken ct)
+    {
+        var ev = await _cosmos.CreateRunEventAsync(new RunEvent
         {
             RunId = runId, TaskId = taskId, Round = round, Kind = RunEventKind.UserMessage, Title = text
         }, ct);
+        // Push to everyone watching this run's SSE stream (same API instance) so other participants see
+        // the message in real time; the client's 4s poll is the cross-instance / missed-event backstop.
+        await _sse.BroadcastAsync(AgentEvent.FromRunEvent(ev), ct);
+    }
 
     private async Task ResolvePendingSteerableInteractionAsync(string tenantId, string taskId, string text, CancellationToken ct)
     {
