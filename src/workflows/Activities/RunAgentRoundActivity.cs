@@ -73,6 +73,14 @@ public class RunAgentRoundActivity
             userInput = string.IsNullOrEmpty(input.UserInput)
                 ? context
                 : context + "\n\n## User message\n" + input.UserInput;
+
+            if (!string.IsNullOrEmpty(input.WorkspaceEndpoint))
+                userInput += "\n\n## Workspace\n" +
+                    "A workspace has been provisioned for this run. The GitHub repository has been cloned and is ready at `/workspace`.\n" +
+                    "Use `run_command` to read/write files, run builds, tests, `git commit`, `git push`, etc.\n" +
+                    "You do NOT have a separate terminal — `run_command` is your only way to execute code.";
+            else
+                userInput += "\n\n## Workspace\nNo workspace is available for this run. You cannot execute code or run shell commands.";
         }
 
         var explorer = new BoardProjectExplorer(_cosmos, input.BoardId, input.TenantId);

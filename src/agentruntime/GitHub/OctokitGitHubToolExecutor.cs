@@ -78,9 +78,22 @@ public sealed class OctokitGitHubToolExecutor : IGitHubToolExecutor
     {
         var path   = Str(args, "path");
         var branch = Str(args, "branch");
-        var items  = string.IsNullOrEmpty(branch)
-            ? await client.Repository.Content.GetAllContents(repo.Owner, repo.Repo, path)
-            : await client.Repository.Content.GetAllContentsByRef(repo.Owner, repo.Repo, path, branch);
+        IReadOnlyList<Octokit.RepositoryContent> items;
+        try
+        {
+            if (string.IsNullOrEmpty(path))
+                items = string.IsNullOrEmpty(branch)
+                    ? await client.Repository.Content.GetAllContents(repo.Owner, repo.Repo)
+                    : await client.Repository.Content.GetAllContentsByRef(repo.Owner, repo.Repo, branch);
+            else
+                items = string.IsNullOrEmpty(branch)
+                    ? await client.Repository.Content.GetAllContents(repo.Owner, repo.Repo, path)
+                    : await client.Repository.Content.GetAllContentsByRef(repo.Owner, repo.Repo, path, branch);
+        }
+        catch (NotFoundException)
+        {
+            return JsonSerializer.Serialize(new { files = Array.Empty<object>(), note = "Repository is empty or path not found." });
+        }
         return JsonSerializer.Serialize(items.Select(i => new { i.Name, i.Path, type = i.Type.Value.ToString() }));
     }
 

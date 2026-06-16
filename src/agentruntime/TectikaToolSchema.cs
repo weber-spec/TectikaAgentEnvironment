@@ -8,7 +8,7 @@ namespace TectikaAgents.AgentRuntime;
 /// whenever the toolset changes so AgentInstructionsHash republishes agent versions.</summary>
 public static class TectikaToolSchema
 {
-    public const string Version = "tools-v3";
+    public const string Version = "tools-v4";
 
     public sealed record ToolProp(string Type, string? Description = null, string[]? Enum = null);
     public sealed record ToolDef(
