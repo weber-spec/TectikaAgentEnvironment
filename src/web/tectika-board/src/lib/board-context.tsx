@@ -14,14 +14,15 @@ import { STATUS_CONFIG, PRIORITY_CONFIG } from './palette';
 import { toast } from './toast';
 import { runAutomations } from './automations';
 
-/** Run statuses that mean the run has finished (no longer executing). */
+/**
+ * Run statuses where the run is no longer actively executing — finished
+ * (Completed/Failed/Cancelled) or paused awaiting a human (PausedApproval /
+ * AwaitingInteraction / NeedsRevision). Used to stop the live run poll and to
+ * detect Run Board batch completion.
+ */
 export const TERMINAL_RUN_STATUSES: ReadonlySet<RunStatus> = new Set<RunStatus>([
-  'AwaitingInteraction', 'Completed', 'Failed', 'Cancelled',
+  'PausedApproval', 'AwaitingInteraction', 'NeedsRevision', 'Completed', 'Failed', 'Cancelled',
 ]);
-/** True when a run exists and is still executing (not in a terminal state). */
-export function isRunActive(run?: WorkflowRun): boolean {
-  return !!run && !TERMINAL_RUN_STATUSES.has(run.status);
-}
 
 // ── Persisted per-board config ────────────────────────────────────────────────
 
@@ -163,7 +164,9 @@ interface BoardContextValue {
   runPhase: BoardRunPhase;
   /** Trigger the agent for a single task. No-op unless the task is Agent-owned and idle. */
   runTask: (taskId: string) => Promise<void>;
-  /** True while the given task's agent is starting or actively running. */
+  /** Cancel a task's active run (terminates the orchestration, returns the task to Backlog). */
+  stopTask: (taskId: string) => Promise<void>;
+  /** True while the given task's agent is actively running. */
   isTaskRunning: (task: AgentTask) => boolean;
 
   // agent config + interactive workspace chat
@@ -211,8 +214,6 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   const [edges, setEdges] = useState<TaskEdge[]>([]);
   const [roles, setRoles] = useState<AgentRole[]>([]);
   const [runsById, setRunsById] = useState<Record<string, WorkflowRun>>({});
-  // tasks whose run was just kicked off and hasn't surfaced in runsById yet (optimistic "running")
-  const [startingIds, setStartingIds] = useState<Set<string>>(() => new Set());
 
   const [cfg, setCfg] = useState<BoardConfig>(defaultConfig);
   const [search, setSearch] = useState('');
@@ -335,13 +336,6 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
       const fresh = fetched.filter((r): r is WorkflowRun => !!r);
       if (fresh.length) {
         setRunsById(prev => { const next = { ...prev }; fresh.forEach(r => { next[r.id] = r; }); return next; });
-        // the run has surfaced — drop the optimistic "starting" marker
-        const surfaced = new Set(fresh.map(r => r.id));
-        setStartingIds(prev => {
-          if (prev.size === 0) return prev;
-          const next = new Set([...prev].filter(id => { const t = targets.find(x => x.id === id); return !(t?.workflowRunId && surfaced.has(t.workflowRunId)); }));
-          return next.size === prev.size ? prev : next;
-        });
       }
       if (!cancelled) timer = setTimeout(tick, 4000);
     };
@@ -659,24 +653,36 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     await Promise.allSettled(tasksToRun.map(t => api.runs.start(boardId, t.id)));
   }, [boardId, tasks, edges]);
 
-  const isTaskRunning = useCallback(
-    (task: AgentTask) => startingIds.has(task.id) || isRunActive(task.workflowRunId ? runsById[task.workflowRunId] : undefined),
-    [startingIds, runsById],
-  );
+  // A task is "running" while its own status is InProgress ("Working on it").
+  // Task status is the authoritative, live-synced signal the backend maps every
+  // run state onto (e.g. PausedApproval→AwaitingApproval, NeedsRevision→Review),
+  // so the button clears the moment the agent stops working — unlike the run
+  // document, whose paused/revision states aren't terminal.
+  const isTaskRunning = useCallback((task: AgentTask) => task.status === 'InProgress', []);
 
   const runTask = useCallback(async (taskId: string) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task || task.assignee?.type !== 'Agent' || isTaskRunning(task)) return;
-    setStartingIds(prev => new Set(prev).add(taskId));
     try {
       const res = await api.runs.start(boardId, taskId);
-      // reflect the new run locally so the live poll picks it up (mirrors ChatTab)
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, workflowRunId: res.runId } : t));
+      // mirror the backend, which flips the task to InProgress on start, so the
+      // button reflects the run immediately and the live poll picks it up.
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, workflowRunId: res.runId, status: 'InProgress' } : t));
     } catch {
       toast('Could not start run', 'error');
-      setStartingIds(prev => { const n = new Set(prev); n.delete(taskId); return n; });
     }
   }, [boardId, tasks, isTaskRunning]);
+
+  const stopTask = useCallback(async (taskId: string) => {
+    try {
+      await api.tasks.stop(boardId, taskId);
+      // backend returns the task to Backlog on stop — reflect it now, then reconcile.
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'Backlog' } : t));
+      refreshTask(taskId);
+    } catch {
+      toast('Could not stop the run', 'error');
+    }
+  }, [boardId, refreshTask]);
 
   const saveRole = useCallback(async (role: AgentRole) => {
     setRoles(prev => prev.map(r => r.id === role.id ? role : r));
@@ -698,7 +704,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     selectedIds, toggleSelect, selectAll, clearSelection,
     updateTask, refreshTask, setStatus, setCustomCell, addTask, deleteTasks, moveCanvas,
     edges, upstreamIds, downstreamIds, connectEdge, disconnectEdge, updateEdge,
-    runBoard, runPhase, runTask, isTaskRunning,
+    runBoard, runPhase, runTask, stopTask, isTaskRunning,
     saveRole, chatThreads: cfg.chatThreads, pushChatTurns,
     liveEnabled, liveState, toggleLive,
     openTaskId, openTask: setOpenTaskId,

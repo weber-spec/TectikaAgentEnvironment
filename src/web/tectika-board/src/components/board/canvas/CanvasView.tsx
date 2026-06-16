@@ -266,8 +266,27 @@ function EdgeLabelInput({ initial, color, feedback, onSave, onToggleFeedback, on
   onSave: (v: string) => void; onToggleFeedback: (checked: boolean) => void; onCancel: () => void;
 }) {
   const [v, setV] = useState(initial);
+  const ref = useRef<HTMLDivElement>(null);
+  // Latest value/callback for the outside-click handler (which attaches once, on mount).
+  const vRef = useRef(v);
+  const saveRef = useRef(onSave);
+  useEffect(() => { vRef.current = v; saveRef.current = onSave; });
+  // Click outside the editor commits the current text and returns to the label (mirrors
+  // the inline-rename pattern used elsewhere). Attaches after the opening click's mousedown.
+  useEffect(() => {
+    const onDocDown = (e: MouseEvent) => {
+      const t = e.target as globalThis.Node;
+      if (ref.current && !ref.current.contains(t)) saveRef.current(vRef.current);
+    };
+    // Capture phase: React Flow stops mousedown propagation on its pane, so a
+    // bubble-phase listener never sees clicks on the empty canvas.
+    document.addEventListener('mousedown', onDocDown, true);
+    return () => document.removeEventListener('mousedown', onDocDown, true);
+  }, []);
   return (
-    <div className="flex flex-col gap-1.5 p-2 rounded-md shadow-md bg-[var(--background)]" style={{ border: `1.5px solid ${color}` }}>
+    // pointerEvents:'all' is required — React Flow's edge-label layer is pointer-events:none,
+    // so without this the input/checkbox aren't clickable (clicks fall through to the edge).
+    <div ref={ref} className="flex flex-col gap-1.5 p-2 rounded-md shadow-md bg-[var(--background)]" style={{ border: `1.5px solid ${color}`, pointerEvents: 'all' }}>
       <input
         autoFocus value={v}
         onChange={e => setV(e.target.value)}
@@ -297,7 +316,7 @@ function AgentNode({ data }: NodeProps) {
   const st = STATUS_CONFIG[task.status];
   return (
     <div className="group/node bg-[var(--background)] border-2 rounded-xl shadow-sm w-[230px] cursor-pointer hover:shadow-lg transition-all" style={{ borderColor: st.hex }}
-      onDoubleClick={() => ctx?.openTask(task.id)}>
+      onClick={() => ctx?.openTask(task.id)}>
       <Handle type="target" position={Position.Left} title="Incoming — drop a link here"
         className="!w-3.5 !h-3.5 !bg-[#0086c0] !border-2 !border-white !shadow group-hover/node:!scale-110 transition-transform" />
       <div className="h-1.5 rounded-t-[10px]" style={{ background: st.hex }} />

@@ -174,3 +174,50 @@ body {
   from { opacity: 0; transform: translateX(-40px); }
   to   { opacity: 1; transform: translateX(0); }
 }
+
+/* ── Live edge: the "agent is working" treatment (chat) ──────────────────────── */
+@keyframes liveedge-sweep {
+  0%   { background-position: 130% 0; }
+  100% { background-position: -130% 0; }
+}
+@keyframes liveedge-fade {
+  from { opacity: 0.15; transform: translateY(2px); }
+  to   { opacity: 1;    transform: none; }
+}
+@keyframes liveedge-spin { to { transform: rotate(360deg); } }
+@keyframes liveedge-morph {
+  0%, 100% { border-radius: 46% 54% 56% 44% / 52% 44% 56% 48%; }
+  50%      { border-radius: 56% 44% 44% 56% / 44% 56% 48% 52%; }
+}
+
+.live-edge {
+  background: var(--primary-light);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.live-orb {
+  width: 20px; height: 20px; flex: none; position: relative;
+  background: conic-gradient(from 0deg, var(--primary), #a371ff, #37d39b, var(--primary));
+  border-radius: 46% 54% 56% 44% / 52% 44% 56% 48%;
+  animation: liveedge-spin 3.6s linear infinite, liveedge-morph 5s ease-in-out infinite;
+  filter: blur(0.3px);
+}
+.live-orb::after {
+  content: ''; position: absolute; inset: 5px; border-radius: 50%;
+  background: var(--background);
+}
+.live-phrase {
+  display: inline-block; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; font-weight: 600;
+  background: linear-gradient(90deg,
+    var(--muted-2) 0%, var(--muted-2) 38%, var(--foreground) 50%, var(--muted-2) 62%, var(--muted-2) 100%);
+  background-size: 230% 100%;
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent;
+  animation: liveedge-sweep 2.4s linear infinite, liveedge-fade 0.4s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-orb, .live-phrase { animation: none; }
+  .live-phrase { color: var(--muted); -webkit-text-fill-color: var(--muted); }
+}
