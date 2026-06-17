@@ -488,3 +488,11 @@ export interface DashboardWidget {
   boardIds?: string[];
   config?: Record<string, unknown>;
 }
+
+// ── Code viewer (Spec 2) ───────────────────────────────────────────────
+export interface RepoMeta { defaultBranch: string; description?: string | null; private: boolean; }
+export interface BranchInfo { name: string; commitSha: string; }
+export interface TreeEntry { name: string; path: string; type: 'file' | 'dir'; size: number; }
+export interface FileContent { path: string; sha: string; size: number; isBinary: boolean; text: string | null; }
+export interface CommitInfo { sha: string; message: string; author: string; date: string; url: string; }
+export interface PullRequestInfo { number: number; title: string; state: string; author: string; head: string; base: string; url: string; createdAt: string; }

@@ -2,6 +2,7 @@
 
 import type {
   Board, AgentTask, AgentRole, AgentUpsertResult, Artifact, Approval, WorkflowRun, AgentEvent, HumanInteraction, TaskEdge, EdgeKind, RunEvent,
+  RepoMeta, BranchInfo, TreeEntry, FileContent, CommitInfo, PullRequestInfo,
 } from './types';
 import { trackEvent, trackException, redact } from './telemetry';
 
@@ -66,6 +67,19 @@ export const api = {
       }),
     disconnectGitHub: (boardId: string) =>
       fetchApi<Board>(`/api/boards/${boardId}/github`, { method: 'DELETE' }),
+  },
+
+  repo: {
+    meta: (boardId: string) => fetchApi<RepoMeta>(`/api/boards/${boardId}/repo/meta`),
+    branches: (boardId: string) => fetchApi<BranchInfo[]>(`/api/boards/${boardId}/repo/branches`),
+    tree: (boardId: string, ref?: string, path?: string) =>
+      fetchApi<TreeEntry[]>(`/api/boards/${boardId}/repo/tree?ref=${encodeURIComponent(ref ?? '')}&path=${encodeURIComponent(path ?? '')}`),
+    file: (boardId: string, path: string, ref?: string) =>
+      fetchApi<FileContent>(`/api/boards/${boardId}/repo/file?ref=${encodeURIComponent(ref ?? '')}&path=${encodeURIComponent(path)}`),
+    commits: (boardId: string, ref?: string, path?: string, page = 1) =>
+      fetchApi<CommitInfo[]>(`/api/boards/${boardId}/repo/commits?ref=${encodeURIComponent(ref ?? '')}&path=${encodeURIComponent(path ?? '')}&page=${page}`),
+    pulls: (boardId: string, state = 'open') =>
+      fetchApi<PullRequestInfo[]>(`/api/boards/${boardId}/repo/pulls?state=${encodeURIComponent(state)}`),
   },
 
   tasks: {
