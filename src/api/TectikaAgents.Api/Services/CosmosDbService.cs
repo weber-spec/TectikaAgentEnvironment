@@ -388,6 +388,32 @@ public class CosmosDbService : ICosmosDbService
         }
     }
 
+    public async Task<UsageRollup?> GetUsageRollupAsync(string tenantId, string id, CancellationToken ct = default)
+    {
+        try
+        {
+            var r = await GetContainer(UsageRollupsContainer).ReadItemAsync<UsageRollup>(id, new PartitionKey(tenantId), cancellationToken: ct);
+            return r.Resource;
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
+    }
+
+    public async Task<List<UsageRollup>> GetUsageRollupsForTenantAsync(string tenantId, CancellationToken ct = default)
+    {
+        var q = new QueryDefinition("SELECT * FROM c WHERE c.tenantId = @t").WithParameter("@t", tenantId);
+        return (await QueryAsync<UsageRollup>(UsageRollupsContainer, q, tenantId, ct)).ToList();
+    }
+
+    public async Task<List<UsageEvent>> GetUsageEventsForTaskAsync(string taskId, int max, string? continuationToken, CancellationToken ct = default)
+    {
+        var q = new QueryDefinition("SELECT * FROM c WHERE c.taskId = @t ORDER BY c.timestamp DESC").WithParameter("@t", taskId);
+        var it = GetContainer(UsageEventsContainer).GetItemQueryIterator<UsageEvent>(q, continuationToken,
+            new QueryRequestOptions { PartitionKey = new PartitionKey(taskId), MaxItemCount = max });
+        var results = new List<UsageEvent>();
+        if (it.HasMoreResults) results.AddRange(await it.ReadNextAsync(ct));
+        return results;
+    }
+
     // ── Generic query helper ──────────────────────────────────────────────────
 
     private async Task<IEnumerable<T>> QueryAsync<T>(string containerName, QueryDefinition query, string? partitionKey, CancellationToken ct)
