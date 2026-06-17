@@ -34,6 +34,9 @@ public class Artifact
     [JsonPropertyName("summary")]
     public string? Summary { get; set; }
 
+    [JsonPropertyName("outputs")]
+    public List<Output> Outputs { get; set; } = [];
+
     [JsonPropertyName("origin")]
     public ArtifactOrigin Origin { get; set; } = ArtifactOrigin.Agent;
 
@@ -42,6 +45,40 @@ public class Artifact
 
     [JsonPropertyName("updatedAt")]
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>Non-destructive read-time normalizer: any legacy artifact (populated
+    /// <see cref="Content"/>, empty <see cref="Outputs"/>) is presented as a single
+    /// inline Document output, and a missing <see cref="Summary"/> is derived from the
+    /// content. New artifacts (with outputs) are returned unchanged.</summary>
+    public Artifact EnsureHandoffShape()
+    {
+        if (Outputs.Count == 0 && !string.IsNullOrEmpty(Content))
+        {
+            Outputs = [new Output
+            {
+                Kind = OutputKind.Document,
+                Inline = new InlineContent { ContentType = ContentType, Content = Content },
+            }];
+        }
+
+        if (string.IsNullOrWhiteSpace(Summary))
+            Summary = DeriveSummary(Content);
+
+        return this;
+    }
+
+    /// <summary>First meaningful line of markdown content, stripped of leading
+    /// heading hashes / list markers and truncated, for use as a fallback summary.</summary>
+    internal static string DeriveSummary(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return "";
+        var line = content
+            .Split('\n')
+            .Select(l => l.Trim())
+            .FirstOrDefault(l => l.Length > 0) ?? "";
+        line = line.TrimStart('#', '-', '*', '>', ' ').Trim();
+        return line.Length > 200 ? line[..200].TrimEnd() + "…" : line;
+    }
 }
 
 public class ArtifactInputContext
