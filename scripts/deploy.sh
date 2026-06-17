@@ -138,12 +138,17 @@ check_prereqs() {
 # --------------------------------------------------------------------------------------------------
 resolve_sha() {
   SHA="$(git rev-parse --short HEAD)"
-  if [ -n "$(git status --porcelain)" ]; then
+  # Block on uncommitted changes to TRACKED files (staged or unstaged) so :$SHA is traceable.
+  # Untracked files (e.g. .claude/, local notes) are not committed code, so they only warn.
+  if ! git diff --quiet || ! git diff --cached --quiet; then
     if $ALLOW_DIRTY; then
-      warn "Working tree is dirty; image tag :$SHA will NOT reflect uncommitted changes (--allow-dirty set)."
+      warn "Working tree has uncommitted changes; image tag :$SHA will NOT reflect them (--allow-dirty set)."
     else
-      die "Working tree has uncommitted changes. Commit them (so :$SHA is traceable) or pass --allow-dirty."
+      die "Working tree has uncommitted changes to tracked files. Commit them (so :$SHA is traceable) or pass --allow-dirty."
     fi
+  fi
+  if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+    warn "Untracked files present; they are not part of commit $SHA. Proceeding."
   fi
   log "Deploying from commit $SHA"
 }

@@ -149,13 +149,20 @@ function Test-Prereqs {
 # --------------------------------------------------------------------------------------------------
 function Resolve-Sha {
   $script:Sha = (& git rev-parse --short HEAD).Trim()
-  $dirty = (& git status --porcelain)
-  if (-not [string]::IsNullOrEmpty($dirty)) {
+  # Block on uncommitted changes to TRACKED files (staged or unstaged) so :$Sha is traceable.
+  # Untracked files (e.g. .claude/, local notes) are not committed code, so they only warn.
+  & git diff --quiet;        $unstaged = $LASTEXITCODE
+  & git diff --cached --quiet; $staged = $LASTEXITCODE
+  if ($unstaged -ne 0 -or $staged -ne 0) {
     if ($AllowDirty) {
-      Write-Warn "Working tree is dirty; image tag :$($script:Sha) will NOT reflect uncommitted changes (-AllowDirty set)."
+      Write-Warn "Working tree has uncommitted changes; image tag :$($script:Sha) will NOT reflect them (-AllowDirty set)."
     } else {
-      Die "Working tree has uncommitted changes. Commit them (so :$($script:Sha) is traceable) or pass -AllowDirty."
+      Die "Working tree has uncommitted changes to tracked files. Commit them (so :$($script:Sha) is traceable) or pass -AllowDirty."
     }
+  }
+  $untracked = (& git ls-files --others --exclude-standard)
+  if (-not [string]::IsNullOrEmpty($untracked)) {
+    Write-Warn "Untracked files present; they are not part of commit $($script:Sha). Proceeding."
   }
   Write-Log "Deploying from commit $($script:Sha)"
 }
