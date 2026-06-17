@@ -8,6 +8,28 @@ export type TaskPriority = 'Critical' | 'High' | 'Medium' | 'Low';
 export type AssigneeType = 'Agent' | 'Human';
 export type ArtifactContentType = 'Code' | 'Markdown' | 'Json' | 'Data';
 export type ArtifactOrigin = 'Agent' | 'HumanEdit' | 'CliBridge';
+
+export type OutputKind = 'Document' | 'Code' | 'Design' | 'Dataset' | 'Deployment' | 'Link';
+
+export interface InlineContent {
+  contentType: ArtifactContentType;
+  content: string;
+}
+
+export interface ExternalRef {
+  provider: string;
+  locator: Record<string, unknown>;
+  previewUrl?: string;
+}
+
+export interface Output {
+  id: string;
+  kind: OutputKind;
+  label?: string;
+  inline?: InlineContent;
+  external?: ExternalRef;
+}
+
 export type RunStatus = 'Pending' | 'Running' | 'PausedApproval' | 'AwaitingInteraction' | 'NeedsRevision' | 'Completed' | 'Failed' | 'Cancelled';
 export type TriggerSource = 'Manual' | 'Supervisor' | 'WebhookGitHub' | 'WebhookJira' | 'Schedule' | 'CliBridge';
 export type StepType = 'AgentExecution' | 'ApprovalGate' | 'CliBridge';
@@ -225,6 +247,7 @@ export interface Artifact {
   internalLogs: string[];
   origin: ArtifactOrigin;
   summary?: string;
+  outputs: Output[];
   createdAt: string;
   updatedAt: string;
 }
