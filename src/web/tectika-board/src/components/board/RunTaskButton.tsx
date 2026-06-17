@@ -16,23 +16,28 @@ import { Modal } from '@/components/ui/overlays';
  * mode="button": labelled pill (item-panel header). mode="icon": compact icon (board cards).
  */
 export function RunTaskButton({ task, mode = 'button' }: { task: AgentTask; mode?: 'button' | 'icon' }) {
-  const { runTask, stopTask, isTaskRunning, upstreamIds } = useBoard();
+  const { runTask, stopTask, resetAndRun, isTaskRunning, upstreamIds } = useBoard();
   const [hovered, setHovered] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
 
   if (task.assignee?.type !== 'Agent') return null;
 
   const running = isTaskRunning(task);
+  const needsReset = !running && task.status !== 'Backlog';   // Done/Failed/Review/paused → Reset
   const hasUnmetDep = (upstreamIds[task.id]?.length ?? 0) > 0;
   const title = running
     ? 'Stop this run'
-    : hasUnmetDep
-      ? "Run this task's agent (upstream tasks aren't done yet)"
-      : "Run this task's agent";
+    : needsReset
+      ? 'Reset this task and start a fresh run'
+      : hasUnmetDep
+        ? "Run this task's agent (upstream tasks aren't done yet)"
+        : "Run this task's agent";
 
   const onClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (running) setConfirmOpen(true);
+    else if (needsReset) setResetOpen(true);
     else runTask(task.id);
   };
 
@@ -54,20 +59,38 @@ export function RunTaskButton({ task, mode = 'button' }: { task: AgentTask; mode
     </Modal>
   );
 
+  const resetModal = (
+    <Modal open={resetOpen} onClose={() => setResetOpen(false)} title="Reset this task?" width={440} z={1300}
+      footer={<>
+        <Button variant="secondary" size="sm" onClick={() => setResetOpen(false)}>Cancel</Button>
+        <Button variant="primary" size="sm" onClick={() => { resetAndRun(task.id); setResetOpen(false); }}>Reset &amp; run</Button>
+      </>}>
+      <p className="text-sm text-[var(--muted)]">
+        This discards the current result and starts a fresh run. To continue the existing work instead,
+        message the agent in the <span className="font-semibold text-[var(--foreground)]">Chat</span> tab.
+      </p>
+    </Modal>
+  );
+
+  const idleColor = needsReset ? 'bg-[#fdab3d] hover:bg-[#f59e0b]' : 'bg-green-600 hover:bg-green-700';
+  const idleLabel = needsReset
+    ? <><Icon.refresh aria-hidden="true" size={14} /> Reset</>
+    : <><Icon.play aria-hidden="true" size={14} /> Run</>;
+
   if (mode === 'icon') {
     return (
       <>
         <button {...hoverProps} onClick={onClick} title={title}
-          aria-label={running ? 'Stop this run' : 'Run this task'}
+          aria-label={running ? 'Stop this run' : needsReset ? 'Reset this task' : 'Run this task'}
           className={`inline-flex items-center justify-center w-6 h-6 rounded-md shrink-0 transition-all ${
             running
               ? `${showStop ? 'text-[#e2445c]' : 'text-green-600'} hover:bg-[var(--surface)]`
-              : 'text-[var(--muted)] opacity-0 group-hover:opacity-100 hover:text-green-600 hover:bg-[var(--surface)]'
+              : `${needsReset ? 'text-[#fdab3d] hover:text-[#f59e0b]' : 'text-[var(--muted)] hover:text-green-600'} opacity-0 group-hover:opacity-100 hover:bg-[var(--surface)]`
           }`}
         >
-          {running ? (showStop ? StopGlyph : Spinner) : <Icon.play size={14} />}
+          {running ? (showStop ? StopGlyph : Spinner) : needsReset ? <Icon.refresh size={14} /> : <Icon.play size={14} />}
         </button>
-        {confirmModal}
+        {confirmModal}{resetModal}
       </>
     );
   }
@@ -76,14 +99,14 @@ export function RunTaskButton({ task, mode = 'button' }: { task: AgentTask; mode
     <>
       <button {...hoverProps} onClick={onClick} title={title}
         className={`inline-flex items-center gap-1.5 text-xs font-semibold rounded-md whitespace-nowrap px-2.5 py-1.5 text-white shadow-sm transition-all ${
-          running ? (showStop ? 'bg-[#e2445c]' : 'bg-green-600') : 'bg-green-600 hover:bg-green-700'
+          running ? (showStop ? 'bg-[#e2445c]' : 'bg-green-600') : idleColor
         }`}
       >
         {running
           ? (showStop ? <>{StopGlyph} Stop</> : <>{Spinner} Running</>)
-          : <><Icon.play aria-hidden="true" size={14} /> Run</>}
+          : idleLabel}
       </button>
-      {confirmModal}
+      {confirmModal}{resetModal}
     </>
   );
 }

@@ -164,6 +164,8 @@ interface BoardContextValue {
   runPhase: BoardRunPhase;
   /** Trigger the agent for a single task. No-op unless the task is Agent-owned and idle. */
   runTask: (taskId: string) => Promise<void>;
+  /** Reset a finished/non-Backlog task to Backlog and start a fresh run. */
+  resetAndRun: (taskId: string) => Promise<void>;
   /** Cancel a task's active run (terminates the orchestration, returns the task to Backlog). */
   stopTask: (taskId: string) => Promise<void>;
   /** True while the given task's agent is actively running. */
@@ -665,12 +667,23 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     }
   }, [boardId, tasks, isTaskRunning]);
 
+  const resetAndRun = useCallback(async (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task || task.assignee?.type !== 'Agent') return;
+    try {
+      await api.tasks.updateStatus(boardId, taskId, 'Backlog');
+      const res = await api.runs.start(boardId, taskId);
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, workflowRunId: res.runId, status: 'InProgress' } : t));
+    } catch {
+      toast('Could not reset and run', 'error');
+    }
+  }, [boardId, tasks]);
+
   const stopTask = useCallback(async (taskId: string) => {
     try {
       await api.tasks.stop(boardId, taskId);
-      // backend returns the task to Backlog on stop — reflect it now, then reconcile.
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'Backlog' } : t));
-      refreshTask(taskId);
+      // backend restores the task's previous status on stop — refetch to reflect it.
+      await refreshTask(taskId);
     } catch {
       toast('Could not stop the run', 'error');
     }
@@ -696,7 +709,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     selectedIds, toggleSelect, selectAll, clearSelection,
     updateTask, refreshTask, setStatus, setCustomCell, addTask, deleteTasks, moveCanvas,
     edges, upstreamIds, downstreamIds, connectEdge, disconnectEdge, updateEdge,
-    runBoard, runPhase, runTask, stopTask, isTaskRunning,
+    runBoard, runPhase, runTask, resetAndRun, stopTask, isTaskRunning,
     saveRole, chatThreads: cfg.chatThreads, pushChatTurns,
     liveEnabled, liveState, toggleLive,
     openTaskId, openTask: setOpenTaskId,
