@@ -9,7 +9,7 @@ import { Icon } from '@/components/ui/icons';
 import { FilterBuilder } from './FilterBuilder';
 
 export function Toolbar() {
-  const { activeView, addTask, groups, runBoard, runPhase } = useBoard();
+  const { activeView, addTask, groups, runBoard, stopBoard, runPhase, boardRunnableCount } = useBoard();
   const showGrouping = activeView.kind === 'table' || activeView.kind === 'kanban';
   const showColumns = activeView.kind === 'table';
 
@@ -31,7 +31,7 @@ export function Toolbar() {
       {showGrouping && <GroupControl />}
       {showColumns && <ColumnsControl />}
       <div className="flex-1" />
-      <RunBoardButton runBoard={runBoard} runPhase={runPhase} />
+      <RunBoardButton runBoard={runBoard} stopBoard={stopBoard} runPhase={runPhase} runnableCount={boardRunnableCount} />
     </div>
   );
 }
@@ -184,20 +184,58 @@ const RUN_STATUS_COLORS: Record<string, string> = {
   Completed: '#00c875',
 };
 
-function RunBoardButton({ runBoard, runPhase }: { runBoard: () => Promise<void>; runPhase: BoardRunPhase }) {
-  const isRunning = runPhase.kind === 'running';
+function RunBoardButton({ runBoard, stopBoard, runPhase, runnableCount }: {
+  runBoard: () => Promise<void>;
+  stopBoard: () => Promise<void>;
+  runPhase: BoardRunPhase;
+  runnableCount: number;
+}) {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [stopOpen, setStopOpen] = useState(false);
+
+  // While running, the button is a live control: click to open a Stop confirmation.
+  if (runPhase.kind === 'running') {
+    const count = runPhase.taskIds.length;
+    return (
+      <>
+        <button
+          ref={btnRef}
+          onClick={() => setStopOpen(o => !o)}
+          title="Board run in progress — click to stop"
+          aria-label="Board run in progress — click to stop"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap px-2.5 py-1.5 text-white shadow-sm bg-green-600 hover:bg-green-700"
+        >
+          <div className="border-2 border-white border-t-transparent rounded-full animate-spin flex-shrink-0" style={{ width: 13, height: 13 }} />
+          Running{count ? ` (${count})` : ''}
+        </button>
+        <Popover anchorRef={btnRef} open={stopOpen} onClose={() => setStopOpen(false)} align="end" width={240}>
+          <div className="p-3">
+            <p className="text-sm font-semibold text-[var(--foreground)]">Stop the board run?</p>
+            <p className="mt-1 text-xs text-[var(--muted)]">This cancels the running agents and returns their tasks to Backlog.</p>
+            <div className="mt-3 flex justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setStopOpen(false)}>Keep running</Button>
+              <Button size="sm" variant="danger" onClick={() => { setStopOpen(false); void stopBoard(); }}>Stop run</Button>
+            </div>
+          </div>
+        </Popover>
+      </>
+    );
+  }
+
   const isDone = runPhase.kind === 'done';
+  const nothingToRun = runnableCount === 0;
   return (
     <button
       onClick={runBoard}
-      disabled={isRunning}
+      disabled={nothingToRun}
+      title={nothingToRun
+        ? 'No agent tasks are ready to run'
+        : `Run ${runnableCount} ready agent task${runnableCount === 1 ? '' : 's'}`}
       className={`inline-flex items-center gap-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap px-2.5 py-1.5 text-white shadow-sm ${
-        isRunning ? 'bg-green-600 opacity-70 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
+        nothingToRun ? 'bg-green-600 opacity-50 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
       }`}
     >
-      {isRunning ? (
-        <div className="border-2 border-white border-t-transparent rounded-full animate-spin flex-shrink-0" style={{ width: 13, height: 13 }} />
-      ) : isDone ? (
+      {isDone ? (
         <div
           className="rounded-full flex-shrink-0"
           style={{ width: 11, height: 11, background: RUN_STATUS_COLORS[(runPhase as Extract<BoardRunPhase, { kind: 'done' }>).status] }}
