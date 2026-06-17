@@ -42,7 +42,7 @@ public class ProvisionWorkspaceActivity
         if (info is null) return null;
 
         // Store the container name on the run document for cleanup on failure.
-        await _cosmos.PatchRunWorkspaceAsync(input.RunId, info.ContainerName, ct);
+        await _cosmos.PatchRunWorkspaceAsync(input.RunId, info.ContainerName, info.Endpoint, info.Token, ct);
 
         _logger.LogInformation("[ProvisionWorkspace] run={RunId} container={Container} endpoint={Endpoint}",
             input.RunId, info.ContainerName, info.Endpoint);
