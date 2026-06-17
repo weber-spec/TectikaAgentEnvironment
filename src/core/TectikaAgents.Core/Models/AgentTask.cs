@@ -55,6 +55,9 @@ public class AgentTask
     [JsonPropertyName("taskBrief")]
     public string TaskBrief { get; set; } = "";
 
+    [JsonPropertyName("pendingOutputs")]
+    public List<Output> PendingOutputs { get; set; } = [];
+
     [JsonPropertyName("prompt")]
     public string? Prompt { get; set; }
 

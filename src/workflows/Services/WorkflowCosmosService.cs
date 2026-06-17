@@ -280,6 +280,12 @@ public class WorkflowCosmosService
         await C("tasks").PatchItemAsync<AgentTask>(taskId, new PartitionKey(boardId), patchOps, cancellationToken: ct);
     }
 
+    public async Task PatchTaskPendingOutputsAsync(string boardId, string taskId, List<Output> outputs, CancellationToken ct = default)
+    {
+        var patchOps = new List<PatchOperation> { PatchOperation.Set("/pendingOutputs", outputs) };
+        await C("tasks").PatchItemAsync<AgentTask>(taskId, new PartitionKey(boardId), patchOps, cancellationToken: ct);
+    }
+
     public async Task PatchTaskThreadIdAsync(string boardId, string taskId, string threadId, CancellationToken ct = default)
     {
         var patchOps = new List<PatchOperation> { PatchOperation.Set("/foundryThreadId", threadId) };
