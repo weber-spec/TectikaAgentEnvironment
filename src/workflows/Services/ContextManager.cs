@@ -82,7 +82,9 @@ public class ContextManager
             }
         }
 
-        sb.AppendLine("\nComplete the task. Be thorough and production-ready. Your final message is the deliverable.");
+        sb.AppendLine("\nComplete the task. Be thorough and production-ready.");
+        sb.AppendLine("Register each finished deliverable with the declare_output tool (revise it later with update_output / remove_output by its id). Exploration, debugging and fix-up steps are NOT deliverables — do not declare those.");
+        sb.AppendLine("Your final message is a concise handoff summary: what you accomplished and where the deliverables are — NOT the deliverables themselves.");
         return sb.ToString();
     }
 

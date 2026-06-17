@@ -19,4 +19,18 @@ public class ContextManagerTests
         Assert.Contains("prior note", text);
         Assert.DoesNotContain("SECRET-SYS-PROMPT", text); // system prompt lives on the agent, not here
     }
+
+    [Fact]
+    public void Context_InstructsAgentToDeclareOutputsAndSummarize()
+    {
+        var role = new AgentRole { Id = "r", DisplayName = "Dev", SystemPrompt = "SECRET-SYS-PROMPT" };
+        var task = new AgentTask { Id = "t", Title = "Build X", Description = "do X" };
+        var board = new Board { Id = "b" };
+        var upstream = new List<Artifact>();
+
+        var context = ContextManager.Assemble(role, task, board, upstream);
+
+        Assert.Contains("declare_output", context);
+        Assert.Contains("handoff summary", context);
+    }
 }
