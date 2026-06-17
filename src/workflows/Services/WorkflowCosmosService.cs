@@ -37,6 +37,9 @@ public class WorkflowCosmosService
         catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
     }
 
+    public async Task UpsertAgentRoleAsync(AgentRole role, CancellationToken ct = default) =>
+        await C("agentRoles").UpsertItemAsync(role, new PartitionKey(role.TenantId), cancellationToken: ct);
+
     // ── AgentTask ─────────────────────────────────────────────────────────────
 
     public async Task<AgentTask?> GetTaskAsync(string boardId, string taskId, CancellationToken ct = default)

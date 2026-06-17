@@ -79,9 +79,15 @@ var useMockAgents = builder.Configuration.GetValue<bool>("Foundry:UseMock", useM
 // Transient: Durable Functions resolves activities from the root scope, and the activity mutates
 // FoundryAgentRuntime.OnText per call — a shared instance would race across concurrent activities.
 if (useMockAgents)
+{
     builder.Services.AddTransient<IAgentRuntime, MockAgentRuntime>();
+    builder.Services.AddTransient<IAgentProvisioner, MockAgentProvisioner>();
+}
 else
+{
     builder.Services.AddTransient<IAgentRuntime, FoundryAgentRuntime>();
+    builder.Services.AddTransient<IAgentProvisioner, FoundryAgentRuntime>();
+}
 
 builder.Services.AddScoped<ContextManager>();
 builder.Services.AddHttpClient();

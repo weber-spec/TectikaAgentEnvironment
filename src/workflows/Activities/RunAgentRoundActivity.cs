@@ -1,6 +1,7 @@
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using TectikaAgents.AgentRuntime;
 using TectikaAgents.Core.Configuration;
 using TectikaAgents.Core.Interfaces;
 using TectikaAgents.Core.Models;
@@ -18,6 +19,7 @@ public class RunAgentRoundActivity
 {
     private readonly WorkflowCosmosService _cosmos;
     private readonly IAgentRuntime _runtime;
+    private readonly IAgentProvisioner _provisioner;
     private readonly ContextManager _contextManager;
     private readonly WorkflowEventPublisher _events;
     private readonly int _maxCompletionTokens;
@@ -26,6 +28,7 @@ public class RunAgentRoundActivity
     public RunAgentRoundActivity(
         WorkflowCosmosService cosmos,
         IAgentRuntime runtime,
+        IAgentProvisioner provisioner,
         ContextManager contextManager,
         WorkflowEventPublisher events,
         IOptions<FoundrySettings> foundry,
@@ -33,6 +36,7 @@ public class RunAgentRoundActivity
     {
         _cosmos = cosmos;
         _runtime = runtime;
+        _provisioner = provisioner;
         _contextManager = contextManager;
         _events = events;
         _maxCompletionTokens = foundry.Value.MaxCompletionTokens;
@@ -66,6 +70,11 @@ public class RunAgentRoundActivity
         var userInput = input.UserInput;
         if (input.Round == 0)
         {
+            // Self-heal: if the agent's stored definition is stale (e.g. the tool schema added the
+            // terminal tool), republish it so the model actually knows its current tools.
+            if (await AgentSelfHeal.EnsureCurrentAsync(_provisioner, role, ct))
+                await _cosmos.UpsertAgentRoleAsync(role, ct);
+
             var upstreamIds = await _cosmos.GetUpstreamTaskIdsAsync(task.BoardId, input.TaskId, ct);
             var upstream = await _cosmos.GetUpstreamArtifactsAsync(upstreamIds, ct);
             var qa = await _cosmos.GetQaFeedbackArtifactsAsync(task.BoardId, input.TaskId, ct);
