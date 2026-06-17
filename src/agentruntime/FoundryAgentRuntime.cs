@@ -161,7 +161,7 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         {
             var http = await ClientAsync(ct).ConfigureAwait(false);
             var loop = new AgentToolLoop(explorer, _gitHub, req.BoardGitHub, req.Role,
-                _workspaceExecutor, workspaceEndpoint: null, workspaceToken: null);
+                _workspaceExecutor, workspaceProvider: null);
             var first = true;
             var lastResponseId = "";
 
@@ -256,7 +256,7 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
             var p = await RoundExecutor.ExecuteOneRoundAsync(round, explorer,
                 (n, _) => OnText?.Invoke($"\n[using tool: {n}]\n"),
                 _gitHub, req.BoardGitHub, req.Role,
-                _workspaceExecutor, req.WorkspaceEndpoint, req.WorkspaceToken, ct).ConfigureAwait(false);
+                _workspaceExecutor, req.Workspace, ct).ConfigureAwait(false);
             var next = p.ToolOutputs.Select(o => new PriorToolOutput(o.CallId, o.Output)).ToList();
             var id = r.Id ?? $"round-{req.RunId}-{req.Round}";
 

@@ -22,6 +22,7 @@ public class RunAgentRoundActivity
     private readonly IAgentProvisioner _provisioner;
     private readonly ContextManager _contextManager;
     private readonly WorkflowEventPublisher _events;
+    private readonly IWorkspaceService _workspace;
     private readonly int _maxCompletionTokens;
     private readonly ILogger<RunAgentRoundActivity> _logger;
 
@@ -31,6 +32,7 @@ public class RunAgentRoundActivity
         IAgentProvisioner provisioner,
         ContextManager contextManager,
         WorkflowEventPublisher events,
+        IWorkspaceService workspace,
         IOptions<FoundrySettings> foundry,
         ILogger<RunAgentRoundActivity> logger)
     {
@@ -39,6 +41,7 @@ public class RunAgentRoundActivity
         _provisioner = provisioner;
         _contextManager = contextManager;
         _events = events;
+        _workspace = workspace;
         _maxCompletionTokens = foundry.Value.MaxCompletionTokens;
         _logger = logger;
     }
@@ -83,13 +86,7 @@ public class RunAgentRoundActivity
                 ? context
                 : context + "\n\n## User message\n" + input.UserInput;
 
-            if (!string.IsNullOrEmpty(input.WorkspaceEndpoint))
-                userInput += "\n\n## Workspace\n" +
-                    "A workspace has been provisioned for this run. The GitHub repository has been cloned and is ready at `/workspace`.\n" +
-                    "Use `run_command` to read/write files, run builds, tests, `git commit`, `git push`, etc.\n" +
-                    "You do NOT have a separate terminal — `run_command` is your only way to execute code.";
-            else
-                userInput += "\n\n## Workspace\nNo workspace is available for this run. You cannot execute code or run shell commands.";
+            userInput += WorkspacePrompt(board.GitHub is not null);
         }
 
         var explorer = new BoardProjectExplorer(_cosmos, input.BoardId, input.TenantId);
@@ -97,8 +94,7 @@ public class RunAgentRoundActivity
             new RoundRequest(role, task, threadId, userInput, input.PendingToolOutputs, _maxCompletionTokens, input.RunId, input.Round)
             {
                 BoardGitHub = board.GitHub,
-                WorkspaceEndpoint = input.WorkspaceEndpoint,
-                WorkspaceToken = input.WorkspaceToken,
+                Workspace = new RunWorkspaceProvider(_cosmos, _workspace, board, input.RunId, _logger),
             },
             explorer, ct);
 
@@ -167,6 +163,46 @@ public class RunAgentRoundActivity
     }
 
     private static string Short(string s) => s[..Math.Min(6, s.Length)];
+
+    public static string WorkspacePrompt(bool repoConnected) => repoConnected
+        ? "\n\n## Sandbox\nYou have an on-demand sandbox terminal via `run_command`. On first use, the connected " +
+          "GitHub repository is cloned to `/workspace` with git configured (you can `git commit`/`git push`)."
+        : "\n\n## Sandbox\nYou have an on-demand sandbox terminal via `run_command` — an empty `/workspace` " +
+          "(no git repo connected). Use it to write and run code.";
+
+    private sealed class RunWorkspaceProvider : IWorkspaceProvider
+    {
+        private readonly WorkflowCosmosService _cosmos;
+        private readonly IWorkspaceService _workspace;
+        private readonly Board _board;
+        private readonly string _runId;
+        private readonly ILogger _logger;
+        private WorkspaceConnection? _cached;
+
+        public RunWorkspaceProvider(WorkflowCosmosService cosmos, IWorkspaceService workspace, Board board, string runId, ILogger logger)
+        { _cosmos = cosmos; _workspace = workspace; _board = board; _runId = runId; _logger = logger; }
+
+        public async Task<WorkspaceConnection?> EnsureAsync(CancellationToken ct = default)
+        {
+            if (_cached is not null) return _cached;
+            var run = await _cosmos.GetRunByIdAsync(_runId, ct);
+            if (run is { WorkspaceEndpoint: not null, WorkspaceToken: not null })
+                return _cached = new WorkspaceConnection(run.WorkspaceEndpoint, run.WorkspaceToken);
+            try
+            {
+                var branch = $"agent/{_runId[..Math.Min(8, _runId.Length)]}";
+                var info = await _workspace.ProvisionAsync(_board, branch, _runId, ct);
+                if (info is null) return null;
+                await _cosmos.PatchRunWorkspaceAsync(_runId, info.ContainerName, info.Endpoint, info.Token, ct);
+                return _cached = new WorkspaceConnection(info.Endpoint, info.Token);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[RunAgentRound] sandbox provisioning failed for run {RunId}", _runId);
+                return null;
+            }
+        }
+    }
 }
 
 public record RoundActivityInput(
@@ -177,8 +213,6 @@ public record RoundActivityInput(
     string AgentRoleId,
     int Round,
     string? UserInput,
-    List<PriorToolOutput> PendingToolOutputs,
-    string? WorkspaceEndpoint = null,
-    string? WorkspaceToken = null);
+    List<PriorToolOutput> PendingToolOutputs);
 
 public record RoundActivityResult(RoundOutcome Outcome, string? ArtifactId);

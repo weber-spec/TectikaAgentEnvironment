@@ -6,7 +6,7 @@ POST /run   {"cmd": "...", "timeout": 60}  -> {"stdout":"...","stderr":"...","ex
 GET  /health                               -> 200 "ok"
 
 Auth: Authorization: Bearer <EXECUTOR_TOKEN>  (env var; if empty, auth is skipped for dev)
-All commands run with cwd=/workspace (the cloned repo).
+All commands run with cwd=/workspace (the sandbox; the repo when one is connected).
 """
 import os
 import json

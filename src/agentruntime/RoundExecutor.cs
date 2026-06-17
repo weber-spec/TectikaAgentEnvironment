@@ -26,7 +26,7 @@ public static class RoundExecutor
     public static async Task<RoundProcessResult> ExecuteOneRoundAsync(
         RoundResponse resp, IProjectExplorer explorer, Action<string, string> onToolCall,
         IGitHubToolExecutor? gitHub, GitHubRepoConnection? boardRepo, AgentRole? role,
-        WorkspaceToolExecutor? workspace, string? workspaceEndpoint, string? workspaceToken,
+        WorkspaceToolExecutor? workspace, TectikaAgents.Core.Interfaces.IWorkspaceProvider? workspaceProvider,
         CancellationToken ct)
     {
         if (resp.ToolCalls is null || resp.ToolCalls.Count == 0)
@@ -114,16 +114,17 @@ public static class RoundExecutor
                     outputs.Add(new(call.CallId, await Serialize(explorer.GetArtifactAsync(Str(args, "taskId"), IntOrNull(args, "version"), ct))));
                     traced.Add(new("get_artifact", Str(args, "taskId"), Summarize(outputs[^1].Output))); break;
                 case "run_command":
-                    if (workspace is not null && workspaceEndpoint is not null && workspaceToken is not null)
+                    var conn = workspaceProvider is null ? null : await workspaceProvider.EnsureAsync(ct);
+                    if (workspace is not null && conn is not null)
                     {
-                        var wsResult = await workspace.ExecuteAsync(args, workspaceEndpoint, workspaceToken, ct);
+                        var wsResult = await workspace.ExecuteAsync(args, conn.Endpoint, conn.Token, ct);
                         outputs.Add(new(call.CallId, wsResult));
                         traced.Add(new("run_command", Str(args, "cmd"), Summarize(wsResult)));
                     }
                     else
                     {
-                        outputs.Add(new(call.CallId, """{"error":"No workspace available for this run. The board has no GitHub repo connected."}"""));
-                        traced.Add(new("run_command", Str(args, "cmd"), "no workspace"));
+                        outputs.Add(new(call.CallId, """{"error":"The sandbox could not be started for this run."}"""));
+                        traced.Add(new("run_command", Str(args, "cmd"), "no sandbox"));
                     }
                     break;
                 default:

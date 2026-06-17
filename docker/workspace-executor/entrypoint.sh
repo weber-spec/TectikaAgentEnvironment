@@ -1,30 +1,29 @@
 #!/bin/bash
 # Workspace container entrypoint.
-# 1. Configure git with the PAT.
-# 2. Clone REPO_URL into /workspace.
-# 3. Check out GIT_BRANCH (create if new).
-# 4. Start the HTTP executor.
+#  - With REPO_URL set: configure git with the PAT, clone, check out GIT_BRANCH.
+#  - Without REPO_URL: a bare, git-isolated /workspace (no clone, no git init).
+# Then start the HTTP executor.
 set -euo pipefail
 
-echo "[entrypoint] repo=$REPO_URL branch=$GIT_BRANCH"
+mkdir -p /workspace
 
-# Embed PAT in the credential helper (avoids leaking it in the URL).
-git config --global credential.helper store
-printf "https://x-access-token:%s@github.com\n" "$GIT_PAT" > /root/.git-credentials
-
-git config --global user.email "agent@tectika.com"
-git config --global user.name "Tectika Agent"
-
-# Clone
-git clone "$REPO_URL" /workspace
-cd /workspace
-
-# Check out branch — create from HEAD if it doesn't exist yet on origin.
-if git ls-remote --heads origin "$GIT_BRANCH" | grep -q "$GIT_BRANCH"; then
-    git checkout "$GIT_BRANCH"
+if [ -n "${REPO_URL:-}" ]; then
+    echo "[entrypoint] repo=$REPO_URL branch=${GIT_BRANCH:-}"
+    git config --global credential.helper store
+    printf "https://x-access-token:%s@github.com\n" "${GIT_PAT:-}" > /root/.git-credentials
+    git config --global user.email "agent@tectika.com"
+    git config --global user.name "Tectika Agent"
+    git clone "$REPO_URL" /workspace
+    cd /workspace
+    if git ls-remote --heads origin "${GIT_BRANCH:-}" | grep -q "${GIT_BRANCH:-}"; then
+        git checkout "$GIT_BRANCH"
+    else
+        git checkout -b "$GIT_BRANCH"
+    fi
+    echo "[entrypoint] ready on branch $(git branch --show-current)"
 else
-    git checkout -b "$GIT_BRANCH"
+    cd /workspace
+    echo "[entrypoint] standalone sandbox (no repo) at /workspace"
 fi
 
-echo "[entrypoint] ready on branch $(git branch --show-current)"
 exec python3 /executor.py

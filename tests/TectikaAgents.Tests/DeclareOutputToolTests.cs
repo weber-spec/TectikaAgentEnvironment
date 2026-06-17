@@ -11,7 +11,7 @@ public class DeclareOutputToolTests
     private static Task<RoundProcessResult> Run(params ToolCall[] calls) =>
         RoundExecutor.ExecuteOneRoundAsync(
             RoundResponse.Tools(calls), new NullProjectExplorer(), (_, __) => { },
-            null, null, null, null, null, null, default);
+            null, null, null, null, null, default);
 
     [Fact]
     public async Task DeclareOutput_EmitsDeclareOp_AndReturnsId()

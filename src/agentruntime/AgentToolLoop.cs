@@ -42,20 +42,18 @@ public sealed class AgentToolLoop
     private readonly GitHubRepoConnection? _boardRepo;
     private readonly AgentRole? _role;
     private readonly WorkspaceToolExecutor? _workspace;
-    private readonly string? _workspaceEndpoint;
-    private readonly string? _workspaceToken;
+    private readonly TectikaAgents.Core.Interfaces.IWorkspaceProvider? _workspaceProvider;
 
     public AgentToolLoop(IProjectExplorer explorer, IGitHubToolExecutor? gitHub = null,
         GitHubRepoConnection? boardRepo = null, AgentRole? role = null,
-        WorkspaceToolExecutor? workspace = null, string? workspaceEndpoint = null, string? workspaceToken = null)
+        WorkspaceToolExecutor? workspace = null, TectikaAgents.Core.Interfaces.IWorkspaceProvider? workspaceProvider = null)
     {
         _explorer = explorer;
         _gitHub = gitHub;
         _boardRepo = boardRepo;
         _role = role;
         _workspace = workspace;
-        _workspaceEndpoint = workspaceEndpoint;
-        _workspaceToken = workspaceToken;
+        _workspaceProvider = workspaceProvider;
     }
 
     public delegate Task<RoundResponse> SendRound(IReadOnlyList<ToolOutput> toolOutputs, CancellationToken ct);
@@ -81,7 +79,7 @@ public sealed class AgentToolLoop
             }
 
             var processed = await RoundExecutor.ExecuteOneRoundAsync(resp, _explorer, onToolCall,
-                _gitHub, _boardRepo, _role, _workspace, _workspaceEndpoint, _workspaceToken, ct);
+                _gitHub, _boardRepo, _role, _workspace, _workspaceProvider, ct);
             // NOTE: processed.OutputOps (declare/update/remove_output) is intentionally NOT propagated
             // here. Declared outputs are captured only on the steerable path (RunAgentRoundActivity via
             // FoundryAgentRuntime.RunRoundAsync). This legacy in-proc loop degrades gracefully: the
