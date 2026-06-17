@@ -73,7 +73,8 @@ public class RunStartService : IRunStartService
             TenantId           = tenantId,
             TaskId             = taskId,
             PipelineDefinition = pipeline,
-            Status             = RunStatus.Pending
+            Status             = RunStatus.Pending,
+            PreviousTaskStatus = task.Status
         };
 
         var savedRun = await _cosmos.CreateRunAsync(run, ct);

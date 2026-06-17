@@ -22,6 +22,11 @@ public class WorkflowRun
     [JsonPropertyName("status")]
     public RunStatus Status { get; set; } = RunStatus.Pending;
 
+    /// <summary>The task's status immediately before this run started, restored on stop/cancel
+    /// (instead of forcing Backlog). Null for runs created before this field existed.</summary>
+    [JsonPropertyName("previousTaskStatus")]
+    public AgentTaskStatus? PreviousTaskStatus { get; set; }
+
     [JsonPropertyName("steps")]
     public List<StepResult> Steps { get; set; } = [];
 

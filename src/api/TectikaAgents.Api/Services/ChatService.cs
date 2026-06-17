@@ -75,7 +75,8 @@ public class ChatService : IChatService
 
         var newRun = await _cosmos.CreateRunAsync(new WorkflowRun
         {
-            TenantId = tenantId, TaskId = taskId, Status = RunStatus.Pending
+            TenantId = tenantId, TaskId = taskId, Status = RunStatus.Pending,
+            PreviousTaskStatus = task.Status
         }, ct);
 
         task.WorkflowRunId = newRun.Id;
@@ -153,9 +154,10 @@ public class ChatService : IChatService
         await PostAsync(BuildUrl($"{run.DurableFunctionInstanceId}/terminate"), new { }, ct);
         run.Status = RunStatus.Cancelled;
         await _cosmos.UpdateRunAsync(run, ct);
-        // The terminated orchestration never runs its terminal status activity, so reset the
-        // task here. Backlog = not running / re-runnable (there is no Cancelled task status).
-        task!.Status = AgentTaskStatus.Backlog;
+        // The terminated orchestration never runs its terminal status activity, so set the task here.
+        // Restore the status it had before this run started (e.g. a Done task stays Done); fall back to
+        // Backlog when unknown (older runs) — there is no Cancelled task status.
+        task!.Status = run.PreviousTaskStatus ?? AgentTaskStatus.Backlog;
         await _cosmos.UpdateTaskAsync(task, ct);
         _logger.LogInformation("[Chat] stopped run {RunId} task {TaskId}", run.Id, taskId);
         return true;
