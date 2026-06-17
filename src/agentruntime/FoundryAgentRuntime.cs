@@ -263,11 +263,11 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
             if (p.IsFinal)
             {
                 if (!string.IsNullOrEmpty(p.FinalText)) OnText?.Invoke(p.FinalText);
-                return new RoundOutcome(RoundKind.Final, p.FinalText, [], null, null, p.RoundIntent, p.BriefUpdate, p.ToolCalls, usage, id);
+                return new RoundOutcome(RoundKind.Final, p.FinalText, [], null, null, p.RoundIntent, p.BriefUpdate, p.ToolCalls, usage, id, OutputOps: p.OutputOps);
             }
             if (p.Control is not null)
-                return new RoundOutcome(RoundKind.AwaitUser, null, next, p.OpenControlCallId, p.Control, p.RoundIntent, p.BriefUpdate, p.ToolCalls, usage, id);
-            return new RoundOutcome(RoundKind.Continue, null, next, null, null, p.RoundIntent, p.BriefUpdate, p.ToolCalls, usage, id);
+                return new RoundOutcome(RoundKind.AwaitUser, null, next, p.OpenControlCallId, p.Control, p.RoundIntent, p.BriefUpdate, p.ToolCalls, usage, id, OutputOps: p.OutputOps);
+            return new RoundOutcome(RoundKind.Continue, null, next, null, null, p.RoundIntent, p.BriefUpdate, p.ToolCalls, usage, id, OutputOps: p.OutputOps);
         }
         catch (Exception ex)
         {

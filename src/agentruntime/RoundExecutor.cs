@@ -17,7 +17,8 @@ public sealed record RoundProcessResult(
     PendingControl? Control,
     string? RoundIntent,
     string? BriefUpdate,
-    IReadOnlyList<RoundToolCall> ToolCalls);      // summarised trace for RunEvents
+    IReadOnlyList<RoundToolCall> ToolCalls,        // summarised trace for RunEvents
+    IReadOnlyList<OutputOp> OutputOps);            // declared-output edits this round
 
 /// <summary>Executes the tool calls of one round against the board-scoped explorer.</summary>
 public static class RoundExecutor
@@ -29,10 +30,11 @@ public static class RoundExecutor
         CancellationToken ct)
     {
         if (resp.ToolCalls is null || resp.ToolCalls.Count == 0)
-            return new RoundProcessResult(true, resp.FinalText ?? "", [], null, null, null, null, []);
+            return new RoundProcessResult(true, resp.FinalText ?? "", [], null, null, null, null, [], []);
 
         var outputs = new List<ToolOutput>();
         var traced = new List<RoundToolCall>();
+        var ops = new List<OutputOp>();
         string? intent = null, brief = null, openControlCallId = null;
         PendingControl? control = null;
 
@@ -52,6 +54,41 @@ public static class RoundExecutor
                     brief = Str(args, "text");
                     outputs.Add(new(call.CallId, "ok"));
                     traced.Add(new("update_brief", brief, "ok")); break;
+                case "declare_output":
+                {
+                    var newId = Guid.NewGuid().ToString();
+                    var declared = new Output
+                    {
+                        Id = newId,
+                        Kind = OutputKind.Document,
+                        Label = StrOrNull(args, "label"),
+                        Inline = new InlineContent { ContentType = ParseContentType(StrOrNull(args, "contentType")), Content = Str(args, "content") },
+                    };
+                    ops.Add(new OutputOp(OutputOpKind.Declare, newId, Declared: declared));
+                    outputs.Add(new(call.CallId, $"{{\"id\":\"{newId}\"}}"));
+                    traced.Add(new("declare_output", declared.Label ?? "Document", $"declared {newId}"));
+                    break;
+                }
+                case "update_output":
+                {
+                    var id = Str(args, "id");
+                    InlineContent? inline = null;
+                    var newContent = StrOrNull(args, "content");
+                    if (newContent is not null)
+                        inline = new InlineContent { ContentType = ParseContentType(StrOrNull(args, "contentType")), Content = newContent };
+                    ops.Add(new OutputOp(OutputOpKind.Update, id, Label: StrOrNull(args, "label"), Inline: inline));
+                    outputs.Add(new(call.CallId, "ok"));
+                    traced.Add(new("update_output", id, "ok"));
+                    break;
+                }
+                case "remove_output":
+                {
+                    var id = Str(args, "id");
+                    ops.Add(new OutputOp(OutputOpKind.Remove, id));
+                    outputs.Add(new(call.CallId, "ok"));
+                    traced.Add(new("remove_output", id, "ok"));
+                    break;
+                }
                 case "request_human_input":
                     control ??= new(PendingControlKind.HumanInput, Str(args, "question"), StrArr(args, "options"));
                     openControlCallId ??= call.CallId;
@@ -102,11 +139,17 @@ public static class RoundExecutor
             }
         }
 
-        return new RoundProcessResult(false, null, outputs, openControlCallId, control, intent, brief, traced);
+        return new RoundProcessResult(false, null, outputs, openControlCallId, control, intent, brief, traced, ops);
     }
 
     private static async Task<string> Serialize<T>(Task<T> task) => JsonSerializer.Serialize(await task);
     private static string Summarize(string s) => s.Length <= 120 ? s : s[..120] + "…";
+
+    private static string? StrOrNull(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+
+    private static ArtifactContentType ParseContentType(string? s) =>
+        Enum.TryParse<ArtifactContentType>(s, ignoreCase: true, out var v) ? v : ArtifactContentType.Markdown;
 
     private static string Str(JsonElement e, string p) =>
         e.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()! : "";

@@ -38,4 +38,5 @@ public sealed record RoundOutcome(
     IReadOnlyList<RoundToolCall> ToolCalls,
     TokenUsage Usage,
     string CompletionId,
-    string? Error = null);
+    string? Error = null,
+    IReadOnlyList<OutputOp>? OutputOps = null);
