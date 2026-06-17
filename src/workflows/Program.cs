@@ -50,6 +50,9 @@ builder.Services.AddSingleton(sp =>
 });
 
 builder.Services.AddSingleton<WorkflowCosmosService>();
+builder.Services.AddSingleton(_ => new TectikaAgents.Core.Usage.CostCalculator(
+    TectikaAgents.Core.Usage.PricingCatalogLoader.LoadEmbedded()));
+builder.Services.AddSingleton<TectikaAgents.Workflows.Services.UsageRecorder>();
 
 // ── Service Bus publisher ─────────────────────────────────────────────────────
 builder.Services.AddSingleton(sp =>
