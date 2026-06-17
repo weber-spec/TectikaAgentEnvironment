@@ -176,3 +176,10 @@ TypeScript types in `src/web/tectika-board/src/lib/types.ts` mirror the new `Art
 
 - Exact wording/shape of the `declare_output` capability as exposed to agents (tool schema vs. structured final message) — to be settled in the implementation plan, consistent with the existing tool/loop conventions in `src/agentruntime`.
 - Whether `summary` should have a soft length budget to keep downstream context cheap (proposed: yes, a guideline in the prompt rather than a hard cap).
+
+### Carried into Plan B (surfaced during Phase A implementation/review)
+
+- **`ExternalRef.Locator` value type.** Phase A defines it as `Dictionary<string, object?>`, which is fine while no external outputs are written, but under System.Text.Json it round-trips non-string values (e.g. a `prNumber`, `changedFiles[]`) back as `JsonElement`, not native CLR types. Plan B (which first *produces* external/git outputs) must pick a concrete approach — typed per-provider locator classes (preferred) or explicit `JsonElement`/`JsonNode` handling — before any code reads stored locators.
+- **Enforce `Output.IsValid()` on the write path.** Phase A added and unit-tested `IsValid()` (exactly one of inline/external) but does not yet enforce it anywhere — the `Create` endpoint still writes only legacy `Content`. Plan B must reject malformed declarations (both/neither set, unknown kind) at persistence, per §9.
+- **External-output rendering.** The Phase A `OutputView` renders Document inline and a "coming soon" placeholder for other kinds; it ignores `external` (no preview-url/locator card). Code/Link/Design external rendering lands with their producing specs.
+- **Mock-store read mutation (minor).** The dev `InMemoryCosmosDbService` returns live stored references, so the API's read-time `EnsureHandoffShape()` mutates them in place (idempotent, so behavior is correct; production `CosmosDbService` deserializes fresh per query). If this ever becomes confusing, make `EnsureHandoffShape()` return a shaped copy or map to a response DTO.
