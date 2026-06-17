@@ -17,13 +17,19 @@ public class CompactTrigger
     private readonly TectikaAgents.Core.Interfaces.IAgentRuntime _runtime;
     private readonly int _maxCompletionTokens;
     private readonly ILogger<CompactTrigger> _logger;
+    private readonly UsageRecorder _usage;
+    private readonly string _defaultModel;
+    private readonly string _provider;
 
     public CompactTrigger(WorkflowCosmosService cosmos, TectikaAgents.Core.Interfaces.IAgentRuntime runtime,
-        IOptions<FoundrySettings> foundry, ILogger<CompactTrigger> logger)
+        IOptions<FoundrySettings> foundry, UsageRecorder usage, ILogger<CompactTrigger> logger)
     {
         _cosmos = cosmos;
         _runtime = runtime;
         _maxCompletionTokens = foundry.Value.MaxCompletionTokens;
+        _usage = usage;
+        _defaultModel = foundry.Value.DefaultModel;
+        _provider = foundry.Value.IsOpenAiDirect ? "openai" : "azure-foundry";
         _logger = logger;
     }
 
@@ -46,12 +52,26 @@ public class CompactTrigger
 
             if (role is not null && transcript.Length > 0)
             {
-                var summary = await SummarizeAsync(role, task, transcript, ct);
+                var (summary, tokenUsage) = await SummarizeAsync(role, task, transcript, ct);
                 if (!string.IsNullOrWhiteSpace(summary))
                 {
                     await _cosmos.ResetTaskContextAsync(boardId, taskId, summary.Trim(), ct);
                     summarized = true;
                     _logger.LogInformation("[Compact] summarized task {TaskId} ({Len} chars)", taskId, summary.Length);
+
+                    // Record the summarization call's token usage to the task's CURRENT session.
+                    // RunId uses a stable compaction correlation string (no workflow run exists here);
+                    // this keeps event IDs deterministic so retries are idempotent.
+                    var compactRunId = $"compact-{taskId}";
+                    var model = role.ModelOverride ?? _defaultModel;
+                    await _usage.RecordAsync(new UsageRecorder.Attribution(
+                        TenantId: task.TenantId, BoardId: boardId, TaskId: taskId,
+                        RunId: compactRunId, Step: 0, Round: 0,
+                        InvocationId: context.InvocationId,
+                        AgentRoleId: "system:compaction", AgentRoleName: "Compaction",
+                        Provider: _provider, Model: model, ModelVersion: null,
+                        SessionId: task.UsageSessionId ?? compactRunId),
+                        tokenUsage, ct);
                 }
             }
 
@@ -79,7 +99,7 @@ public class CompactTrigger
         return sb.ToString();
     }
 
-    private async Task<string> SummarizeAsync(AgentRole role, AgentTask task, string transcript, CancellationToken ct)
+    private async Task<(string Content, TokenUsage TokenUsage)> SummarizeAsync(AgentRole role, AgentTask task, string transcript, CancellationToken ct)
     {
         var throwaway = new AgentTask { Id = task.Id, BoardId = task.BoardId, TenantId = task.TenantId, Title = task.Title };
         var thread = await _runtime.EnsureThreadAsync(throwaway, ct);   // fresh conversation, discarded after
@@ -88,7 +108,9 @@ public class CompactTrigger
         var outcome = await _runtime.RunTurnAsync(
             new AgentRunRequest(role, throwaway, thread, prompt, _maxCompletionTokens, "compact", 0),
             new NoopProjectExplorer(), ct);
-        return outcome.Status == AgentRunStatus.Completed ? outcome.Content : "";
+        return outcome.Status == AgentRunStatus.Completed
+            ? (outcome.Content, outcome.TokenUsage)
+            : ("", outcome.TokenUsage);
     }
 
     private static async Task<HttpResponseData> Json(HttpRequestData req, object body, System.Net.HttpStatusCode code)
