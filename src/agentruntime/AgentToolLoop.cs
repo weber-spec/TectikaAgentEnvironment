@@ -82,6 +82,11 @@ public sealed class AgentToolLoop
 
             var processed = await RoundExecutor.ExecuteOneRoundAsync(resp, _explorer, onToolCall,
                 _gitHub, _boardRepo, _role, _workspace, _workspaceEndpoint, _workspaceToken, ct);
+            // NOTE: processed.OutputOps (declare/update/remove_output) is intentionally NOT propagated
+            // here. Declared outputs are captured only on the steerable path (RunAgentRoundActivity via
+            // FoundryAgentRuntime.RunRoundAsync). This legacy in-proc loop degrades gracefully: the
+            // agent's final text still becomes the artifact. Wiring declared outputs through this path
+            // is future work (see Phase B plan).
             if (processed.RoundIntent is not null) result.RoundIntent = processed.RoundIntent;
             if (processed.BriefUpdate is not null) result.BriefUpdate = processed.BriefUpdate;
             if (processed.Control is not null)

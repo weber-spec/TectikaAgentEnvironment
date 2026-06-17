@@ -57,6 +57,18 @@ public class DeclareOutputToolTests
     }
 
     [Fact]
+    public async Task UpdateOutput_WithContent_BuildsInlineWithDefaultMarkdown()
+    {
+        var r = await Run(FC("update_output", new { id = "abc", content = "new body" }));
+        var op = Assert.Single(r.OutputOps);
+        Assert.Equal(OutputOpKind.Update, op.Kind);
+        Assert.NotNull(op.Inline);
+        Assert.Equal("new body", op.Inline!.Content);
+        Assert.Equal(ArtifactContentType.Markdown, op.Inline.ContentType);
+        Assert.Null(op.Label);
+    }
+
+    [Fact]
     public async Task NonOutputRound_HasEmptyOutputOps()
     {
         var r = await Run(FC("round_intent", new { text = "go" }));
