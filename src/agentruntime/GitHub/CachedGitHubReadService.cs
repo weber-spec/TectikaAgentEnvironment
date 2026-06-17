@@ -20,8 +20,10 @@ public sealed class CachedGitHubReadService : IGitHubReadService
     private Task<T> Cached<T>(string key, Func<Task<T>> factory) =>
         _cache.GetOrCreateAsync(key, entry => { entry.AbsoluteExpirationRelativeToNow = Ttl; return factory(); })!;
 
+    // Key includes PatSecretName so two boards pointing at the same owner/repo with
+    // different credentials never share a cache entry (private-visibility differences).
     private static string K(GitHubRepoConnection r, string op, params string[] parts) =>
-        $"gh:{r.Owner}/{r.Repo}:{op}:{string.Join(':', parts)}";
+        $"gh:{r.PatSecretName}:{r.Owner}/{r.Repo}:{op}:{string.Join(':', parts)}";
 
     public Task<RepoMeta> GetRepoMetadataAsync(GitHubRepoConnection repo, CancellationToken ct) =>
         Cached(K(repo, "meta"), () => _inner.GetRepoMetadataAsync(repo, ct));

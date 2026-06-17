@@ -152,6 +152,13 @@ A short-TTL `IMemoryCache` layer (≈30–60 s) keyed by `boardId + endpoint + a
 - Exact GitHub rate-limit headroom / cache TTL tuning — start at ~60 s, adjust if browsing feels stale or limits bite. Settled in the plan.
 - Pagination page size for commits/PRs — default 30 (GitHub default); revisit if needed.
 
+### Notes for Plan 2B / operations (surfaced during Plan 2A review)
+
+- **Cache key includes `PatSecretName`** (done in 2A) so two boards on the same `owner/repo` with different credentials never share a cache entry.
+- **PR list has no pagination** (`GET pulls` returns one Octokit page). Fine for typical repos; if a board's repo has a very large open-PR set, 2B should cap/scroll or 2A can add paging. Commits already page (`?page`, size 30).
+- **Refresh is best-effort within the 60 s TTL.** A "refresh"/"retry" in `RepoView` re-requests but re-hits the cache until TTL expiry, so a just-pushed agent commit can lag up to ~60 s. If a live refresh is required, add a `?fresh=1` cache-skip query param to the endpoints (small follow-up).
+- **`GET file` is for files only** — calling it on a directory path yields an empty-text `FileContent` (dir blobs have no content). `RepoView` must call `file` only on file tree entries, `tree` on directories.
+
 ---
 
 ## 10. Carried forward to Spec 3 (task-level Code deliverable)
