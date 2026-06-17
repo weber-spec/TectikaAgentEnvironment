@@ -117,7 +117,7 @@ id            = "{runId}:{step}:{invocationId}:{round}"   // see §4 — invocat
 tenantId, boardId, taskId, runId, step, round
 agentRoleId, agentRoleName                                // role = "system:compaction" for compaction
 provider, model, modelVersion                             // attribution, surfaced up from the runtime
-sessionId                                                 // task session; resets on run-start / clear / compact
+sessionId                                                 // task session; resets on /clear ONLY (see §5)
 usage         : TokenUsage                                // the 4-field shape
 pricing       : { catalogVersion, inputPerM, cachedPerM, outputPerM, currency }
 costUsd                                                   // frozen snapshot (0 when pricingMissing)
@@ -171,15 +171,19 @@ stays pricing-free (clean separation).
 
 ## 5. Run lifecycle edge cases
 
-A new `sessionId` is assigned on **run start, `/clear`, and `/compact`** — not on pause/resume or
-Durable retry.
+**Session boundary = `/clear` and only `/clear`.** Compact, run-start, re-run, pause/resume, and
+Durable retry all continue the current session. The principle: a boundary occurs when context is
+*discarded* (`/clear`), not when it is preserved (`/compact` compresses context into the brief) or
+continued (a re-run keeps working toward the same goal). Consequence: "current session" = everything
+since the last `/clear`; if a user never clears, it equals "lifetime" — correct, not a bug, and the
+`/events` drill-down still gives per-run granularity.
 
 | Event | Usage behavior |
 |---|---|
 | **Stop / Cancel** (`StopAsync`) | Completed rounds already in the ledger → real spend stays in all rollups, **no decrement**. Run → `Cancelled`. At most one in-flight round (response not yet returned) is uncaptured — documented, negligible. |
-| **Compact** (`/compact`) | The summarization LLM call (currently untracked) now writes a usage event, role `system:compaction`, model = task's model, under the **current** session; then the session rolls over (new `sessionId`). Cost lands in lifetime + project/board. |
-| **Clear** (`/clear`) | Bump `sessionId`; reset the task rollup's `currentSession` bucket only. Lifetime / perModel / project / board untouched. |
-| **Retry — QA loop / downstream re-run** | A fresh run = fresh `sessionId`. `currentSession` shows the new run; `lifetime` accumulates across all runs. No decrement of prior runs. |
+| **Compact** (`/compact`) | The summarization LLM call (currently untracked) now writes a usage event, role `system:compaction`, model = task's model, into the **current** session — **no session boundary** (context is preserved, just compressed). Cost lands in current session + lifetime + project/board. |
+| **Clear** (`/clear`) | The **only** session boundary: bump `sessionId`; reset the task rollup's `currentSession` bucket only. Lifetime / perModel / project / board untouched. |
+| **Retry — QA loop / downstream / manual re-run** | Continues the current session (no `/clear` happened). `currentSession` and `lifetime` both accumulate across runs; per-run detail via `/events`. No decrement of prior runs. |
 | **Retry — Durable activity re-execution** | Counted as real spend (new `invocationId`) — the LLM was really called again. |
 | **Pause / resume** (`PausedApproval`, `AwaitingInteraction`) | Same run + session; resume keeps accruing. Idempotent ids prevent replay double-count. |
 | **Failed run** | Completed rounds' spend stays (tokens really consumed). Run → `Failed`. |
