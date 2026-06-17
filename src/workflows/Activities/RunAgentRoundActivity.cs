@@ -203,8 +203,6 @@ public record RoundActivityInput(
     string AgentRoleId,
     int Round,
     string? UserInput,
-    List<PriorToolOutput> PendingToolOutputs,
-    string? WorkspaceEndpoint = null,
-    string? WorkspaceToken = null);
+    List<PriorToolOutput> PendingToolOutputs);
 
 public record RoundActivityResult(RoundOutcome Outcome, string? ArtifactId);
