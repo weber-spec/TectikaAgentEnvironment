@@ -246,7 +246,11 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
             await EnsureOkAsync(resp, ct).ConfigureAwait(false);
             var r = await resp.Content.ReadFromJsonAsync<ResponsesResult>(Json, ct).ConfigureAwait(false)
                     ?? throw new Exception("Empty response from Foundry.");
-            var usage = new TokenUsage { Input = r.Usage?.InputTokens ?? 0, Output = r.Usage?.OutputTokens ?? 0 };
+            var usage = new TokenUsage {
+                Input = r.Usage?.InputTokens ?? 0,
+                CachedInput = r.Usage?.InputTokenDetails?.CachedTokens ?? 0,
+                Output = r.Usage?.OutputTokens ?? 0,
+                Reasoning = r.Usage?.OutputTokenDetails?.ReasoningTokens ?? 0 };
 
             var calls = new List<ToolCall>();
             if (r.Output is not null)
