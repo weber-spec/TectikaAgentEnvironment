@@ -68,7 +68,7 @@ public interface ICosmosDbService
     Task ResetTaskUsageSessionAsync(string tenantId, string taskId, string newSessionId, CancellationToken ct = default);
     Task<UsageRollup?> GetUsageRollupAsync(string tenantId, string id, CancellationToken ct = default);
     Task<List<UsageRollup>> GetUsageRollupsForTenantAsync(string tenantId, CancellationToken ct = default);
-    Task<List<UsageEvent>> GetUsageEventsForTaskAsync(string taskId, int max, string? continuationToken, CancellationToken ct = default);
+    Task<UsageEventsPage> GetUsageEventsForTaskAsync(string tenantId, string taskId, int max, string? continuationToken, CancellationToken ct = default);
 
     // ── Run trace ────────────────────────────────────────────────────────────────
     /// <summary>Steerable run trace for a task (Activity tab replay), ordered oldest-first.</summary>

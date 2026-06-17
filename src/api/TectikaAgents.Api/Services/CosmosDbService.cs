@@ -404,14 +404,20 @@ public class CosmosDbService : ICosmosDbService
         return (await QueryAsync<UsageRollup>(UsageRollupsContainer, q, tenantId, ct)).ToList();
     }
 
-    public async Task<List<UsageEvent>> GetUsageEventsForTaskAsync(string taskId, int max, string? continuationToken, CancellationToken ct = default)
+    public async Task<UsageEventsPage> GetUsageEventsForTaskAsync(string tenantId, string taskId, int max, string? continuationToken, CancellationToken ct = default)
     {
-        var q = new QueryDefinition("SELECT * FROM c WHERE c.taskId = @t ORDER BY c.timestamp DESC").WithParameter("@t", taskId);
+        var q = new QueryDefinition("SELECT * FROM c WHERE c.taskId = @t AND c.tenantId = @tenant ORDER BY c.timestamp DESC")
+            .WithParameter("@t", taskId).WithParameter("@tenant", tenantId);
         var it = GetContainer(UsageEventsContainer).GetItemQueryIterator<UsageEvent>(q, continuationToken,
             new QueryRequestOptions { PartitionKey = new PartitionKey(taskId), MaxItemCount = max });
-        var results = new List<UsageEvent>();
-        if (it.HasMoreResults) results.AddRange(await it.ReadNextAsync(ct));
-        return results;
+        var page = new UsageEventsPage();
+        if (it.HasMoreResults)
+        {
+            var resp = await it.ReadNextAsync(ct);
+            page.Items.AddRange(resp);
+            page.ContinuationToken = resp.ContinuationToken;
+        }
+        return page;
     }
 
     // ── Generic query helper ──────────────────────────────────────────────────

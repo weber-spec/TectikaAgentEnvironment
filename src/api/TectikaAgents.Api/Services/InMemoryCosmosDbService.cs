@@ -261,10 +261,13 @@ public class InMemoryCosmosDbService : ICosmosDbService
     public Task<List<UsageRollup>> GetUsageRollupsForTenantAsync(string tenantId, CancellationToken ct = default) =>
         Task.FromResult(_usageRollups.Values.Where(r => r.TenantId == tenantId).ToList());
 
-    public Task<List<UsageEvent>> GetUsageEventsForTaskAsync(string taskId, int max, string? continuationToken, CancellationToken ct = default) =>
-        Task.FromResult(_usageEvents.Values
-            .Where(e => e.TaskId == taskId)
+    public Task<UsageEventsPage> GetUsageEventsForTaskAsync(string tenantId, string taskId, int max, string? continuationToken, CancellationToken ct = default)
+    {
+        var items = _usageEvents.Values
+            .Where(e => e.TaskId == taskId && e.TenantId == tenantId)
             .OrderByDescending(e => e.Timestamp)
             .Take(max)
-            .ToList());
+            .ToList();
+        return Task.FromResult(new UsageEventsPage { Items = items, ContinuationToken = null });
+    }
 }

@@ -76,8 +76,7 @@ public class UsageController : ControllerBase
     {
         _logger.LogInformation("[UsageController] GetTaskEvents task={TaskId} max={Max}", taskId, max);
         var clamped = Math.Clamp(max, 1, 200);
-        var events = await _cosmos.GetUsageEventsForTaskAsync(taskId, clamped, cursor, ct);
-        return Ok(events);
+        return Ok(await _cosmos.GetUsageEventsForTaskAsync(TenantId, taskId, clamped, cursor, ct));
     }
 
     /// <summary>GET /api/usage/pricing — current pricing catalog version and prices.</summary>
