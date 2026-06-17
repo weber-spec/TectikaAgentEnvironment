@@ -97,8 +97,7 @@ public class RunAgentRoundActivity
             new RoundRequest(role, task, threadId, userInput, input.PendingToolOutputs, _maxCompletionTokens, input.RunId, input.Round)
             {
                 BoardGitHub = board.GitHub,
-                WorkspaceEndpoint = input.WorkspaceEndpoint,
-                WorkspaceToken = input.WorkspaceToken,
+                // Workspace provider is wired in Task 4 (lazy on-demand sandbox); null here = no sandbox.
             },
             explorer, ct);
 
