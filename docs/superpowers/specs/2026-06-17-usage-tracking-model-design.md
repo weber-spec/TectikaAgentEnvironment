@@ -19,8 +19,9 @@ system that answers three questions reliably:
 
 **In scope:** accurate token capture (incl. cached + reasoning), a provider-agnostic pricing
 catalog, an append-only usage ledger, materialized rollups (project / board / task), full run
-lifecycle edge-case handling, API endpoints, UI (table columns, item panel, dashboards/analytics),
-backfill of existing data, mock-seeder update, and infra container definitions.
+lifecycle edge-case handling, API endpoints, UI (table columns, item panel, dashboards/analytics, a
+read-only pricing-catalog view), backfill of existing data, mock-seeder update, and infra container
+definitions.
 
 **Out of scope (this round):** budgets, spend alerts, and hard caps. The design leaves a clean path
 to add them later (rollups already hold the running totals they'd check against). External
@@ -101,6 +102,11 @@ event.
 
 Initial catalog seeds Azure Foundry `gpt-4o` with correct split input/output (and cached) rates;
 other providers/models are added as data with no code change.
+
+**Visibility:** the active catalog is exposed **read-only** in the app — a settings/admin view lists
+each provider/model with its input/output/cached rates, currency, and effective date, so users can
+see exactly how cost is computed. Git remains the single source of truth; editing in-app (a
+Cosmos-backed override with CRUD + audit) is deferred to a later spec.
 
 ### 3.3 Usage ledger — `usageEvents` container
 
@@ -191,6 +197,7 @@ New `UsageController`:
 - `GET /api/usage/board/{boardId}` → board rollup.
 - `GET /api/usage/task/{taskId}` → `{ currentSession, lifetime, perModel }`.
 - `GET /api/usage/task/{taskId}/events` → paged event history (drill-down).
+- `GET /api/usage/pricing` → the active pricing catalog (resolved current rates + effective dates), read-only.
 
 ## 7. UI
 
@@ -203,6 +210,9 @@ New `UsageController`:
 - **Dashboards / Analytics** → read project & board rollups (replacing the fragile on-the-fly
   `runs.reduce` sum); add a **per-model cost breakdown** as the headline anti-"misleading aggregate"
   view.
+- **Pricing catalog view** → a read-only table in a settings/admin area listing provider/model →
+  input/output/cached rates, currency, and effective date (from `GET /api/usage/pricing`), so users
+  can see how cost is computed.
 - States: `pricingMissing` shows "cost unavailable"; zero-usage shows an empty state, not `$0.00`
   noise where misleading.
 
@@ -233,4 +243,6 @@ New `UsageController`:
 
 ## 10. Open questions
 
-None outstanding. Budgets/alerts/caps deferred by decision; revisit as a follow-up spec.
+None outstanding. Deferred by decision, each a candidate follow-up spec: budgets/alerts/caps; and
+in-app editing of the pricing catalog (Cosmos-backed override with CRUD + audit) — the catalog is
+read-only in the UI this round.

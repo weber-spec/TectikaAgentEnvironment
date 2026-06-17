@@ -60,7 +60,8 @@ $ApiFqdn         = "https://$ApiApp.$AcaDomain"
 $WebFqdn         = "https://$WebApp.$AcaDomain"
 
 # Health/smoke verification: how long to wait for a fresh revision to go Healthy/Running.
-$VerifyTimeoutSeconds = 180
+# ACA cold starts (image pull + app startup) can take a few minutes, so keep this generous.
+$VerifyTimeoutSeconds = 300
 $VerifyPollSeconds    = 5
 
 # --------------------------------------------------------------------------------------------------
@@ -170,13 +171,15 @@ function Resolve-Sha {
 # --------------------------------------------------------------------------------------------------
 # Verification helpers
 # --------------------------------------------------------------------------------------------------
+# Poll the revision running the image we just deployed (image tag == $Sha) until Healthy/Running,
+# or time out. Targeting our own SHA avoids matching a draining old revision during the rollout.
 function Wait-Revision {
   param([string]$App)
   $deadline = (Get-Date).AddSeconds($VerifyTimeoutSeconds)
-  Write-Info "Waiting for a Healthy/Running revision of $App (timeout ${VerifyTimeoutSeconds}s)..."
+  Write-Info "Waiting for the :$($script:Sha) revision of $App to go Healthy/Running (timeout ${VerifyTimeoutSeconds}s)..."
   while ((Get-Date) -lt $deadline) {
     $state = (& az containerapp revision list -n $App -g $ResourceGroup `
-      --query "sort_by([?properties.active],&properties.createdTime)[-1].[properties.healthState,properties.runningState]" `
+      --query "[?ends_with(properties.template.containers[0].image, ':$($script:Sha)')] | sort_by([],&properties.createdTime)[-1].[properties.healthState,properties.runningState]" `
       -o tsv 2>$null)
     if ($state) {
       $parts = $state -split "\s+"
@@ -187,7 +190,7 @@ function Wait-Revision {
     }
     Start-Sleep -Seconds $VerifyPollSeconds
   }
-  Die "$App did not reach Healthy/Running within ${VerifyTimeoutSeconds}s. Check: az containerapp revision list -n $App -g $ResourceGroup"
+  Die "$App :$($script:Sha) did not reach Healthy/Running within ${VerifyTimeoutSeconds}s. Check: az containerapp revision list -n $App -g $ResourceGroup"
 }
 
 function Test-Smoke {

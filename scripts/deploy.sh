@@ -36,7 +36,8 @@ API_FQDN="https://${API_APP}.${ACA_DOMAIN}"
 WEB_FQDN="https://${WEB_APP}.${ACA_DOMAIN}"
 
 # Health/smoke verification: how long to wait for a fresh revision to go Healthy/Running.
-VERIFY_TIMEOUT_SECONDS=180
+# ACA cold starts (image pull + app startup) can take a few minutes, so keep this generous.
+VERIFY_TIMEOUT_SECONDS=300
 VERIFY_POLL_SECONDS=5
 
 # --------------------------------------------------------------------------------------------------
@@ -156,15 +157,16 @@ resolve_sha() {
 # --------------------------------------------------------------------------------------------------
 # Verification helpers
 # --------------------------------------------------------------------------------------------------
-# Poll the latest active revision of a container app until Healthy/Running, or time out.
+# Poll the revision running the image we just deployed (image tag == $SHA) until Healthy/Running,
+# or time out. Targeting our own SHA avoids matching a draining old revision during the rollout.
 wait_for_revision() {
   local app="$1"
   local deadline=$(( SECONDS + VERIFY_TIMEOUT_SECONDS ))
-  info "Waiting for a Healthy/Running revision of $app (timeout ${VERIFY_TIMEOUT_SECONDS}s)..."
+  info "Waiting for the :$SHA revision of $app to go Healthy/Running (timeout ${VERIFY_TIMEOUT_SECONDS}s)..."
   while [ "$SECONDS" -lt "$deadline" ]; do
     local state
     state="$(az containerapp revision list -n "$app" -g "$RESOURCE_GROUP" \
-      --query "sort_by([?properties.active],&properties.createdTime)[-1].[properties.healthState,properties.runningState]" \
+      --query "[?ends_with(properties.template.containers[0].image, ':${SHA}')] | sort_by([],&properties.createdTime)[-1].[properties.healthState,properties.runningState]" \
       -o tsv 2>/dev/null || true)"
     local health running
     health="$(printf '%s' "$state" | awk '{print $1}')"
@@ -175,7 +177,7 @@ wait_for_revision() {
     fi
     sleep "$VERIFY_POLL_SECONDS"
   done
-  die "$app did not reach Healthy/Running within ${VERIFY_TIMEOUT_SECONDS}s. Check: az containerapp revision list -n $app -g $RESOURCE_GROUP"
+  die "$app :$SHA did not reach Healthy/Running within ${VERIFY_TIMEOUT_SECONDS}s. Check: az containerapp revision list -n $app -g $RESOURCE_GROUP"
 }
 
 # Curl a URL and assert HTTP 200.
