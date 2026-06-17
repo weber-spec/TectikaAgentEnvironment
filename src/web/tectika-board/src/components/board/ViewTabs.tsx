@@ -13,7 +13,7 @@ const KIND_LABEL: Record<ViewKind, string> = {
   table: 'Table', kanban: 'Kanban', timeline: 'Timeline', calendar: 'Calendar', cards: 'Cards', chart: 'Chart', canvas: 'Canvas',
 };
 
-export function ViewTabs() {
+export function ViewTabs({ repoActive = false, onRepoClick, onViewSelect }: { repoActive?: boolean; onRepoClick?: () => void; onViewSelect?: () => void } = {}) {
   const { views, activeView, setActiveView, createView } = useBoard();
   const addRef = useRef<HTMLButtonElement>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -24,7 +24,7 @@ export function ViewTabs() {
         const I = Icon[KIND_ICON[v.kind]];
         const active = v.id === activeView.id;
         return (
-          <ViewTab key={v.id} active={active} icon={<I size={15} />} name={v.name} viewId={v.id} onClick={() => setActiveView(v.id)} />
+          <ViewTab key={v.id} active={active} icon={<I size={15} />} name={v.name} viewId={v.id} onClick={() => { onViewSelect?.(); setActiveView(v.id); }} />
         );
       })}
       <button ref={addRef} onClick={() => setAddOpen(o => !o)} className="flex items-center gap-1 px-2 py-2 text-[13px] text-[var(--muted)] hover:text-[var(--primary)] shrink-0"><Icon.plus size={15} /></button>
@@ -34,6 +34,15 @@ export function ViewTabs() {
           const I = Icon[KIND_ICON[k]];
           return { label: KIND_LABEL[k], icon: <I size={15} />, onClick: () => createView(KIND_LABEL[k], k) };
         })} />
+      {onRepoClick && (
+        <>
+          <div className="w-px self-center h-5 bg-[var(--border)] mx-1 shrink-0" />
+          <button onClick={onRepoClick}
+            className={`flex items-center gap-1.5 px-3 py-2.5 text-[13px] font-medium border-b-2 -mb-px shrink-0 transition-colors ${repoActive ? 'border-[var(--primary)] text-[var(--primary)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'}`}>
+            <Icon.file size={15} /> Repo
+          </button>
+        </>
+      )}
     </div>
   );
 }

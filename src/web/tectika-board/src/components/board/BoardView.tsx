@@ -18,6 +18,7 @@ import { TimelineView } from './timeline/TimelineView';
 import { CardsView } from './cards/CardsView';
 import { ChartView } from './chart/ChartView';
 import { CanvasView } from './canvas/CanvasView';
+import { RepoView } from '@/components/board/repo/RepoView';
 import { ItemPanel } from '@/components/workspace/ItemPanel';
 import { AutomationsModal } from '@/components/automations/AutomationsModal';
 import { GitHubConnectModal } from '@/components/board/GitHubConnectModal';
@@ -33,6 +34,7 @@ export function BoardView() {
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [githubOpen, setGithubOpen] = useState(false);
+  const [showRepo, setShowRepo] = useState(false);
   const [editName, setEditName] = useState('');
   const [editDesc, setEditDesc] = useState('');
   const [editSaving, setEditSaving] = useState(false);
@@ -131,11 +133,13 @@ export function BoardView() {
         <Menu anchorRef={settingsRef} open={settingsOpen} onClose={() => setSettingsOpen(false)} width={200} options={settingsOptions} />
       </div>
 
-      <ViewTabs />
-      <Toolbar />
+      <ViewTabs repoActive={showRepo} onRepoClick={() => setShowRepo(true)} onViewSelect={() => setShowRepo(false)} />
+      {!showRepo && <Toolbar />}
 
       <div className="flex-1 min-h-0 relative">
-        {loading ? <SkeletonRows rows={8} /> : tasks.length === 0 ? (
+        {showRepo ? (
+          board ? <RepoView boardId={board.id} onConnectGitHub={() => setGithubOpen(true)} /> : null
+        ) : loading ? <SkeletonRows rows={8} /> : tasks.length === 0 ? (
           <EmptyState icon={<Icon.board size={48} />} title="This board is empty"
             description="Add your first item to start orchestrating agents and humans."
             action={<Button variant="primary" onClick={() => addTask({ title: 'New item' })}><Icon.plus size={16} /> Add item</Button>} />
