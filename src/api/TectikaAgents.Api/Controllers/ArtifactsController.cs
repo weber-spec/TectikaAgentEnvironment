@@ -16,10 +16,14 @@ public class ArtifactsController : ControllerBase
 
     private string TenantId => User.FindFirst("tid")?.Value ?? "default";
 
-    /// <summary>All versions of a task's artifact, newest first.</summary>
+    /// <summary>All versions of a task's artifact, newest first, normalized to the handoff shape.</summary>
     [HttpGet("{taskId}")]
-    public async Task<IActionResult> GetVersions(string taskId, CancellationToken ct) =>
-        Ok(await _cosmos.GetArtifactVersionsAsync(taskId, ct));
+    public async Task<IActionResult> GetVersions(string taskId, CancellationToken ct)
+    {
+        var versions = await _cosmos.GetArtifactVersionsAsync(taskId, ct);
+        var shaped = versions.Select(a => a.EnsureHandoffShape()).ToList();
+        return Ok(shaped);
+    }
 
     /// <summary>
     /// Save a new artifact version (e.g. a human edit from the workspace's
