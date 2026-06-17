@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useBoard } from '@/lib/board-context';
 import { api } from '@/lib/api';
-import type { Artifact, AgentTask, AgentRole, RunEvent, HumanInteraction } from '@/lib/types';
+import type { Artifact, AgentTask, AgentRole, RunEvent, HumanInteraction, Output } from '@/lib/types';
 import { STATUS_CONFIG, STATUS_ORDER, PRIORITY_CONFIG, PRIORITY_ORDER, textOn } from '@/lib/palette';
 import { Avatar, Pill, Button, Spinner } from '@/components/ui/primitives';
 import { Icon } from '@/components/ui/icons';
@@ -826,23 +826,49 @@ function ArtifactPane({ task }: { task: AgentTask }) {
 }
 
 function ArtifactBody({ artifact }: { artifact: Artifact }) {
+  // API normalizes to the handoff shape; fall back to legacy content defensively.
+  const outputs = artifact.outputs && artifact.outputs.length > 0
+    ? artifact.outputs
+    : [{ id: 'legacy', kind: 'Document' as const, inline: { contentType: artifact.contentType, content: artifact.content } }];
+
   return (
     <div>
       {artifact.inputContext.upstreamArtifacts.length > 0 && (
         <div className="mb-3 text-[11px] text-[var(--muted)]">
           <span className="font-semibold">Input context:</span> {artifact.inputContext.upstreamArtifacts.map(u => `${u.contentType} from ${u.taskId} v${u.version}`).join(', ')}
-          {artifact.inputContext.humanContext && <div className="italic mt-1">“{artifact.inputContext.humanContext}”</div>}
+          {artifact.inputContext.humanContext && <div className="italic mt-1">{'"'}{artifact.inputContext.humanContext}{'"'}</div>}
         </div>
       )}
-      {artifact.contentType === 'Markdown'
-        ? <Markdown text={artifact.content} />
-        : <pre className="font-mono text-[12.5px] bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 overflow-auto whitespace-pre-wrap text-[var(--foreground)]">{artifact.content}</pre>}
+
+      {artifact.summary && (
+        <div className="mb-3">
+          <div className="uppercase tracking-wide text-[var(--muted)] font-semibold text-[11px] mb-1">Summary</div>
+          <div className="text-[13px] text-[var(--foreground)]">{artifact.summary}</div>
+        </div>
+      )}
+
+      {outputs.map(o => <OutputView key={o.id} output={o} />)}
+
       {artifact.internalLogs.length > 0 && (
         <div className="mt-3 text-[11px]">
           <div className="uppercase tracking-wide text-[var(--muted)] font-semibold mb-1">Execution log</div>
-          {artifact.internalLogs.map((l, i) => <div key={i} className="text-[var(--muted)] font-mono">› {l}</div>)}
+          {artifact.internalLogs.map((l, i) => <div key={i} className="text-[var(--muted)] font-mono">{'›'} {l}</div>)}
         </div>
       )}
+    </div>
+  );
+}
+
+function OutputView({ output }: { output: Output }) {
+  if (output.kind === 'Document' && output.inline) {
+    return output.inline.contentType === 'Markdown'
+      ? <Markdown text={output.inline.content} />
+      : <pre className="font-mono text-[12.5px] bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 overflow-auto whitespace-pre-wrap text-[var(--foreground)]">{output.inline.content}</pre>;
+  }
+  // Non-Document kinds (Code, Design, …) are produced/rendered in later specs.
+  return (
+    <div className="border border-dashed border-[var(--border)] rounded-lg p-3 text-[12px] text-[var(--muted)]">
+      <span className="font-semibold text-[var(--foreground)]">{output.label ?? output.kind}</span>{' — '}{output.kind} output rendering coming soon.
     </div>
   );
 }
