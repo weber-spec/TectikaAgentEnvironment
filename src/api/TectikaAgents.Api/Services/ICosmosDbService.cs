@@ -36,6 +36,7 @@ public interface ICosmosDbService
     // ── Workflow Runs ──────────────────────────────────────────────────────────
     Task<WorkflowRun> CreateRunAsync(WorkflowRun run, CancellationToken ct = default);
     Task<WorkflowRun?> GetRunAsync(string taskId, string runId, CancellationToken ct = default);
+    Task<IEnumerable<WorkflowRun>> GetRunsByTaskAsync(string taskId, CancellationToken ct = default);
     Task<WorkflowRun> UpdateRunAsync(WorkflowRun run, CancellationToken ct = default);
 
     // ── Artifacts ──────────────────────────────────────────────────────────────
@@ -68,6 +69,7 @@ public interface ICosmosDbService
     Task ResetTaskUsageSessionAsync(string tenantId, string taskId, string newSessionId, CancellationToken ct = default);
     Task<UsageRollup?> GetUsageRollupAsync(string tenantId, string id, CancellationToken ct = default);
     Task<List<UsageRollup>> GetUsageRollupsForTenantAsync(string tenantId, CancellationToken ct = default);
+    Task UpsertUsageRollupAsync(UsageRollup rollup, CancellationToken ct = default);
     Task<UsageEventsPage> GetUsageEventsForTaskAsync(string tenantId, string taskId, int max, string? continuationToken, CancellationToken ct = default);
 
     // ── Run trace ────────────────────────────────────────────────────────────────

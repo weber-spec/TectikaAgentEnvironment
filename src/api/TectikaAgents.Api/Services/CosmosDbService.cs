@@ -213,6 +213,12 @@ public class CosmosDbService : ICosmosDbService
         }
     }
 
+    public async Task<IEnumerable<WorkflowRun>> GetRunsByTaskAsync(string taskId, CancellationToken ct = default)
+    {
+        var query = new QueryDefinition("SELECT * FROM c WHERE c.taskId = @taskId").WithParameter("@taskId", taskId);
+        return await QueryAsync<WorkflowRun>(WorkflowRunsContainer, query, taskId, ct);
+    }
+
     public async Task<WorkflowRun> UpdateRunAsync(WorkflowRun run, CancellationToken ct = default)
     {
         var res = await GetContainer(WorkflowRunsContainer).ReplaceItemAsync(run, run.Id, new PartitionKey(run.TaskId), cancellationToken: ct);
@@ -403,6 +409,9 @@ public class CosmosDbService : ICosmosDbService
         var q = new QueryDefinition("SELECT * FROM c WHERE c.tenantId = @t").WithParameter("@t", tenantId);
         return (await QueryAsync<UsageRollup>(UsageRollupsContainer, q, tenantId, ct)).ToList();
     }
+
+    public async Task UpsertUsageRollupAsync(UsageRollup rollup, CancellationToken ct = default)
+        => await GetContainer(UsageRollupsContainer).UpsertItemAsync(rollup, new PartitionKey(rollup.TenantId), cancellationToken: ct);
 
     public async Task<UsageEventsPage> GetUsageEventsForTaskAsync(string tenantId, string taskId, int max, string? continuationToken, CancellationToken ct = default)
     {

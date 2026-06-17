@@ -12,12 +12,14 @@ public class UsageController : ControllerBase
 {
     private readonly ICosmosDbService _cosmos;
     private readonly CostCalculator _cost;
+    private readonly UsageBackfill _backfill;
     private readonly ILogger<UsageController> _logger;
 
-    public UsageController(ICosmosDbService cosmos, CostCalculator cost, ILogger<UsageController> logger)
+    public UsageController(ICosmosDbService cosmos, CostCalculator cost, UsageBackfill backfill, ILogger<UsageController> logger)
     {
         _cosmos = cosmos;
         _cost = cost;
+        _backfill = backfill;
         _logger = logger;
     }
 
@@ -83,4 +85,18 @@ public class UsageController : ControllerBase
     [HttpGet("pricing")]
     public IActionResult GetPricing() =>
         Ok(new { version = _cost.CatalogVersion, prices = _cost.Prices });
+
+    /// <summary>
+    /// POST /api/usage/backfill — one-time admin migration that synthesises UsageRollup records
+    /// from existing WorkflowRun.TotalTokens. Idempotent: returns backfilled=0 if already run.
+    /// Tokens are attributed as INPUT to the tenant's default model (best-effort approximation).
+    /// </summary>
+    [HttpPost("backfill")]
+    public async Task<IActionResult> Backfill(CancellationToken ct)
+    {
+        var tenantId = TenantId;
+        _logger.LogInformation("[UsageController] Backfill requested for tenant={TenantId}", tenantId);
+        var count = await _backfill.RunAsync(tenantId, ct);
+        return Ok(new { backfilled = count });
+    }
 }

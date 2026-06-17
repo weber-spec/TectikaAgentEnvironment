@@ -124,6 +124,9 @@ public class InMemoryCosmosDbService : ICosmosDbService
     public Task<WorkflowRun?> GetRunAsync(string taskId, string runId, CancellationToken ct = default) =>
         Task.FromResult(_runs.TryGetValue(runId, out var r) && r.TaskId == taskId ? r : null);
 
+    public Task<IEnumerable<WorkflowRun>> GetRunsByTaskAsync(string taskId, CancellationToken ct = default) =>
+        Task.FromResult(_runs.Values.Where(r => r.TaskId == taskId).AsEnumerable());
+
     public Task<WorkflowRun> UpdateRunAsync(WorkflowRun run, CancellationToken ct = default)
     {
         _runs[run.Id] = run;
@@ -260,6 +263,12 @@ public class InMemoryCosmosDbService : ICosmosDbService
 
     public Task<List<UsageRollup>> GetUsageRollupsForTenantAsync(string tenantId, CancellationToken ct = default) =>
         Task.FromResult(_usageRollups.Values.Where(r => r.TenantId == tenantId).ToList());
+
+    public Task UpsertUsageRollupAsync(UsageRollup rollup, CancellationToken ct = default)
+    {
+        _usageRollups[rollup.Id] = rollup;
+        return Task.CompletedTask;
+    }
 
     public Task<UsageEventsPage> GetUsageEventsForTaskAsync(string tenantId, string taskId, int max, string? continuationToken, CancellationToken ct = default)
     {
