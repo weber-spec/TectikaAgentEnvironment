@@ -185,7 +185,11 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
                         ?? throw new Exception("Empty response from Foundry.");
                 lastResponseId = r.Id ?? lastResponseId;
                 OnStatus?.Invoke(r.Status ?? "");
-                var usage = new TokenUsage { Input = r.Usage?.InputTokens ?? 0, Output = r.Usage?.OutputTokens ?? 0 };
+                var usage = new TokenUsage {
+                    Input = r.Usage?.InputTokens ?? 0,
+                    CachedInput = r.Usage?.InputTokenDetails?.CachedTokens ?? 0,
+                    Output = r.Usage?.OutputTokens ?? 0,
+                    Reasoning = r.Usage?.OutputTokenDetails?.ReasoningTokens ?? 0 };
 
                 var calls = new List<ToolCall>();
                 if (r.Output is not null)
@@ -374,6 +378,16 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
     {
         [JsonPropertyName("input_tokens")] public int InputTokens { get; set; }
         [JsonPropertyName("output_tokens")] public int OutputTokens { get; set; }
+        [JsonPropertyName("input_tokens_details")] public InputTokenDetails? InputTokenDetails { get; set; }
+        [JsonPropertyName("output_tokens_details")] public OutputTokenDetails? OutputTokenDetails { get; set; }
+    }
+    private sealed class InputTokenDetails
+    {
+        [JsonPropertyName("cached_tokens")] public int CachedTokens { get; set; }
+    }
+    private sealed class OutputTokenDetails
+    {
+        [JsonPropertyName("reasoning_tokens")] public int ReasoningTokens { get; set; }
     }
     private sealed class ErrorInfo
     {
