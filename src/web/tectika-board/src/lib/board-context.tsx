@@ -161,7 +161,11 @@ interface BoardContextValue {
 
   // run board
   runBoard: () => Promise<void>;
+  /** Cancel an in-progress board run (stops every task in the batch). */
+  stopBoard: () => Promise<void>;
   runPhase: BoardRunPhase;
+  /** How many tasks a board run would launch right now (0 ⇒ nothing to run). */
+  boardRunnableCount: number;
   /** Trigger the agent for a single task. No-op unless the task is Agent-owned and idle. */
   runTask: (taskId: string) => Promise<void>;
   /** Reset a finished/non-Backlog task to Backlog and start a fresh run. */
@@ -296,25 +300,36 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     try { localStorage.setItem(`tectika:board:${boardId}:runPhase`, JSON.stringify(runPhase)); } catch { /* quota */ }
   }, [boardId, runPhase]);
 
-  // ── detect run batch completion ───────────────────────────────────────────────
+  // ── resolve the Run Board phase from live task/run state ──────────────────────
+  // Authoritative reconciliation for the spinner: a batch task is still "live" while
+  // its status is InProgress, or it has a run we haven't confirmed terminal yet
+  // (including one not fetched). When nothing in the batch is live, the run has
+  // settled — surface a status dot if we have run outcomes, otherwise return to idle.
+  // This also self-heals a 'running' phase persisted from a prior session whose run
+  // is long over, so the button never stays stuck spinning after a reload.
   useEffect(() => {
-    if (runPhase.kind !== 'running') return;
-    const batchTaskIds = runPhase.taskIds;
-    const batchRuns = batchTaskIds
+    if (runPhase.kind !== 'running' || loading) return;
+    const batch = runPhase.taskIds
       .map(id => tasks.find(t => t.id === id))
-      .filter((t): t is AgentTask => !!t)
-      .map(t => t.workflowRunId ? runsById[t.workflowRunId] : undefined)
+      .filter((t): t is AgentTask => !!t);
+    if (batch.length === 0) return; // tasks not loaded yet — wait
+
+    const anyLive = batch.some(t =>
+      t.status === 'InProgress' ||
+      (!!t.workflowRunId && !runsById[t.workflowRunId]) || // run not fetched yet — wait
+      (!!t.workflowRunId && !TERMINAL_RUN_STATUSES.has(runsById[t.workflowRunId]!.status)));
+    if (anyLive) return;
+
+    const runs = batch
+      .map(t => (t.workflowRunId ? runsById[t.workflowRunId] : undefined))
       .filter((r): r is WorkflowRun => !!r);
-
-    if (batchRuns.length === 0) return;
-
-    if (!batchRuns.every(r => TERMINAL_RUN_STATUSES.has(r.status))) return;
+    if (runs.length === 0) { setRunPhase({ kind: 'idle' }); return; } // nothing actually ran
 
     let status: 'AwaitingInteraction' | 'Failed' | 'Completed' = 'Completed';
-    if (batchRuns.some(r => r.status === 'AwaitingInteraction')) status = 'AwaitingInteraction';
-    else if (batchRuns.some(r => r.status === 'Failed' || r.status === 'Cancelled')) status = 'Failed';
+    if (runs.some(r => r.status === 'AwaitingInteraction')) status = 'AwaitingInteraction';
+    else if (runs.some(r => r.status === 'Failed' || r.status === 'Cancelled')) status = 'Failed';
     setRunPhase({ kind: 'done', status });
-  }, [runPhase, tasks, runsById]);
+  }, [runPhase, tasks, runsById, loading]);
 
   // ── keep runsById fresh for active runs ───────────────────────────────────────
   // runsById is seeded once at load; poll any run that is missing or still executing
@@ -381,7 +396,18 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
             const freshById = new Map(fresh.map(t => [t.id, t]));
             const updated = local.map(t => {
               const srv = freshById.get(t.id);
-              return srv && srv.status !== t.status ? { ...t, status: srv.status } : t;
+              if (!srv) return t;
+              // Adopt the server's status and any run it has attached (e.g. a run
+              // started by another session/CLI, or one we haven't recorded locally)
+              // so per-task and Run Board completion tracking can follow it.
+              const statusChanged = srv.status !== t.status;
+              const runChanged = !!srv.workflowRunId && srv.workflowRunId !== t.workflowRunId;
+              if (!statusChanged && !runChanged) return t;
+              return {
+                ...t,
+                ...(statusChanged ? { status: srv.status } : {}),
+                ...(runChanged ? { workflowRunId: srv.workflowRunId } : {}),
+              };
             });
             const added = fresh.filter(t => !localIds.has(t.id));
             return added.length ? [...updated, ...added] : updated;
@@ -635,17 +661,55 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     try { await api.edges.update(boardId, edgeId, patch); } catch { toast('Could not update edge', 'error'); }
   }, [boardId]);
 
-  const runBoard = useCallback(async () => {
-    const tasksToRun = tasks.filter(
-      t =>
+  // Tasks eligible for a board run: agent-owned roots (no upstream Dependency edge)
+  // sitting in Backlog. Downstream tasks are triggered by the backend's dependency
+  // cascade as their inputs complete, so the board run only kicks off the roots.
+  const runnableTaskIds = useMemo(
+    () => tasks
+      .filter(t =>
         t.assignee?.type === 'Agent' &&
         t.status === 'Backlog' &&
-        !edges.some(e => e.targetTaskId === t.id && e.kind === 'Dependency'),
-    );
-    if (tasksToRun.length === 0) return;
-    setRunPhase({ kind: 'running', taskIds: tasksToRun.map(t => t.id) });
-    await Promise.allSettled(tasksToRun.map(t => api.runs.start(boardId, t.id)));
-  }, [boardId, tasks, edges]);
+        !edges.some(e => e.targetTaskId === t.id && e.kind === 'Dependency'))
+      .map(t => t.id),
+    [tasks, edges],
+  );
+
+  const runBoard = useCallback(async () => {
+    if (runPhase.kind === 'running') return;
+    const ids = runnableTaskIds;
+    if (ids.length === 0) {
+      toast('Nothing to run — all agent tasks are already running or complete.', 'info');
+      return;
+    }
+    setRunPhase({ kind: 'running', taskIds: ids });
+    const results = await Promise.allSettled(ids.map(id => api.runs.start(boardId, id)));
+    // Record each started run on its task (mirroring the backend, which flips the
+    // task to InProgress on start) so the spinner reflects the run immediately and
+    // completion detection can follow each run to a terminal state.
+    const started = new Map<string, string>();
+    results.forEach((res, i) => { if (res.status === 'fulfilled') started.set(ids[i], res.value.runId); });
+    if (started.size > 0) {
+      setTasks(prev => prev.map(t => started.has(t.id)
+        ? { ...t, workflowRunId: started.get(t.id)!, status: 'InProgress' } : t));
+    }
+    if (started.size < ids.length) {
+      toast(
+        started.size === 0
+          ? 'Could not start the board run.'
+          : `Started ${started.size} of ${ids.length} tasks — the rest failed to start.`,
+        'error',
+      );
+      if (started.size === 0) setRunPhase({ kind: 'idle' }); // nothing launched — don't strand the spinner
+    }
+  }, [boardId, runnableTaskIds, runPhase.kind]);
+
+  const stopBoard = useCallback(async () => {
+    if (runPhase.kind !== 'running') return;
+    const ids = runPhase.taskIds;
+    await Promise.allSettled(ids.map(id => api.tasks.stop(boardId, id)));
+    await Promise.allSettled(ids.map(id => refreshTask(id)));
+    setRunPhase({ kind: 'idle' });
+  }, [boardId, runPhase, refreshTask]);
 
   // A task is "running" while its own status is InProgress ("Working on it").
   // Task status is the authoritative, live-synced signal the backend maps every
@@ -709,7 +773,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     selectedIds, toggleSelect, selectAll, clearSelection,
     updateTask, refreshTask, setStatus, setCustomCell, addTask, deleteTasks, moveCanvas,
     edges, upstreamIds, downstreamIds, connectEdge, disconnectEdge, updateEdge,
-    runBoard, runPhase, runTask, resetAndRun, stopTask, isTaskRunning,
+    runBoard, stopBoard, runPhase, boardRunnableCount: runnableTaskIds.length, runTask, resetAndRun, stopTask, isTaskRunning,
     saveRole, chatThreads: cfg.chatThreads, pushChatTurns,
     liveEnabled, liveState, toggleLive,
     openTaskId, openTask: setOpenTaskId,
