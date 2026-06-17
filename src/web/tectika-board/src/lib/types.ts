@@ -51,9 +51,6 @@ export interface GitHubRepoConnection {
 
 export interface GitHubPermissions {
   canRead: boolean;
-  canCreateBranch: boolean;
-  canPush: boolean;
-  canCreatePr: boolean;
 }
 
 export interface Board {
@@ -144,6 +141,7 @@ export interface TaskEdge {
 }
 
 export interface AgentPermissions {
+  canUseWorkspace: boolean;
   canPushCode: boolean;
   canDeploy: boolean;
   requiresOboFor: string[];

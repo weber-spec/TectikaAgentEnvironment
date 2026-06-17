@@ -1,5 +1,6 @@
 using System.Text.Json;
 using TectikaAgents.AgentRuntime;
+using TectikaAgents.Core.Models;
 using Xunit;
 
 public class TectikaToolSchemaTests
@@ -18,7 +19,7 @@ public class TectikaToolSchemaTests
     [Fact]
     public void FoundryShape_IsFlatFunction()
     {
-        var json = TectikaToolSchema.ToFoundryToolsJson();      // returns a JsonArray-serializable object
+        var json = TectikaToolSchema.ToFoundryToolsJson(new AgentPermissions());      // returns a JsonArray-serializable object
         var doc = JsonSerializer.SerializeToElement(json);
         var first = doc[0];
         Assert.Equal("function", first.GetProperty("type").GetString());

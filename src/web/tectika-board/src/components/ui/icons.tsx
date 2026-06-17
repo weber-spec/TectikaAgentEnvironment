@@ -64,6 +64,7 @@ export const Icon = {
   sidebarCollapse: (p: P) => <S {...p}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /><path d="m15 9-2 3 2 3" /></S>,
   sidebarExpand: (p: P) => <S {...p}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /><path d="m13 9 2 3-2 3" /></S>,
   play: (p: P) => <S {...p}><polygon points="5 3 19 12 5 21 5 3" fill="currentColor" stroke="none" /></S>,
+  terminal: (p: P) => <S {...p}><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></S>,
 };
 
 export type IconName = keyof typeof Icon;
