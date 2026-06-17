@@ -1,7 +1,7 @@
 # ── Agent workspace image ──────────────────────────────────────────────────────
 # Base: official .NET SDK image (Debian-based) so .NET is always present.
 # Adds: git · Python 3 · Node.js 20 · pip
-# Entry: entrypoint.sh → clones repo → starts executor.py on :8080
+# Entry: entrypoint.sh → (clones repo if REPO_URL set) → starts executor.py on :8080
 # ──────────────────────────────────────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/sdk:9.0
 

@@ -94,10 +94,11 @@ public static class TectikaToolSchema
     // ── Workspace tools (appended when an ACI workspace is provisioned for the run) ──
     private static readonly ToolDef RunCommandTool = new(
         "run_command",
-        "Run a bash shell command in the workspace (the cloned git repo). " +
-        "Returns stdout, stderr, and exit_code. " +
-        "The working directory is the repo root. " +
-        "Use this to read/write files, run builds (dotnet build, npm install), execute tests, git commit, git push, etc. " +
+        "Run a bash shell command in your sandbox workspace at `/workspace`. " +
+        "Returns stdout, stderr, and exit_code. The sandbox is created the first time you call this. " +
+        "When a GitHub repo is connected to the board it is cloned into `/workspace` with git configured " +
+        "(you can git commit / git push); otherwise `/workspace` is an empty sandbox with no git repo. " +
+        "Use it to write and run code, run builds (dotnet build, npm install), execute tests, etc. " +
         "Prefer small focused commands; chain them with &&. For file edits prefer 'cat > path <<EOF ... EOF'.",
         new Dictionary<string, ToolProp>
         {

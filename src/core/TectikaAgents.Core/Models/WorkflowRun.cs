@@ -49,6 +49,12 @@ public class WorkflowRun
     /// GitHub repo is connected, or for pipeline runs that don't use the workspace.</summary>
     [JsonPropertyName("workspaceContainerName")]
     public string? WorkspaceContainerName { get; set; }
+
+    [JsonPropertyName("workspaceEndpoint")]
+    public string? WorkspaceEndpoint { get; set; }
+
+    [JsonPropertyName("workspaceToken")]
+    public string? WorkspaceToken { get; set; }
 }
 
 public class PipelineStep

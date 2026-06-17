@@ -25,38 +25,23 @@ public class SteerableAgentOrchestrator
         var input = context.GetInput<SteerableRunInput>()!;
         logger.LogInformation("[Steerable] start task={TaskId} run={RunId}", input.TaskId, input.RunId);
 
-        // Provision an ACI workspace (if the board has a GitHub connection).
-        WorkspaceActivityResult? workspace = null;
         try
         {
-            workspace = await context.CallActivityAsync<WorkspaceActivityResult?>(
-                nameof(ProvisionWorkspaceActivity),
-                new ProvisionWorkspaceInput(input.RunId, input.BoardId, input.TenantId));
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning("[Steerable] workspace provision failed (continuing without): {Msg}", ex.Message);
-        }
-
-        try
-        {
-            var driver = new DurableRoundDriver(context, input, workspace);
+            var driver = new DurableRoundDriver(context, input);
             var state = await SteerableRunCore.RunLoopAsync(driver, input.SeedMessage, MaxRounds);
             logger.LogInformation("[Steerable] done task={TaskId} run={RunId} state={State}", input.TaskId, input.RunId, state);
             return new SteerableRunResult(input.RunId, state.ToString());
         }
         finally
         {
-            if (workspace is not null)
+            // Destroy the sandbox if RunAgentRoundActivity lazily provisioned one (no-op otherwise).
+            try
             {
-                try
-                {
-                    await context.CallActivityAsync(nameof(DestroyWorkspaceActivity), workspace.ContainerName);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning("[Steerable] workspace destroy failed (non-fatal): {Msg}", ex.Message);
-                }
+                await context.CallActivityAsync(nameof(DestroyWorkspaceActivity), input.RunId);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning("[Steerable] workspace destroy failed (non-fatal): {Msg}", ex.Message);
             }
         }
     }
@@ -67,14 +52,12 @@ public class SteerableAgentOrchestrator
         private const string UserMessageEvent = "user_message";
         private readonly TaskOrchestrationContext _ctx;
         private readonly SteerableRunInput _in;
-        private readonly WorkspaceActivityResult? _workspace;
         private Task<string> _msgWait;   // single outstanding subscription; re-armed after each consume
 
-        public DurableRoundDriver(TaskOrchestrationContext ctx, SteerableRunInput input, WorkspaceActivityResult? workspace)
+        public DurableRoundDriver(TaskOrchestrationContext ctx, SteerableRunInput input)
         {
             _ctx = ctx;
             _in = input;
-            _workspace = workspace;
             _msgWait = ctx.WaitForExternalEvent<string>(UserMessageEvent);
         }
 
@@ -83,9 +66,7 @@ public class SteerableAgentOrchestrator
             var result = await _ctx.CallActivityAsync<RoundActivityResult>(
                 nameof(RunAgentRoundActivity),
                 new RoundActivityInput(_in.RunId, _in.TaskId, _in.BoardId, _in.TenantId, _in.AgentRoleId,
-                    round, userInput, pending.ToList(),
-                    WorkspaceEndpoint: _workspace?.Endpoint,
-                    WorkspaceToken: _workspace?.Token));
+                    round, userInput, pending.ToList()));
             return result.Outcome;
         }
 

@@ -6,8 +6,9 @@ namespace TectikaAgents.Core.Interfaces;
 /// and execute shell commands via the HTTP executor running on port 8080.</summary>
 public interface IWorkspaceService
 {
-    /// <summary>Provision an ACI container that clones <paramref name="board"/>'s GitHub repo and
-    /// checks out <paramref name="branchName"/>. Returns null when the board has no GitHub connection.</summary>
+    /// <summary>Provision an ACI workspace container for the run. When <paramref name="board"/> has a
+    /// GitHub connection the entrypoint clones the repo and checks out <paramref name="branchName"/>;
+    /// otherwise it provisions a bare, git-free /workspace. A sandbox is provisioned in both cases.</summary>
     Task<WorkspaceInfo?> ProvisionAsync(Board board, string branchName, string runId, CancellationToken ct = default);
 
     /// <summary>Run a shell command in the workspace container. Returns stdout/stderr/exit_code.</summary>
