@@ -10,7 +10,8 @@ public class TectikaToolSchemaTests
         var names = TectikaToolSchema.Definitions.Select(d => d.Name).ToHashSet();
         foreach (var n in new[] { "get_board_overview", "search_tasks", "get_task", "get_artifact",
                                   "request_human_input", "request_approval", "request_revision",
-                                  "update_brief", "round_intent" })
+                                  "update_brief", "round_intent",
+                                  "declare_output", "update_output", "remove_output" })
             Assert.Contains(n, names);
     }
 

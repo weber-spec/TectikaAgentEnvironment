@@ -8,7 +8,7 @@ namespace TectikaAgents.AgentRuntime;
 /// whenever the toolset changes so AgentInstructionsHash republishes agent versions.</summary>
 public static class TectikaToolSchema
 {
-    public const string Version = "tools-v4";
+    public const string Version = "tools-v5";
 
     public sealed record ToolProp(string Type, string? Description = null, string[]? Enum = null);
     public sealed record ToolDef(
@@ -41,6 +41,23 @@ public static class TectikaToolSchema
             new Dictionary<string, ToolProp> { ["description"] = new("string", "What needs approval.") }, ["description"]),
         new("request_revision", "(QA/validator agents) Signal that an upstream task must be re-run with fixes.",
             new Dictionary<string, ToolProp> { ["reason"] = new("string", "What must be fixed.") }, ["reason"]),
+        new("declare_output", "Register a finished DELIVERABLE for this task — a document/section the user and downstream tasks will receive. Call this once per real product of your work. Do NOT call it for exploration, debugging, or fix-up steps. Returns the output's id; pass that id to update_output or remove_output to revise it later this session.",
+            new Dictionary<string, ToolProp> {
+                ["content"] = new("string", "The deliverable's full content."),
+                ["label"] = new("string", "Short label, e.g. 'Itinerary' or 'API spec'."),
+                ["contentType"] = new("string", "Content format (default Markdown).", new[] { "Markdown", "Json", "Data", "Code" }),
+            }, ["content"]),
+        new("update_output", "Revise a deliverable you previously declared (by its id) — replace its content, label, or format. Use this when your work evolved during the session.",
+            new Dictionary<string, ToolProp> {
+                ["id"] = new("string", "The id returned by declare_output."),
+                ["content"] = new("string", "Replacement content (omit to keep current)."),
+                ["label"] = new("string", "Replacement label (omit to keep current)."),
+                ["contentType"] = new("string", "Replacement format (omit to keep current).", new[] { "Markdown", "Json", "Data", "Code" }),
+            }, ["id"]),
+        new("remove_output", "Remove a deliverable you previously declared (by its id) that is no longer part of the result.",
+            new Dictionary<string, ToolProp> {
+                ["id"] = new("string", "The id returned by declare_output."),
+            }, ["id"]),
     };
 
     // ── GitHub tools (appended per agent permissions) ─────────────────────────
