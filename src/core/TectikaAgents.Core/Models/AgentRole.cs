@@ -52,19 +52,13 @@ public class GitHubPermissions
 {
     [JsonPropertyName("canRead")]
     public bool CanRead { get; set; }
-
-    [JsonPropertyName("canCreateBranch")]
-    public bool CanCreateBranch { get; set; }
-
-    [JsonPropertyName("canPush")]
-    public bool CanPush { get; set; }
-
-    [JsonPropertyName("canCreatePr")]
-    public bool CanCreatePr { get; set; }
 }
 
 public class AgentPermissions
 {
+    [JsonPropertyName("canUseWorkspace")]
+    public bool CanUseWorkspace { get; set; }
+
     [JsonPropertyName("canPushCode")]
     public bool CanPushCode { get; set; }
 

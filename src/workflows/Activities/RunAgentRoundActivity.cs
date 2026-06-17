@@ -86,7 +86,7 @@ public class RunAgentRoundActivity
                 ? context
                 : context + "\n\n## User message\n" + input.UserInput;
 
-            userInput += WorkspacePrompt(board.GitHub is not null);
+            userInput += WorkspacePrompt(role.Permissions.CanUseWorkspace, board.GitHub is not null);
         }
 
         var explorer = new BoardProjectExplorer(_cosmos, input.BoardId, input.TenantId);
@@ -94,7 +94,9 @@ public class RunAgentRoundActivity
             new RoundRequest(role, task, threadId, userInput, input.PendingToolOutputs, _maxCompletionTokens, input.RunId, input.Round)
             {
                 BoardGitHub = board.GitHub,
-                Workspace = new RunWorkspaceProvider(_cosmos, _workspace, board, input.RunId, _logger),
+                Workspace = role.Permissions.CanUseWorkspace
+                    ? new RunWorkspaceProvider(_cosmos, _workspace, board, input.RunId, _logger)
+                    : null,
             },
             explorer, ct);
 
@@ -164,11 +166,16 @@ public class RunAgentRoundActivity
 
     private static string Short(string s) => s[..Math.Min(6, s.Length)];
 
-    public static string WorkspacePrompt(bool repoConnected) => repoConnected
-        ? "\n\n## Sandbox\nYou have an on-demand sandbox terminal via `run_command`. On first use, the connected " +
-          "GitHub repository is cloned to `/workspace` with git configured (you can `git commit`/`git push`)."
-        : "\n\n## Sandbox\nYou have an on-demand sandbox terminal via `run_command` — an empty `/workspace` " +
-          "(no git repo connected). Use it to write and run code.";
+    public static string WorkspacePrompt(bool canUseWorkspace, bool repoConnected) =>
+        !canUseWorkspace
+            ? "\n\n## Sandbox\nYou do not have sandbox (workspace) access. If the task requires running " +
+              "code or git operations, inform the user that your role does not have workspace permission " +
+              "and ask them to reassign the task to an agent that does."
+            : repoConnected
+                ? "\n\n## Sandbox\nYou have an on-demand sandbox terminal via `run_command`. On first use, the connected " +
+                  "GitHub repository is cloned to `/workspace` with git configured (you can `git commit`/`git push`)."
+                : "\n\n## Sandbox\nYou have an on-demand sandbox terminal via `run_command` — an empty `/workspace` " +
+                  "(no git repo connected). Use it to write and run code.";
 
     private sealed class RunWorkspaceProvider : IWorkspaceProvider
     {

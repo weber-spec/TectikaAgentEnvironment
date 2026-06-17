@@ -79,9 +79,9 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         {
             var model = role.ModelOverride ?? _settings.DefaultModel;
             _logger.LogInformation("[FoundryEnsureAgent] ensuring agent role={RoleId} model={Model}", role.Id, model);
-            var hash = AgentInstructionsHash.Compute(role.SystemPrompt, model, TectikaToolSchema.Version, role.GitHubPermissions);
+            var hash = AgentInstructionsHash.Compute(role.SystemPrompt, model, TectikaToolSchema.Version, role.Permissions, role.GitHubPermissions);
             var definition = new AgentDefinition("prompt", model, role.SystemPrompt, role.DisplayName,
-                TectikaToolSchema.ToFoundryToolsJson(role.GitHubPermissions, hasWorkspace: true));
+                TectikaToolSchema.ToFoundryToolsJson(role.Permissions, role.GitHubPermissions));
             var http = await ClientAsync(ct).ConfigureAwait(false);
 
             // Stable agent id: reuse the stored one; mint a fresh random id only for a brand-new role.

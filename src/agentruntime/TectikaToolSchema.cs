@@ -60,7 +60,9 @@ public static class TectikaToolSchema
             }, ["id"]),
     };
 
-    // ── GitHub tools (appended per agent permissions) ─────────────────────────
+    // ── GitHub tools (read-only; appended per agent permissions) ─────────────
+    // Write operations (create branch, push file, create PR) are intentionally
+    // omitted — agents with workspace access do those via run_command + git CLI.
     private static readonly IReadOnlyList<(ToolDef Def, Func<GitHubPermissions, bool> Allowed)> GitHubTools =
     [
         (new("github_read_file",
@@ -78,34 +80,6 @@ public static class TectikaToolSchema
                 ["branch"] = new("string", "Branch name. Defaults to the repo default branch if omitted.") },
             ["path"]),
          gh => gh.CanRead),
-
-        (new("github_create_branch",
-            "Create a new branch in the connected GitHub repository.",
-            new Dictionary<string, ToolProp> {
-                ["branch"] = new("string", "Name for the new branch."),
-                ["from"] = new("string", "Base branch or commit SHA to branch from. Defaults to default branch.") },
-            ["branch"]),
-         gh => gh.CanCreateBranch),
-
-        (new("github_push_file",
-            "Create or update a file on a branch in the connected GitHub repository.",
-            new Dictionary<string, ToolProp> {
-                ["path"] = new("string", "File path relative to repo root."),
-                ["content"] = new("string", "Full UTF-8 file content."),
-                ["branch"] = new("string", "Target branch name."),
-                ["message"] = new("string", "Commit message.") },
-            ["path", "content", "branch", "message"]),
-         gh => gh.CanPush),
-
-        (new("github_create_pr",
-            "Open a pull request in the connected GitHub repository.",
-            new Dictionary<string, ToolProp> {
-                ["title"] = new("string", "PR title."),
-                ["body"] = new("string", "PR description (markdown)."),
-                ["head"] = new("string", "Source branch name."),
-                ["base"] = new("string", "Target branch name (e.g. 'main').") },
-            ["title", "head", "base"]),
-         gh => gh.CanCreatePr),
     ];
 
     // ── Workspace tools (appended when an ACI workspace is provisioned for the run) ──
@@ -125,16 +99,22 @@ public static class TectikaToolSchema
         ["cmd"]);
 
     /// <summary>Project the catalog into the Foundry flat function-tool array (definition.tools).
-    /// Pass <paramref name="github"/> to append the permitted GitHub tools.
-    /// Pass <paramref name="hasWorkspace"/> true to append the run_command tool.</summary>
-    public static IReadOnlyList<object> ToFoundryToolsJson(GitHubPermissions? github = null, bool hasWorkspace = false)
+    /// Workspace permission (layer 1) controls run_command and cascades GitHub read access.
+    /// GitHub permissions (layer 2) are honoured only for agents without workspace access.</summary>
+    public static IReadOnlyList<object> ToFoundryToolsJson(AgentPermissions permissions, GitHubPermissions? github = null)
     {
         var tools = Definitions.Select(d => (object)ToFoundryTool(d)).ToList();
-        if (github is not null)
+
+        // Cascade: workspace agents automatically get GitHub read (they already have git via run_command).
+        var effectiveGitHub = permissions.CanUseWorkspace
+            ? (github ?? new GitHubPermissions { CanRead = true })
+            : github;
+
+        if (effectiveGitHub is not null)
             tools.AddRange(GitHubTools
-                .Where(t => t.Allowed(github))
+                .Where(t => t.Allowed(effectiveGitHub))
                 .Select(t => (object)ToFoundryTool(t.Def)));
-        if (hasWorkspace)
+        if (permissions.CanUseWorkspace)
             tools.Add(ToFoundryTool(RunCommandTool));
         return tools;
     }
