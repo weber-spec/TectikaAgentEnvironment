@@ -63,4 +63,38 @@ public class ArtifactHandoffShapeTests
         Assert.Empty(a.Outputs);
         Assert.Equal("", a.Summary);
     }
+
+    [Fact]
+    public void Legacy_SkipsSeparatorOnlyLinesWhenDerivingSummary()
+    {
+        var a = new Artifact { Content = "---\nReal heading", Summary = null };
+
+        a.EnsureHandoffShape();
+
+        Assert.Equal("Real heading", a.Summary);
+    }
+
+    [Fact]
+    public void EnsureHandoffShape_IsIdempotent()
+    {
+        var a = new Artifact { ContentType = ArtifactContentType.Markdown, Content = "## Plan\nDay 1" };
+
+        a.EnsureHandoffShape();
+        var summaryAfterFirst = a.Summary;
+        a.EnsureHandoffShape();
+
+        Assert.Single(a.Outputs);
+        Assert.Equal(summaryAfterFirst, a.Summary);
+    }
+
+    [Fact]
+    public void Legacy_TruncatesLongSummaryWithEllipsis()
+    {
+        var a = new Artifact { Content = new string('a', 300), Summary = null };
+
+        a.EnsureHandoffShape();
+
+        Assert.Equal(201, a.Summary!.Length); // 200 chars + the "…" ellipsis
+        Assert.EndsWith("…", a.Summary);
+    }
 }

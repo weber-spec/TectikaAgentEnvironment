@@ -67,17 +67,19 @@ public class Artifact
         return this;
     }
 
-    /// <summary>First meaningful line of markdown content, stripped of leading
-    /// heading hashes / list markers and truncated, for use as a fallback summary.</summary>
+    /// <summary>First meaningful line of markdown content — skipping blank and
+    /// separator-only lines (e.g. "---") — stripped of leading heading/list markers
+    /// and truncated, for use as a fallback summary.</summary>
     internal static string DeriveSummary(string content)
     {
         if (string.IsNullOrWhiteSpace(content)) return "";
-        var line = content
-            .Split('\n')
-            .Select(l => l.Trim())
-            .FirstOrDefault(l => l.Length > 0) ?? "";
-        line = line.TrimStart('#', '-', '*', '>', ' ').Trim();
-        return line.Length > 200 ? line[..200].TrimEnd() + "…" : line;
+        foreach (var raw in content.Split('\n'))
+        {
+            var line = raw.Trim().TrimStart('#', '-', '*', '>', ' ').Trim();
+            if (line.Length > 0)
+                return line.Length > 200 ? line[..200].TrimEnd() + "…" : line;
+        }
+        return "";
     }
 }
 
