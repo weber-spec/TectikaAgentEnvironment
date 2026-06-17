@@ -56,16 +56,29 @@ public class WorkspaceService : IWorkspaceService
         _logger = logger;
     }
 
+    /// <summary>Env vars for the workspace container. Repo vars (REPO_URL/GIT_BRANCH/GIT_PAT) are
+    /// included only when a repo is connected — the entrypoint provisions a bare, git-free /workspace
+    /// otherwise.</summary>
+    public static List<ContainerEnvironmentVariable> BuildEnv(
+        GitHubRepoConnection? github, string branchName, string token, string? pat)
+    {
+        var env = new List<ContainerEnvironmentVariable>
+        {
+            new("EXECUTOR_TOKEN") { SecureValue = token },
+        };
+        if (github is not null)
+        {
+            env.Add(new("REPO_URL")   { Value = github.RepoUrl });
+            env.Add(new("GIT_BRANCH") { Value = branchName });
+            env.Add(new("GIT_PAT")    { SecureValue = pat });
+        }
+        return env;
+    }
+
     public async Task<WorkspaceInfo?> ProvisionAsync(
         Board board, string branchName, string runId, CancellationToken ct = default)
     {
-        if (board.GitHub is null)
-        {
-            _logger.LogDebug("[Workspace] board {Board} has no GitHub connection — skipping", board.Id);
-            return null;
-        }
-
-        var pat = await _secrets.GetSecretAsync(board.GitHub.PatSecretName, ct);
+        var pat = board.GitHub is null ? null : await _secrets.GetSecretAsync(board.GitHub.PatSecretName, ct);
         var token = GenerateToken();
         // ACI name: max 63 chars, alphanumeric + hyphens, must start with letter
         var containerName = $"tws-{runId[..Math.Min(8, runId.Length)].ToLowerInvariant()}";
@@ -83,14 +96,9 @@ public class WorkspaceService : IWorkspaceService
                 new ContainerResourceRequestsContent(memoryInGB: 2, cpu: 1)))
         {
             Ports = { new ContainerPort(ExecutorPort) },
-            EnvironmentVariables =
-            {
-                new ContainerEnvironmentVariable("REPO_URL")       { Value = board.GitHub.RepoUrl },
-                new ContainerEnvironmentVariable("GIT_BRANCH")     { Value = branchName },
-                new ContainerEnvironmentVariable("GIT_PAT")        { SecureValue = pat },
-                new ContainerEnvironmentVariable("EXECUTOR_TOKEN") { SecureValue = token },
-            },
         };
+        foreach (var e in BuildEnv(board.GitHub, branchName, token, pat))
+            workspaceContainer.EnvironmentVariables.Add(e);
 
         var dnsLabel = containerName; // unique per run, ACI enforces global uniqueness in the region
         var groupData = new ContainerGroupData(
