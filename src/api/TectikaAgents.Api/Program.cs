@@ -96,6 +96,12 @@ else
 
 // ── GitHub Tool Executor ──────────────────────────────────────────────────
 builder.Services.AddSingleton<IGitHubToolExecutor, OctokitGitHubToolExecutor>();
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<OctokitGitHubReadService>();
+builder.Services.AddSingleton<IGitHubReadService>(sp =>
+    new CachedGitHubReadService(
+        sp.GetRequiredService<OctokitGitHubReadService>(),
+        sp.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>()));
 
 // ── Foundry / Agent provisioning ─────────────────────────────────────────────
 // "Foundry:UseMock" selects mock vs real Foundry provisioning; defaults to the DB flag.
