@@ -23,6 +23,10 @@ public class WorkflowCosmosService
         _logger = logger;
     }
 
+    // Container name constants — used by this service and tasks in later phases
+    public const string UsageEventsContainer = "usageEvents";
+    public const string UsageRollupsContainer = "usageRollups";
+
     private Container C(string name) => _client.GetContainer(_db, name);
 
     // ── AgentRole ─────────────────────────────────────────────────────────────

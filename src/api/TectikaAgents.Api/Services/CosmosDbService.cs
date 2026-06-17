@@ -28,6 +28,8 @@ public class CosmosDbService : ICosmosDbService
     public const string PendingMessagesContainer = "pendingMessages";
     public const string NotificationsContainer = "notifications";
     public const string UserSettingsContainer = "userSettings";
+    public const string UsageEventsContainer = "usageEvents";
+    public const string UsageRollupsContainer = "usageRollups";
 
     /// <summary>Authoritative list of Cosmos containers this app requires (name + partition key).
     /// Source of truth for <see cref="EnsureInfrastructureAsync"/> and kept in sync with infra/modules/data.bicep.</summary>
@@ -46,6 +48,8 @@ public class CosmosDbService : ICosmosDbService
         (PendingMessagesContainer,   "/runId"),
         (NotificationsContainer,     "/tenantId"),
         (UserSettingsContainer,      "/userId"),
+        (UsageEventsContainer,       "/taskId"),
+        (UsageRollupsContainer,      "/tenantId"),
     };
 
     public CosmosDbService(CosmosClient client, IOptions<CosmosDbSettings> settings, ILogger<CosmosDbService> logger)
