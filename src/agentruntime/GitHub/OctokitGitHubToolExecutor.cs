@@ -33,11 +33,7 @@ public sealed class OctokitGitHubToolExecutor : IGitHubToolExecutor
 
         try
         {
-            var pat = await _secrets.GetSecretAsync(boardRepo.PatSecretName, ct);
-            var client = new GitHubClient(new ProductHeaderValue("TectikaAgents"))
-            {
-                Credentials = new Credentials(pat)
-            };
+            var client = await GitHubClientFactory.CreateAsync(_secrets, boardRepo, ct);
 
             _logger.LogInformation("[GitHub] {Tool} on {Owner}/{Repo}", toolName, boardRepo.Owner, boardRepo.Repo);
 
