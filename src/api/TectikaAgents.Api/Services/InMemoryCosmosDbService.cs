@@ -229,4 +229,9 @@ public class InMemoryCosmosDbService : ICosmosDbService
         }
         return Task.CompletedTask;
     }
+
+    // ── Usage ──────────────────────────────────────────────────────────────────
+    // No rollup store in mock mode — no-op is acceptable (usage tracking is a production concern).
+    public Task ResetTaskUsageSessionAsync(string tenantId, string taskId, string newSessionId, CancellationToken ct = default)
+        => Task.CompletedTask;
 }

@@ -2,6 +2,7 @@ using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Options;
 using TectikaAgents.Core.Configuration;
 using TectikaAgents.Core.Models;
+using TectikaAgents.Core.Usage;
 
 namespace TectikaAgents.Api.Services;
 
@@ -366,6 +367,25 @@ public class CosmosDbService : ICosmosDbService
     {
         var res = await GetContainer(RunEventsContainer).CreateItemAsync(e, new PartitionKey(e.TaskId), cancellationToken: ct);
         return res.Resource;
+    }
+
+    // ── Usage ─────────────────────────────────────────────────────────────────
+
+    public async Task ResetTaskUsageSessionAsync(string tenantId, string taskId, string newSessionId, CancellationToken ct = default)
+    {
+        var id = UsageRollup.TaskId(taskId);
+        var container = GetContainer(UsageRollupsContainer);
+        var pk = new PartitionKey(tenantId);
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            UsageRollup rollup; string? etag = null;
+            try { var read = await container.ReadItemAsync<UsageRollup>(id, pk, cancellationToken: ct); rollup = read.Resource; etag = read.ETag; }
+            catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return; } // nothing to reset yet
+            rollup.CurrentSession = new SessionBucket { SessionId = newSessionId, Since = DateTimeOffset.UtcNow };
+            rollup.UpdatedAt = DateTimeOffset.UtcNow;
+            try { await container.ReplaceItemAsync(rollup, id, pk, new ItemRequestOptions { IfMatchEtag = etag }, ct); return; }
+            catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.PreconditionFailed) { /* retry */ }
+        }
     }
 
     // ── Generic query helper ──────────────────────────────────────────────────
