@@ -23,7 +23,10 @@ public class RunAgentRoundActivity
     private readonly ContextManager _contextManager;
     private readonly WorkflowEventPublisher _events;
     private readonly IWorkspaceService _workspace;
+    private readonly UsageRecorder _usage;
     private readonly int _maxCompletionTokens;
+    private readonly string _defaultModel;
+    private readonly string _provider;
     private readonly ILogger<RunAgentRoundActivity> _logger;
 
     public RunAgentRoundActivity(
@@ -33,6 +36,7 @@ public class RunAgentRoundActivity
         ContextManager contextManager,
         WorkflowEventPublisher events,
         IWorkspaceService workspace,
+        UsageRecorder usage,
         IOptions<FoundrySettings> foundry,
         ILogger<RunAgentRoundActivity> logger)
     {
@@ -42,7 +46,10 @@ public class RunAgentRoundActivity
         _contextManager = contextManager;
         _events = events;
         _workspace = workspace;
+        _usage = usage;
         _maxCompletionTokens = foundry.Value.MaxCompletionTokens;
+        _defaultModel = foundry.Value.DefaultModel;
+        _provider = foundry.Value.IsOpenAiDirect ? "openai" : "azure-foundry";
         _logger = logger;
     }
 
@@ -148,6 +155,16 @@ public class RunAgentRoundActivity
             var saved = await _cosmos.CreateRunEventAsync(ev, ct);
             await _events.PublishRunEventAsync(saved, ct);
         }
+
+        // Record usage to the ledger + rollups (per round). Session = the task's current session id.
+        var model = role.ModelOverride ?? _defaultModel;
+        await _usage.RecordAsync(new UsageRecorder.Attribution(
+            TenantId: input.TenantId, BoardId: input.BoardId, TaskId: input.TaskId, RunId: input.RunId,
+            Step: 0, Round: input.Round, InvocationId: ctx.InvocationId,
+            AgentRoleId: role.Id, AgentRoleName: role.DisplayName,
+            Provider: _provider, Model: model, ModelVersion: null,
+            SessionId: task.UsageSessionId ?? input.RunId),
+            outcome.Usage, ct);
 
         // A steerable control tool paused the run — persist a HumanInteraction so the request surfaces
         // in the Approvals tab + notifications (and the chat), answerable from any of them.
