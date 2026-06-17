@@ -109,6 +109,14 @@ public class RunAgentRoundActivity
             await _cosmos.PatchTaskBriefAsync(input.BoardId, input.TaskId, task.TaskBrief, ct);
         }
 
+        // Per-run declared outputs: reset at the start of a run, fold in this round's declare/update/remove ops.
+        if (input.Round == 0)
+            task.PendingOutputs = [];
+        if (outcome.OutputOps is { Count: > 0 })
+            task.PendingOutputs = OutputAccumulator.Apply(task.PendingOutputs, outcome.OutputOps);
+        if (input.Round == 0 || outcome.OutputOps is { Count: > 0 })
+            await _cosmos.PatchTaskPendingOutputsAsync(input.BoardId, input.TaskId, task.PendingOutputs, ct);
+
         string? artifactId = null;
         if (outcome.Kind == RoundKind.Final && outcome.Error is null)
         {
@@ -121,7 +129,9 @@ public class RunAgentRoundActivity
                 TenantId = input.TenantId,
                 Version = nextVersion,
                 ContentType = ArtifactContentType.Markdown,
-                Content = outcome.FinalText ?? "",
+                Content = outcome.FinalText ?? "",        // back-compat: Content == summary; existing readers + EnsureHandoffShape still work
+                Summary = outcome.FinalText ?? "",         // the agent's final message is the handoff summary
+                Outputs = task.PendingOutputs.Where(o => o.IsValid()).ToList(),  // deliberately declared deliverables
                 Origin = ArtifactOrigin.Agent,
                 InternalLogs = [$"Agent: {role.DisplayName}", $"Round: {input.Round}", $"Completion: {outcome.CompletionId}"],
             };
