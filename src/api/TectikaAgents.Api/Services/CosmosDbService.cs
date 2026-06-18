@@ -115,6 +115,15 @@ public class CosmosDbService : ICosmosDbService
             await GetContainer(BoardsContainer).DeleteItemAsync<Board>(boardId, new PartitionKey(tenantId), cancellationToken: ct);
         }
         catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { /* already gone */ }
+
+        // Best-effort: remove the board's own usage rollup (never touches project lifetime totals).
+        try
+        {
+            await GetContainer(UsageRollupsContainer).DeleteItemAsync<UsageRollup>(
+                UsageRollup.BoardId(boardId), new PartitionKey(tenantId), cancellationToken: ct);
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { }
+        catch (Exception ex) { _logger.LogWarning(ex, "[Usage] board rollup cleanup failed {BoardId}", boardId); }
     }
 
     // ── Tasks ────────────────────────────────────────────────────────────────
@@ -150,11 +159,41 @@ public class CosmosDbService : ICosmosDbService
 
     public async Task DeleteTaskAsync(string boardId, string taskId, CancellationToken ct = default)
     {
+        // Capture tenantId before deleting so we can clean up usage rollup.
+        string? tenantId = null;
+        try
+        {
+            var task = await GetContainer(TasksContainer).ReadItemAsync<AgentTask>(taskId, new PartitionKey(boardId), cancellationToken: ct);
+            tenantId = task.Resource.TenantId;
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { /* already gone — nothing to clean up */ return; }
+
         try
         {
             await GetContainer(TasksContainer).DeleteItemAsync<AgentTask>(taskId, new PartitionKey(boardId), cancellationToken: ct);
         }
         catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { /* already gone */ }
+
+        // Best-effort: remove the task's own usage rollup (never touches project/board lifetime totals).
+        try
+        {
+            await GetContainer(UsageRollupsContainer).DeleteItemAsync<UsageRollup>(
+                UsageRollup.TaskId(taskId), new PartitionKey(tenantId), cancellationToken: ct);
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { }
+        catch (Exception ex) { _logger.LogWarning(ex, "[Usage] task rollup cleanup failed {TaskId}", taskId); }
+
+        // Best-effort: remove all usage events for this task (partitioned by /taskId).
+        try
+        {
+            var eventIds = await QueryAsync<string>(
+                UsageEventsContainer,
+                new QueryDefinition("SELECT VALUE c.id FROM c WHERE c.taskId = @t").WithParameter("@t", taskId),
+                taskId, ct);
+            foreach (var id in eventIds)
+                await GetContainer(UsageEventsContainer).DeleteItemAsync<UsageEvent>(id, new PartitionKey(taskId), cancellationToken: ct);
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "[Usage] task events cleanup failed {TaskId}", taskId); }
     }
 
     // ── Agent Roles ───────────────────────────────────────────────────────────
