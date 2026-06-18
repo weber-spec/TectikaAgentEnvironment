@@ -14,6 +14,9 @@ public interface IWorkspaceService
     /// <summary>Run a shell command in the workspace container. Returns stdout/stderr/exit_code.</summary>
     Task<CommandResult> RunCommandAsync(string endpoint, string token, string command, int timeoutSeconds = 60, CancellationToken ct = default);
 
+    /// <summary>POST to a named executor endpoint (e.g. "/read", "/write"). Returns raw JSON response string.</summary>
+    Task<string> InvokeAsync(string endpoint, string token, string route, object body, CancellationToken ct = default);
+
     /// <summary>Delete the ACI container group identified by <paramref name="containerName"/>.</summary>
     Task DestroyAsync(string containerName, CancellationToken ct = default);
 }

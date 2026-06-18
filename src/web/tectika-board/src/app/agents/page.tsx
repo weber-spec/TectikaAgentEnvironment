@@ -97,7 +97,9 @@ function RoleCard({ role, syncState, onEdit }: { role: AgentRole; syncState?: Sy
         )}
       </div>
       <div className="flex flex-wrap gap-1">
-        {role.permissions.canUseWorkspace && <Tag label="workspace" hex="#0f9d58" />}
+        {role.permissions.canUseWorkspace && (
+          <Tag label="workspace + file tools" hex="#0f9d58" />
+        )}
         {role.permissions.canPushCode && <Tag label="push code" hex="#fdab3d" />}
         {role.permissions.canDeploy && <Tag label="deploy" hex="#e2445c" />}
         {role.permissions.requiresApprovalFor.map(a => <Tag key={a} label={`approval: ${a}`} hex="#784bd1" />)}
@@ -140,11 +142,16 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
           <span className="text-[11px] uppercase tracking-wide text-[var(--muted)] font-semibold flex items-center gap-1.5 mb-2">
             <Icon.terminal size={13} /> Workspace
           </span>
-          <label className="flex items-center gap-2 text-sm text-[var(--foreground)]">
+          <label className="flex items-start gap-2 text-sm text-[var(--foreground)]">
             <input type="checkbox" checked={wsEnabled}
               onChange={e => setPerms({ canUseWorkspace: e.target.checked })}
-              className="accent-[var(--primary)]" />
-            Can use workspace (sandbox + git via terminal)
+              className="accent-[var(--primary)] mt-0.5" />
+            <span>
+              Can use workspace
+              <span className="text-[11px] text-[var(--muted)] block mt-0.5">
+                Includes: run_command · read_file · write_file · edit_file · list_dir · search_code
+              </span>
+            </span>
           </label>
         </div>
 

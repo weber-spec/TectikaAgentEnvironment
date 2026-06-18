@@ -113,21 +113,23 @@ public static class RoundExecutor
                 case "get_artifact":
                     outputs.Add(new(call.CallId, await Serialize(explorer.GetArtifactAsync(Str(args, "taskId"), IntOrNull(args, "version"), ct))));
                     traced.Add(new("get_artifact", Str(args, "taskId"), Summarize(outputs[^1].Output))); break;
-                case "run_command":
-                    var conn = workspaceProvider is null ? null : await workspaceProvider.EnsureAsync(ct);
-                    if (workspace is not null && conn is not null)
-                    {
-                        var wsResult = await workspace.ExecuteAsync(args, conn.Endpoint, conn.Token, ct);
-                        outputs.Add(new(call.CallId, wsResult));
-                        traced.Add(new("run_command", Str(args, "cmd"), Summarize(wsResult)));
-                    }
-                    else
-                    {
-                        outputs.Add(new(call.CallId, """{"error":"The sandbox could not be started for this run."}"""));
-                        traced.Add(new("run_command", Str(args, "cmd"), "no sandbox"));
-                    }
-                    break;
                 default:
+                    if (workspace is not null && workspace.CanHandle(call.Name))
+                    {
+                        var wsConn = workspaceProvider is null ? null : await workspaceProvider.EnsureAsync(ct);
+                        if (wsConn is not null)
+                        {
+                            var wsResult = await workspace.ExecuteAsync(call.Name, args, wsConn.Endpoint, wsConn.Token, ct);
+                            outputs.Add(new(call.CallId, wsResult));
+                            traced.Add(new(call.Name, WorkspaceArgSummary(call.Name, args), Summarize(wsResult)));
+                        }
+                        else
+                        {
+                            outputs.Add(new(call.CallId, """{"error":"The sandbox could not be started for this run."}"""));
+                            traced.Add(new(call.Name, WorkspaceArgSummary(call.Name, args), "no sandbox"));
+                        }
+                        break;
+                    }
                     if (gitHub is not null && role is not null && gitHub.CanHandle(call.Name))
                     {
                         var ghResult = await gitHub.ExecuteAsync(call.Name, args, boardRepo, role, ct);
@@ -145,6 +147,17 @@ public static class RoundExecutor
 
     private static async Task<string> Serialize<T>(Task<T> task) => JsonSerializer.Serialize(await task);
     private static string Summarize(string s) => s.Length <= 120 ? s : s[..120] + "…";
+
+    private static string WorkspaceArgSummary(string toolName, JsonElement args) => toolName switch
+    {
+        "run_command"  => Str(args, "cmd"),
+        "read_file"    => Str(args, "path"),
+        "write_file"   => Str(args, "path"),
+        "edit_file"    => Str(args, "path"),
+        "list_dir"     => Str(args, "path"),
+        "search_code"  => Str(args, "pattern"),
+        _              => ""
+    };
 
     private static string? StrOrNull(JsonElement e, string name) =>
         e.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;

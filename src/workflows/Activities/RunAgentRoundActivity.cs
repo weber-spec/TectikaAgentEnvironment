@@ -166,16 +166,32 @@ public class RunAgentRoundActivity
 
     private static string Short(string s) => s[..Math.Min(6, s.Length)];
 
-    public static string WorkspacePrompt(bool canUseWorkspace, bool repoConnected) =>
-        !canUseWorkspace
-            ? "\n\n## Sandbox\nYou do not have sandbox (workspace) access. If the task requires running " +
-              "code or git operations, inform the user that your role does not have workspace permission " +
-              "and ask them to reassign the task to an agent that does."
-            : repoConnected
-                ? "\n\n## Sandbox\nYou have an on-demand sandbox terminal via `run_command`. On first use, the connected " +
-                  "GitHub repository is cloned to `/workspace` with git configured (you can `git commit`/`git push`)."
-                : "\n\n## Sandbox\nYou have an on-demand sandbox terminal via `run_command` — an empty `/workspace` " +
-                  "(no git repo connected). Use it to write and run code.";
+    public static string WorkspacePrompt(bool canUseWorkspace, bool repoConnected)
+    {
+        if (!canUseWorkspace)
+            return "\n\n## Sandbox\nYou do not have sandbox (workspace) access. If the task requires running " +
+                   "code or git operations, inform the user that your role does not have workspace permission " +
+                   "and ask them to reassign the task to an agent that does.";
+
+        const string table =
+            "\n\n## Sandbox & File Tools\n\n" +
+            "You have dedicated tools for file operations — **prefer them over `run_command`** for anything file-related:\n\n" +
+            "| Task | Use | Not |\n" +
+            "|------|-----|-----|\n" +
+            "| Read a file | `read_file` | `run_command cat` |\n" +
+            "| Write a new file | `write_file` | `run_command` + heredoc |\n" +
+            "| Edit part of a file | `edit_file` | `run_command sed/awk` |\n" +
+            "| List directory | `list_dir` | `run_command ls` |\n" +
+            "| Search code | `search_code` | `run_command grep` |\n\n" +
+            "Workflow: `read_file` → understand → `edit_file` (new files: `write_file`).\n" +
+            "Use `run_command` for: builds, tests, git operations, package installs, and other shell execution.\n";
+
+        return repoConnected
+            ? table + "\nOn first `run_command` use, the connected GitHub repository is cloned to `/workspace` " +
+              "with git configured (you can `git commit`/`git push`)."
+            : table + "\nYour sandbox is `/workspace` — an empty directory with no git repo. " +
+              "Use `run_command` for builds, tests, and other shell execution.";
+    }
 
     private sealed class RunWorkspaceProvider : IWorkspaceProvider
     {
