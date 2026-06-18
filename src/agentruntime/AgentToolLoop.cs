@@ -70,7 +70,9 @@ public sealed class AgentToolLoop
             result.Rounds = round + 1;
             result.Usage = new TokenUsage {
                 Input = result.Usage.Input + resp.Usage.Input,
-                Output = result.Usage.Output + resp.Usage.Output };
+                CachedInput = result.Usage.CachedInput + resp.Usage.CachedInput,
+                Output = result.Usage.Output + resp.Usage.Output,
+                Reasoning = result.Usage.Reasoning + resp.Usage.Reasoning };
 
             if (resp.ToolCalls is null || resp.ToolCalls.Count == 0)
             {

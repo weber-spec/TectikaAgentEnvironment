@@ -70,6 +70,11 @@ public class AgentTask
     [JsonPropertyName("foundryThreadId")]
     public string? FoundryThreadId { get; set; }
 
+    /// <summary>Identifies the current usage session for the task. Reset (new GUID) on /clear ONLY.
+    /// New usage events accrue to the task rollup's currentSession bucket keyed by this id.</summary>
+    [JsonPropertyName("usageSessionId")]
+    public string? UsageSessionId { get; set; }
+
     [JsonPropertyName("createdAt")]
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 

@@ -22,6 +22,9 @@ public class InvokeAgentActivity
     private readonly ILogger<InvokeAgentActivity> _logger;
     private readonly int _maxCompletionTokens;
     private readonly bool _logSensitive;
+    private readonly UsageRecorder _usage;
+    private readonly string _defaultModel;
+    private readonly string _provider;
 
     public InvokeAgentActivity(
         WorkflowCosmosService cosmos,
@@ -30,6 +33,7 @@ public class InvokeAgentActivity
         WorkflowEventPublisher events,
         Microsoft.Extensions.Options.IOptions<TectikaAgents.Core.Configuration.FoundrySettings> foundry,
         Microsoft.Extensions.Options.IOptions<LoggingSettings> logging,
+        UsageRecorder usage,
         ILogger<InvokeAgentActivity> logger)
     {
         _cosmos = cosmos;
@@ -38,6 +42,9 @@ public class InvokeAgentActivity
         _events = events;
         _maxCompletionTokens = foundry.Value.MaxCompletionTokens;
         _logSensitive = logging.Value.LogSensitiveContent;
+        _usage = usage;
+        _defaultModel = foundry.Value.DefaultModel;
+        _provider = foundry.Value.IsOpenAiDirect ? "openai" : "azure-foundry";
         _logger = logger;
     }
 
@@ -187,6 +194,14 @@ public class InvokeAgentActivity
                 input.TaskId, input.Step, SensitiveContent.Format(revisionReason, _logSensitive));
             var usage0 = new TokenUsage { Input = outcome.TokenUsage.Input, Output = outcome.TokenUsage.Output };
             await _events.PublishStepCompletedAsync(input.RunId, input.TaskId, input.Step, role.Id, usage0, ct);
+            var model0 = role.ModelOverride ?? _defaultModel;
+            await _usage.RecordAsync(new UsageRecorder.Attribution(
+                TenantId: input.TenantId, BoardId: input.BoardId, TaskId: input.TaskId, RunId: input.RunId,
+                Step: input.Step, Round: 0, InvocationId: executionContext.InvocationId,
+                AgentRoleId: role.Id, AgentRoleName: role.DisplayName,
+                Provider: _provider, Model: model0, ModelVersion: null,
+                SessionId: task.UsageSessionId ?? input.RunId),
+                outcome.TokenUsage, ct);
             return new StepResult
             {
                 Step         = input.Step,
@@ -224,6 +239,14 @@ public class InvokeAgentActivity
 
         var usage = new TokenUsage { Input = outcome.TokenUsage.Input, Output = outcome.TokenUsage.Output };
         await _events.PublishStepCompletedAsync(input.RunId, input.TaskId, input.Step, role.Id, usage, ct);
+        var model = role.ModelOverride ?? _defaultModel;
+        await _usage.RecordAsync(new UsageRecorder.Attribution(
+            TenantId: input.TenantId, BoardId: input.BoardId, TaskId: input.TaskId, RunId: input.RunId,
+            Step: input.Step, Round: 0, InvocationId: executionContext.InvocationId,
+            AgentRoleId: role.Id, AgentRoleName: role.DisplayName,
+            Provider: _provider, Model: model, ModelVersion: null,
+            SessionId: task.UsageSessionId ?? input.RunId),
+            outcome.TokenUsage, ct);
 
         return new StepResult
         {

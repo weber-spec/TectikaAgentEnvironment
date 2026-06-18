@@ -48,6 +48,7 @@ export const TRANSLATIONS = {
     insights: 'Insights',
     search: 'Search',
     notifications: 'Notifications',
+    pricing: 'Pricing',
     // Boards page
     newBoard: 'New board',
     noBoardsYet: 'No boards yet',
@@ -101,6 +102,7 @@ export const TRANSLATIONS = {
     insights: 'תובנות',
     search: 'חיפוש',
     notifications: 'התראות',
+    pricing: 'תמחור',
     // Boards page
     newBoard: 'לוח חדש',
     noBoardsYet: 'אין לוחות עדיין',

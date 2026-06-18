@@ -82,6 +82,14 @@ public class RepoControllerTests
         public Task<IReadOnlyList<RunEvent>> GetRunEventsAsync(string taskId, int? sinceRound = null, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<RunEvent> CreateRunEventAsync(RunEvent e, CancellationToken ct = default) => throw new NotImplementedException();
         public Task DeleteEdgesForTaskAsync(string boardId, string taskId, CancellationToken ct = default) => throw new NotImplementedException();
+
+        public Task<IEnumerable<WorkflowRun>> GetRunsByTaskAsync(string taskId, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task ResetTaskUsageSessionAsync(string tenantId, string taskId, string newSessionId, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<TectikaAgents.Core.Usage.UsageRollup?> GetUsageRollupAsync(string tenantId, string id, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<List<TectikaAgents.Core.Usage.UsageRollup>> GetUsageRollupsForTenantAsync(string tenantId, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task UpsertUsageRollupAsync(TectikaAgents.Core.Usage.UsageRollup rollup, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task UpsertUsageEventAsync(TectikaAgents.Core.Usage.UsageEvent ev, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<TectikaAgents.Core.Usage.UsageEventsPage> GetUsageEventsForTaskAsync(string tenantId, string taskId, int max, string? continuationToken, CancellationToken ct = default) => throw new NotImplementedException();
     }
 
     private static RepoController Make(Board? board, string tenant = "default")

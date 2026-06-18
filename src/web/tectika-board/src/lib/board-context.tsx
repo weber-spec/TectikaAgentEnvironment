@@ -6,6 +6,7 @@ import type {
   Board, AgentTask, AgentRole, WorkflowRun, Person, TaskEdge,
   ColumnDef, ColumnKind, ViewDef, ViewKind, FilterGroup, SortRule,
   Comment, ActivityEntry, AutomationRecipe, AgentTaskStatus, ChatTurn, BoardRunPhase, RunStatus,
+  UsageRollup,
 } from './types';
 import { defaultColumns, KIND_META, type CellContext } from './columns';
 import { applyFilter, applySearch, applySort, groupTasks, type TaskGroup } from './board-engine';
@@ -218,6 +219,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   const [edges, setEdges] = useState<TaskEdge[]>([]);
   const [roles, setRoles] = useState<AgentRole[]>([]);
   const [runsById, setRunsById] = useState<Record<string, WorkflowRun>>({});
+  const [usageByTaskId, setUsageByTaskId] = useState<Record<string, UsageRollup>>({});
 
   const [cfg, setCfg] = useState<BoardConfig>(defaultConfig);
   const [search, setSearch] = useState('');
@@ -268,6 +270,15 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
         const map: Record<string, WorkflowRun> = {};
         runs.forEach(run => { if (run) map[run.id] = run; });
         setRunsById(map);
+
+        // fetch usage rollups for all tasks (resilient: a failure for one task is skipped)
+        const usageResults = await Promise.all(
+          t.map(x => api.usage.task(x.id).then(u => ({ id: x.id, u })).catch(() => null)),
+        );
+        if (cancelled) return;
+        const usageMap: Record<string, UsageRollup> = {};
+        usageResults.forEach(r => { if (r) usageMap[r.id] = r.u; });
+        setUsageByTaskId(usageMap);
 
         // hydrate persisted config (or seed defaults + collaboration)
         const saved = loadConfig(boardId);
@@ -443,8 +454,8 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   }, [edges]);
 
   const cellContext: CellContext = useMemo(
-    () => ({ roles, peopleById, runsById, customCells: cfg.customCells, tasksById, upstreamIds, downstreamIds }),
-    [roles, peopleById, runsById, cfg.customCells, tasksById, upstreamIds, downstreamIds],
+    () => ({ roles, peopleById, runsById, usageByTaskId, customCells: cfg.customCells, tasksById, upstreamIds, downstreamIds }),
+    [roles, peopleById, runsById, usageByTaskId, cfg.customCells, tasksById, upstreamIds, downstreamIds],
   );
 
   const activeView = useMemo(

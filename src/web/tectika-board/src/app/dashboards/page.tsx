@@ -3,12 +3,13 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import type { Board, AgentTask, WorkflowRun, AgentRole } from '@/lib/types';
+import type { Board, AgentTask, WorkflowRun, AgentRole, UsageRollup } from '@/lib/types';
 import { STATUS_CONFIG, STATUS_ORDER, PRIORITY_CONFIG, PRIORITY_ORDER, colorFor } from '@/lib/palette';
 import { BarChart, PieChart, type Datum } from '@/components/charts/Charts';
 import { Skeleton, Avatar } from '@/components/ui/primitives';
 import { Icon } from '@/components/ui/icons';
 import { formatCurrency, formatCompact, displayName, formatDateShort, daysUntil } from '@/lib/format';
+import { ModelBreakdownTable } from '@/components/workspace/ModelBreakdownTable';
 
 interface Data { boards: Board[]; tasks: AgentTask[]; runs: WorkflowRun[]; roles: AgentRole[] }
 
@@ -28,6 +29,8 @@ function useWorkspaceData() {
 
 export default function DashboardsPage() {
   const data = useWorkspaceData();
+  const [usage, setUsage] = useState<UsageRollup | null>(null);
+  useEffect(() => { api.usage.project().then(setUsage).catch(() => {}); }, []);
   return (
     <div className="flex flex-col h-full overflow-auto">
       <div className="px-8 py-5">
@@ -35,7 +38,7 @@ export default function DashboardsPage() {
         <p className="text-sm text-[var(--muted)] mt-0.5">A live overview across all boards in your workspace.</p>
       </div>
       <div className="px-8 pb-8">
-        {!data ? <DashSkeleton /> : <Dashboard data={data} />}
+        {!data ? <DashSkeleton /> : <Dashboard data={data} usage={usage} />}
       </div>
     </div>
   );
@@ -45,14 +48,14 @@ function DashSkeleton() {
   return <div className="grid grid-cols-4 gap-4">{[...Array(8)].map((_, i) => <Skeleton key={i} className="h-28" style={{ gridColumn: i < 4 ? 'span 1' : 'span 2', height: i < 4 ? 96 : 280 }} />)}</div>;
 }
 
-function Dashboard({ data }: { data: Data }) {
-  const { boards, tasks, runs, roles } = data;
+function Dashboard({ data, usage }: { data: Data; usage: UsageRollup | null }) {
+  const { boards, tasks, roles } = data;
   const nameFor = (id: string) => roles.find(r => r.id === id)?.displayName ?? displayName(id);
   const done = tasks.filter(t => t.status === 'Done').length;
   const inProgress = tasks.filter(t => t.status === 'InProgress').length;
   const overdue = tasks.filter(t => { const d = daysUntil(t.dueAt); return d != null && d < 0 && t.status !== 'Done'; }).length;
-  const tokens = runs.reduce((s, r) => s + r.totalTokens, 0);
-  const cost = runs.reduce((s, r) => s + r.estimatedCostUsd, 0);
+  const tokens = usage?.lifetime.tokens.total ?? 0;
+  const cost = usage?.lifetime.costUsd ?? 0;
 
   const statusData: Datum[] = STATUS_ORDER.map(s => ({ label: STATUS_CONFIG[s].label, hex: STATUS_CONFIG[s].hex, value: tasks.filter(t => t.status === s).length })).filter(d => d.value > 0);
   const prioData: Datum[] = PRIORITY_ORDER.map(p => ({ label: PRIORITY_CONFIG[p].label, hex: PRIORITY_CONFIG[p].hex, value: tasks.filter(t => t.priority === p).length }));
@@ -110,6 +113,10 @@ function Dashboard({ data }: { data: Data }) {
             );
           })}
         </div>
+      </Widget>
+
+      <Widget title="Cost by model" span={4}>
+        <ModelBreakdownTable usage={usage} />
       </Widget>
     </div>
   );

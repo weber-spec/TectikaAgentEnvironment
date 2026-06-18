@@ -3,7 +3,7 @@
 // aggregation and search. Cell rendering/editing lives in the table components.
 
 import type {
-  AgentTask, AgentRole, WorkflowRun, ColumnDef, ColumnKind, ColumnAggregation, Person,
+  AgentTask, AgentRole, WorkflowRun, ColumnDef, ColumnKind, ColumnAggregation, Person, UsageRollup,
 } from './types';
 import { STATUS_CONFIG, PRIORITY_CONFIG, colorFor } from './palette';
 import { displayName, formatDate } from './format';
@@ -12,6 +12,8 @@ export interface CellContext {
   roles: AgentRole[];
   peopleById: Record<string, Person>;
   runsById: Record<string, WorkflowRun>;
+  /** usageByTaskId[taskId] = usage rollup for that task. */
+  usageByTaskId: Record<string, UsageRollup>;
   /** customCells[taskId][columnId] = raw string value. */
   customCells: Record<string, Record<string, string>>;
   tasksById: Record<string, AgentTask>;
@@ -82,15 +84,15 @@ export function personFor(task: AgentTask, ctx: CellContext): Person | undefined
   return ctx.peopleById[task.assignee.id];
 }
 
-function runFor(task: AgentTask, ctx: CellContext): WorkflowRun | undefined {
-  return task.workflowRunId ? ctx.runsById[task.workflowRunId] : undefined;
+function usageFor(task: AgentTask, ctx: CellContext): UsageRollup | undefined {
+  return ctx.usageByTaskId?.[task.id];
 }
 
 /** Numeric value of a cell, or null. Used for sorting and numeric aggregation. */
 export function cellNumber(task: AgentTask, col: ColumnDef, ctx: CellContext): number | null {
   switch (col.kind) {
-    case 'tokens': return runFor(task, ctx)?.totalTokens ?? null;
-    case 'cost': return runFor(task, ctx)?.estimatedCostUsd ?? null;
+    case 'tokens': return usageFor(task, ctx)?.currentSession?.tokens.total ?? null;
+    case 'cost': return usageFor(task, ctx)?.currentSession?.costUsd ?? null;
     case 'progress':
     case 'rating':
     case 'number': {
@@ -143,8 +145,8 @@ export function cellText(task: AgentTask, col: ColumnDef, ctx: CellContext): str
     case 'dependency': return `${(ctx.upstreamIds[task.id]?.length ?? 0)}↑ ${(ctx.downstreamIds[task.id]?.length ?? 0)}↓`;
     case 'upstream': return (ctx.upstreamIds[task.id] ?? []).map(id => ctx.tasksById[id]?.title ?? id).join(', ');
     case 'downstream': return (ctx.downstreamIds[task.id] ?? []).map(id => ctx.tasksById[id]?.title ?? id).join(', ');
-    case 'tokens': return String(runFor(task, ctx)?.totalTokens ?? '');
-    case 'cost': { const c = runFor(task, ctx)?.estimatedCostUsd; return c != null ? `$${c.toFixed(2)}` : ''; }
+    case 'tokens': { const t = usageFor(task, ctx)?.currentSession?.tokens.total; return t != null ? t.toLocaleString() : ''; }
+    case 'cost': { const c = usageFor(task, ctx)?.currentSession?.costUsd; return c != null ? `$${c.toFixed(2)}` : ''; }
     case 'trigger': return task.triggerSource ?? 'Manual';
     case 'result': return task.artifactSummary ?? '';
     case 'itemId': return task.id;

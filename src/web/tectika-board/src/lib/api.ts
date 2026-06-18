@@ -3,6 +3,7 @@
 import type {
   Board, AgentTask, AgentRole, AgentUpsertResult, Artifact, Approval, WorkflowRun, AgentEvent, HumanInteraction, TaskEdge, EdgeKind, RunEvent,
   RepoMeta, BranchInfo, TreeEntry, FileContent, CommitInfo, PullRequestInfo,
+  UsageRollup, UsageEventsPage, PricingCatalog,
 } from './types';
 import { trackEvent, trackException, redact } from './telemetry';
 
@@ -190,5 +191,13 @@ export const api = {
     const ws = new WebSocket(`${API_BASE.replace('http', 'ws')}/api/tasks/${taskId}/cli/stream?runId=${runId}`);
     ws.onmessage = (e) => onMessage(e.data);
     return ws;
+  },
+
+  usage: {
+    project: () => fetchApi<UsageRollup>('/api/usage/project'),
+    board: (boardId: string) => fetchApi<UsageRollup>(`/api/usage/board/${boardId}`),
+    task: (taskId: string) => fetchApi<UsageRollup>(`/api/usage/task/${taskId}`),
+    events: (taskId: string, max = 50) => fetchApi<UsageEventsPage>(`/api/usage/task/${taskId}/events?max=${max}`),
+    pricing: () => fetchApi<PricingCatalog>('/api/usage/pricing'),
   },
 };

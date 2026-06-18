@@ -2,6 +2,7 @@ using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Options;
 using TectikaAgents.Core.Configuration;
 using TectikaAgents.Core.Models;
+using TectikaAgents.Core.Usage;
 
 namespace TectikaAgents.Api.Services;
 
@@ -28,6 +29,8 @@ public class CosmosDbService : ICosmosDbService
     public const string PendingMessagesContainer = "pendingMessages";
     public const string NotificationsContainer = "notifications";
     public const string UserSettingsContainer = "userSettings";
+    public const string UsageEventsContainer = "usageEvents";
+    public const string UsageRollupsContainer = "usageRollups";
 
     /// <summary>Authoritative list of Cosmos containers this app requires (name + partition key).
     /// Source of truth for <see cref="EnsureInfrastructureAsync"/> and kept in sync with infra/modules/data.bicep.</summary>
@@ -46,6 +49,8 @@ public class CosmosDbService : ICosmosDbService
         (PendingMessagesContainer,   "/runId"),
         (NotificationsContainer,     "/tenantId"),
         (UserSettingsContainer,      "/userId"),
+        (UsageEventsContainer,       "/taskId"),
+        (UsageRollupsContainer,      "/tenantId"),
     };
 
     public CosmosDbService(CosmosClient client, IOptions<CosmosDbSettings> settings, ILogger<CosmosDbService> logger)
@@ -110,6 +115,15 @@ public class CosmosDbService : ICosmosDbService
             await GetContainer(BoardsContainer).DeleteItemAsync<Board>(boardId, new PartitionKey(tenantId), cancellationToken: ct);
         }
         catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { /* already gone */ }
+
+        // Best-effort: remove the board's own usage rollup (never touches project lifetime totals).
+        try
+        {
+            await GetContainer(UsageRollupsContainer).DeleteItemAsync<UsageRollup>(
+                UsageRollup.BoardId(boardId), new PartitionKey(tenantId), cancellationToken: ct);
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { }
+        catch (Exception ex) { _logger.LogWarning(ex, "[Usage] board rollup cleanup failed {BoardId}", boardId); }
     }
 
     // ── Tasks ────────────────────────────────────────────────────────────────
@@ -145,11 +159,41 @@ public class CosmosDbService : ICosmosDbService
 
     public async Task DeleteTaskAsync(string boardId, string taskId, CancellationToken ct = default)
     {
+        // Capture tenantId before deleting so we can clean up usage rollup.
+        string? tenantId = null;
+        try
+        {
+            var task = await GetContainer(TasksContainer).ReadItemAsync<AgentTask>(taskId, new PartitionKey(boardId), cancellationToken: ct);
+            tenantId = task.Resource.TenantId;
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { /* already gone — nothing to clean up */ return; }
+
         try
         {
             await GetContainer(TasksContainer).DeleteItemAsync<AgentTask>(taskId, new PartitionKey(boardId), cancellationToken: ct);
         }
         catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { /* already gone */ }
+
+        // Best-effort: remove the task's own usage rollup (never touches project/board lifetime totals).
+        try
+        {
+            await GetContainer(UsageRollupsContainer).DeleteItemAsync<UsageRollup>(
+                UsageRollup.TaskId(taskId), new PartitionKey(tenantId), cancellationToken: ct);
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { }
+        catch (Exception ex) { _logger.LogWarning(ex, "[Usage] task rollup cleanup failed {TaskId}", taskId); }
+
+        // Best-effort: remove all usage events for this task (partitioned by /taskId).
+        try
+        {
+            var eventIds = await QueryAsync<string>(
+                UsageEventsContainer,
+                new QueryDefinition("SELECT VALUE c.id FROM c WHERE c.taskId = @t").WithParameter("@t", taskId),
+                taskId, ct);
+            foreach (var id in eventIds)
+                await GetContainer(UsageEventsContainer).DeleteItemAsync<UsageEvent>(id, new PartitionKey(taskId), cancellationToken: ct);
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "[Usage] task events cleanup failed {TaskId}", taskId); }
     }
 
     // ── Agent Roles ───────────────────────────────────────────────────────────
@@ -206,6 +250,12 @@ public class CosmosDbService : ICosmosDbService
             _logger.LogDebug("[CosmosRead] WorkflowRun not found id={Id} task={TaskId}", runId, taskId);
             return null;
         }
+    }
+
+    public async Task<IEnumerable<WorkflowRun>> GetRunsByTaskAsync(string taskId, CancellationToken ct = default)
+    {
+        var query = new QueryDefinition("SELECT * FROM c WHERE c.taskId = @taskId").WithParameter("@taskId", taskId);
+        return await QueryAsync<WorkflowRun>(WorkflowRunsContainer, query, taskId, ct);
     }
 
     public async Task<WorkflowRun> UpdateRunAsync(WorkflowRun run, CancellationToken ct = default)
@@ -362,6 +412,64 @@ public class CosmosDbService : ICosmosDbService
     {
         var res = await GetContainer(RunEventsContainer).CreateItemAsync(e, new PartitionKey(e.TaskId), cancellationToken: ct);
         return res.Resource;
+    }
+
+    // ── Usage ─────────────────────────────────────────────────────────────────
+
+    public async Task ResetTaskUsageSessionAsync(string tenantId, string taskId, string newSessionId, CancellationToken ct = default)
+    {
+        var id = UsageRollup.TaskId(taskId);
+        var container = GetContainer(UsageRollupsContainer);
+        var pk = new PartitionKey(tenantId);
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            UsageRollup rollup; string? etag = null;
+            try { var read = await container.ReadItemAsync<UsageRollup>(id, pk, cancellationToken: ct); rollup = read.Resource; etag = read.ETag; }
+            catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return; } // nothing to reset yet
+            rollup.CurrentSession = new SessionBucket { SessionId = newSessionId, Since = DateTimeOffset.UtcNow };
+            rollup.UpdatedAt = DateTimeOffset.UtcNow;
+            try { await container.ReplaceItemAsync(rollup, id, pk, new ItemRequestOptions { IfMatchEtag = etag }, ct); return; }
+            catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.PreconditionFailed) { /* retry */ }
+        }
+        _logger.LogWarning("[Usage] ResetTaskUsageSession exhausted retries for task {TaskId} (tenant {TenantId})", taskId, tenantId);
+    }
+
+    public async Task<UsageRollup?> GetUsageRollupAsync(string tenantId, string id, CancellationToken ct = default)
+    {
+        try
+        {
+            var r = await GetContainer(UsageRollupsContainer).ReadItemAsync<UsageRollup>(id, new PartitionKey(tenantId), cancellationToken: ct);
+            return r.Resource;
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
+    }
+
+    public async Task<List<UsageRollup>> GetUsageRollupsForTenantAsync(string tenantId, CancellationToken ct = default)
+    {
+        var q = new QueryDefinition("SELECT * FROM c WHERE c.tenantId = @t").WithParameter("@t", tenantId);
+        return (await QueryAsync<UsageRollup>(UsageRollupsContainer, q, tenantId, ct)).ToList();
+    }
+
+    public async Task UpsertUsageRollupAsync(UsageRollup rollup, CancellationToken ct = default)
+        => await GetContainer(UsageRollupsContainer).UpsertItemAsync(rollup, new PartitionKey(rollup.TenantId), cancellationToken: ct);
+
+    public async Task UpsertUsageEventAsync(UsageEvent ev, CancellationToken ct = default)
+        => await GetContainer(UsageEventsContainer).UpsertItemAsync(ev, new PartitionKey(ev.TaskId), cancellationToken: ct);
+
+    public async Task<UsageEventsPage> GetUsageEventsForTaskAsync(string tenantId, string taskId, int max, string? continuationToken, CancellationToken ct = default)
+    {
+        var q = new QueryDefinition("SELECT * FROM c WHERE c.taskId = @t AND c.tenantId = @tenant ORDER BY c.timestamp DESC")
+            .WithParameter("@t", taskId).WithParameter("@tenant", tenantId);
+        var it = GetContainer(UsageEventsContainer).GetItemQueryIterator<UsageEvent>(q, continuationToken,
+            new QueryRequestOptions { PartitionKey = new PartitionKey(taskId), MaxItemCount = max });
+        var page = new UsageEventsPage();
+        if (it.HasMoreResults)
+        {
+            var resp = await it.ReadNextAsync(ct);
+            page.Items.AddRange(resp);
+            page.ContinuationToken = resp.ContinuationToken;
+        }
+        return page;
     }
 
     // ── Generic query helper ──────────────────────────────────────────────────

@@ -183,8 +183,71 @@ export interface ChatTurn {
 
 export interface TokenUsage {
   input: number;
+  cachedInput: number;
   output: number;
+  reasoning: number;
   total: number;
+}
+
+export interface UsageBucket {
+  tokens: TokenUsage;
+  costUsd: number;
+  eventCount: number;
+}
+
+export interface SessionBucket extends UsageBucket {
+  sessionId: string;
+  since: string;
+}
+
+export type UsageScope = 'Project' | 'Board' | 'Task';
+
+export interface UsageRollup {
+  id: string;
+  tenantId: string;
+  scope: UsageScope;
+  scopeId: string;
+  lifetime: UsageBucket;
+  perModel: Record<string, UsageBucket>;
+  currentSession?: SessionBucket | null;
+  updatedAt: string;
+}
+
+export interface UsageEvent {
+  id: string;
+  taskId: string;
+  runId: string;
+  step: number;
+  round: number;
+  agentRoleName: string;
+  provider: string;
+  model: string;
+  usage: TokenUsage;
+  costUsd: number;
+  pricingMissing: boolean;
+  currency: string;
+  timestamp: string;
+}
+
+export interface UsageEventsPage {
+  items: UsageEvent[];
+  continuationToken?: string | null;
+}
+
+export interface ModelPrice {
+  provider: string;
+  model: string;
+  modelVersion?: string;
+  inputPerMillion: number;
+  cachedInputPerMillion: number;
+  outputPerMillion: number;
+  currency: string;
+  effectiveFrom: string;
+}
+
+export interface PricingCatalog {
+  version: string;
+  prices: ModelPrice[];
 }
 
 export interface PipelineStep {
