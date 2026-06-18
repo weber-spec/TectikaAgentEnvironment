@@ -8,6 +8,7 @@ import { BarChart, LineChart, type Datum } from '@/components/charts/Charts';
 import { Skeleton, Avatar } from '@/components/ui/primitives';
 import { Icon } from '@/components/ui/icons';
 import { formatCurrency, formatCompact, formatDuration, displayName } from '@/lib/format';
+import { ModelBreakdownTable } from '@/components/workspace/ModelBreakdownTable';
 
 export default function AnalyticsPage() {
   const [d, setD] = useState<{ boards: Board[]; tasks: AgentTask[]; runs: WorkflowRun[]; roles: AgentRole[] } | null>(null);
@@ -35,7 +36,7 @@ export default function AnalyticsPage() {
   );
 }
 
-function Body({ tasks, runs, roles, usage }: { boards: Board[]; tasks: AgentTask[]; runs: WorkflowRun[]; roles: AgentRole[]; usage: UsageRollup | null }) {
+function Body({ tasks, runs, roles, usage }: { tasks: AgentTask[]; runs: WorkflowRun[]; roles: AgentRole[]; usage: UsageRollup | null }) {
   const totalTokens = usage?.lifetime.tokens.total ?? runs.reduce((s, r) => s + r.totalTokens, 0);
   const totalCost = usage?.lifetime.costUsd ?? runs.reduce((s, r) => s + r.estimatedCostUsd, 0);
   const avgDuration = runs.flatMap(r => r.steps).filter(s => s.durationMs).reduce((s, x, _, arr) => s + x.durationMs / arr.length, 0);
@@ -86,23 +87,7 @@ function Body({ tasks, runs, roles, usage }: { boards: Board[]; tasks: AgentTask
       </Card>
 
       <Card title="Cost by model">
-        {!usage || Object.keys(usage.perModel).length === 0
-          ? <p className="text-sm text-[var(--muted)]">No usage yet.</p>
-          : <div className="flex flex-col w-full">
-              <div className="grid grid-cols-12 text-[11px] uppercase tracking-wide text-[var(--muted)] font-semibold py-2 border-b border-[var(--border)]">
-                <span className="col-span-6">Model</span>
-                <span className="col-span-3 text-right">Tokens</span>
-                <span className="col-span-3 text-right">Cost</span>
-              </div>
-              {Object.entries(usage.perModel).sort(([, a], [, b]) => b.costUsd - a.costUsd).map(([model, bucket]) => (
-                <div key={model} className="grid grid-cols-12 items-center py-2 border-b border-[var(--border)] last:border-0 text-sm">
-                  <span className="col-span-6 text-[var(--foreground)] font-medium truncate">{model}</span>
-                  <span className="col-span-3 text-right text-[var(--muted)]">{formatCompact(bucket.tokens.total)}</span>
-                  <span className="col-span-3 text-right text-[var(--foreground)]">{formatCurrency(bucket.costUsd)}</span>
-                </div>
-              ))}
-            </div>
-        }
+        <ModelBreakdownTable usage={usage} />
       </Card>
     </div>
   );

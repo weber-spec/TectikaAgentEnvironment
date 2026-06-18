@@ -5,8 +5,15 @@ import type { PricingCatalog } from '@/lib/types';
 
 export default function PricingPage() {
   const [catalog, setCatalog] = useState<PricingCatalog | null>(null);
-  useEffect(() => { api.usage.pricing().then(setCatalog).catch(() => {}); }, []);
-  if (!catalog) return null;
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    api.usage.pricing()
+      .then(c => { setCatalog(c); setLoading(false); })
+      .catch(() => { setError(true); setLoading(false); });
+  }, []);
+  if (loading) return <div className="px-8 py-5 text-sm text-[var(--muted)]">Loading…</div>;
+  if (error || !catalog) return <div className="px-8 py-5 text-sm text-[var(--muted)]">Could not load pricing.</div>;
   return (
     <div className="flex flex-col h-full overflow-auto">
       <div className="px-8 py-5">

@@ -1,10 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import type { UsageRollup, UsageBucket } from '@/lib/types';
-
-function fmtCost(c: number) { return `$${c.toFixed(2)}`; }
-function fmtTokens(n: number) { return n.toLocaleString(); }
+import type { UsageRollup } from '@/lib/types';
+import { formatCurrency, formatCompact } from '@/lib/format';
 
 export function UsagePanel({ taskId }: { taskId: string }) {
   const [rollup, setRollup] = useState<UsageRollup | null>(null);
@@ -17,9 +15,10 @@ export function UsagePanel({ taskId }: { taskId: string }) {
   }, [taskId]);
 
   if (!rollup) return null;
-  const bucket: UsageBucket | undefined = view === 'session' ? (rollup.currentSession ?? undefined) : rollup.lifetime;
-  const tokens = bucket?.tokens.total ?? 0;
-  const cost = bucket?.costUsd ?? 0;
+
+  const sessionBucket = rollup.currentSession ?? undefined;
+  const bucket = view === 'session' ? sessionBucket : rollup.lifetime;
+  const noSession = view === 'session' && !sessionBucket;
   const models = Object.entries(rollup.perModel);
 
   return (
@@ -34,15 +33,19 @@ export function UsagePanel({ taskId }: { taskId: string }) {
           ))}
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-2 text-center mb-3">
-        <div><div className="text-[var(--muted)] text-xs">Tokens</div><div className="font-semibold">{fmtTokens(tokens)}</div></div>
-        <div><div className="text-[var(--muted)] text-xs">Cost</div><div className="font-semibold">{fmtCost(cost)}</div></div>
-      </div>
+      {noSession
+        ? <p className="text-xs text-[var(--muted)] text-center py-2 mb-3">No usage in the current session yet.</p>
+        : <div className="grid grid-cols-2 gap-2 text-center mb-3">
+            <div><div className="text-[var(--muted)] text-xs">Tokens</div><div className="font-semibold">{formatCompact(bucket?.tokens.total)}</div></div>
+            <div><div className="text-[var(--muted)] text-xs">Cost</div><div className="font-semibold">{formatCurrency(bucket?.costUsd)}</div></div>
+          </div>
+      }
+      <p className="text-[10px] text-[var(--muted)] uppercase tracking-wide font-semibold mb-1">By model (lifetime)</p>
       <table className="w-full text-xs">
         <thead><tr className="text-[var(--muted)] text-left"><th>Model</th><th className="text-right">Tokens</th><th className="text-right">Cost</th></tr></thead>
         <tbody>
           {models.map(([model, b]) => (
-            <tr key={model}><td>{model}</td><td className="text-right">{fmtTokens(b.tokens.total)}</td><td className="text-right">{fmtCost(b.costUsd)}</td></tr>
+            <tr key={model}><td>{model}</td><td className="text-right">{formatCompact(b.tokens.total)}</td><td className="text-right">{formatCurrency(b.costUsd)}</td></tr>
           ))}
           {models.length === 0 && (<tr><td colSpan={3} className="text-[var(--muted)] py-2">No usage yet</td></tr>)}
         </tbody>
