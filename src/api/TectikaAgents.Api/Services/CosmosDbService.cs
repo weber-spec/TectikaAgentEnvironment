@@ -392,6 +392,7 @@ public class CosmosDbService : ICosmosDbService
             try { await container.ReplaceItemAsync(rollup, id, pk, new ItemRequestOptions { IfMatchEtag = etag }, ct); return; }
             catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.PreconditionFailed) { /* retry */ }
         }
+        _logger.LogWarning("[Usage] ResetTaskUsageSession exhausted retries for task {TaskId} (tenant {TenantId})", taskId, tenantId);
     }
 
     public async Task<UsageRollup?> GetUsageRollupAsync(string tenantId, string id, CancellationToken ct = default)
