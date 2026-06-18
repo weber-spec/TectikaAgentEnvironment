@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using TectikaAgents.Core.Models;
+using TectikaAgents.Core.Usage;
 
 namespace TectikaAgents.Api.Services.MockData;
 
@@ -33,7 +34,9 @@ internal static class CosmosDataSeeder
         var artifacts = new ConcurrentDictionary<string, Artifact>();
         var approvals = new ConcurrentDictionary<string, Approval>();
         var edges = new ConcurrentDictionary<string, TaskEdge>();
-        MockDataSeeder.Seed(boards, tasks, roles, runs, artifacts, approvals, edges);
+        var usageRollups = new ConcurrentDictionary<string, UsageRollup>();
+        var usageEvents = new ConcurrentDictionary<string, UsageEvent>();
+        MockDataSeeder.Seed(boards, tasks, roles, runs, artifacts, approvals, edges, usageRollups, usageEvents);
 
         // ── Write through the real service (no Cosmos FK enforcement, but seed in
         //    dependency order for readability: boards → roles → tasks → runs → artifacts → approvals) ──
@@ -44,10 +47,11 @@ internal static class CosmosDataSeeder
         foreach (var a in artifacts.Values) await cosmos.CreateArtifactAsync(a, ct);
         foreach (var ap in approvals.Values) await cosmos.CreateApprovalAsync(ap, ct);
         foreach (var e in edges.Values) await cosmos.CreateEdgeAsync(e, ct);
+        foreach (var r in usageRollups.Values) await cosmos.UpsertUsageRollupAsync(r, ct);
 
         logger.LogInformation(
             "Cosmos seed complete — {Boards} boards, {Roles} roles, {Tasks} tasks, {Runs} runs, " +
-            "{Artifacts} artifacts, {Approvals} approvals, {Edges} edges written to Cosmos.",
-            boards.Count, roles.Count, tasks.Count, runs.Count, artifacts.Count, approvals.Count, edges.Count);
+            "{Artifacts} artifacts, {Approvals} approvals, {Edges} edges, {Rollups} usage rollups written to Cosmos.",
+            boards.Count, roles.Count, tasks.Count, runs.Count, artifacts.Count, approvals.Count, edges.Count, usageRollups.Count);
     }
 }

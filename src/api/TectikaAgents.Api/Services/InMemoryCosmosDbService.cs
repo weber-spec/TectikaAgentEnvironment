@@ -31,7 +31,7 @@ public class InMemoryCosmosDbService : ICosmosDbService
     public InMemoryCosmosDbService(ILogger<InMemoryCosmosDbService> logger)
     {
         _logger = logger;
-        MockDataSeeder.Seed(_boards, _tasks, _agentRoles, _runs, _artifacts, _approvals, _edges);
+        MockDataSeeder.Seed(_boards, _tasks, _agentRoles, _runs, _artifacts, _approvals, _edges, _usageRollups, _usageEvents);
         _logger.LogWarning(
             "MockDatabase enabled — serving {Boards} boards, {Tasks} tasks, {Roles} agent roles, " +
             "{Runs} runs, {Artifacts} artifacts, {Approvals} approvals, {Edges} edges from in-memory store (no Cosmos DB).",
