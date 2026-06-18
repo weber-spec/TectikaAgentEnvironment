@@ -113,8 +113,16 @@ public class TokenUsage
     [JsonPropertyName("input")]
     public int Input { get; set; }
 
+    /// <summary>Subset of <see cref="Input"/> served from cache — billed at the cached rate.</summary>
+    [JsonPropertyName("cachedInput")]
+    public int CachedInput { get; set; }
+
     [JsonPropertyName("output")]
     public int Output { get; set; }
+
+    /// <summary>Subset of <see cref="Output"/> spent on reasoning — informational; already inside Output.</summary>
+    [JsonPropertyName("reasoning")]
+    public int Reasoning { get; set; }
 
     [JsonPropertyName("total")]
     public int Total => Input + Output;

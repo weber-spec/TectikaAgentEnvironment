@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TectikaAgents.Core.Configuration;
 using TectikaAgents.Core.Models;
+using TectikaAgents.Core.Usage;
 
 namespace TectikaAgents.Workflows.Services;
 
@@ -22,6 +23,10 @@ public class WorkflowCosmosService
         _db = settings.Value.DatabaseName;
         _logger = logger;
     }
+
+    // Container name constants — used by this service and tasks in later phases
+    public const string UsageEventsContainer = "usageEvents";
+    public const string UsageRollupsContainer = "usageRollups";
 
     private Container C(string name) => _client.GetContainer(_db, name);
 
@@ -375,6 +380,81 @@ public class WorkflowCosmosService
         var results = new List<RunEvent>();
         while (iter.HasMoreResults) results.AddRange(await iter.ReadNextAsync(ct));
         return results;
+    }
+
+    // ── UsageEvents + UsageRollups ────────────────────────────────────────────
+
+    /// <summary>Writes a usage event. Returns true if newly created, false if it already existed
+    /// (409 Conflict) — callers skip rollup increments on false to avoid double counting.</summary>
+    public async Task<bool> TryCreateUsageEventAsync(UsageEvent ev, CancellationToken ct = default)
+    {
+        try
+        {
+            await C(UsageEventsContainer).CreateItemAsync(ev, new PartitionKey(ev.TaskId), cancellationToken: ct);
+            return true;
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.Conflict)
+        {
+            return false;   // already recorded (write-level redelivery) — do not re-increment rollups
+        }
+    }
+
+    /// <summary>Applies <paramref name="mutate"/> to the rollup with id <paramref name="id"/> under
+    /// the tenant partition, race-safe via ETag optimistic concurrency with bounded retry. Creates the
+    /// rollup (via <paramref name="create"/>) if it does not exist.</summary>
+    public async Task UpdateRollupAsync(
+        string tenantId, string id,
+        Func<UsageRollup> create, Action<UsageRollup> mutate,
+        CancellationToken ct = default)
+    {
+        var container = C(UsageRollupsContainer);
+        var pk = new PartitionKey(tenantId);
+
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            UsageRollup rollup;
+            string? etag = null;
+            try
+            {
+                var read = await container.ReadItemAsync<UsageRollup>(id, pk, cancellationToken: ct);
+                rollup = read.Resource;
+                etag = read.ETag;
+            }
+            catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                rollup = create();
+            }
+
+            mutate(rollup);
+            rollup.UpdatedAt = DateTimeOffset.UtcNow;
+
+            try
+            {
+                if (etag is null)
+                    await container.CreateItemAsync(rollup, pk, cancellationToken: ct);
+                else
+                    await container.ReplaceItemAsync(rollup, id, pk,
+                        new ItemRequestOptions { IfMatchEtag = etag }, ct);
+                return;
+            }
+            catch (CosmosException e) when (
+                e.StatusCode == System.Net.HttpStatusCode.PreconditionFailed ||   // ETag mismatch — concurrent writer
+                e.StatusCode == System.Net.HttpStatusCode.Conflict)               // create race — someone created it first
+            {
+                // re-read and retry
+            }
+        }
+        throw new InvalidOperationException($"Rollup {id} update exhausted retries under contention.");
+    }
+
+    public async Task<UsageRollup?> GetRollupAsync(string tenantId, string id, CancellationToken ct = default)
+    {
+        try
+        {
+            var read = await C(UsageRollupsContainer).ReadItemAsync<UsageRollup>(id, new PartitionKey(tenantId), cancellationToken: ct);
+            return read.Resource;
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
     }
 
     // ── AuditLog ──────────────────────────────────────────────────────────────

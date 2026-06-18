@@ -6,4 +6,9 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources/pricing-catalog.json" />
+  </ItemGroup>
+
 </Project>

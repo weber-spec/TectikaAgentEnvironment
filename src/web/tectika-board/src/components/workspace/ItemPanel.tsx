@@ -15,6 +15,7 @@ import { CliInstallGuide } from './CliInstallGuide';
 import { CommandMenu } from './CommandMenu';
 import { chatCommands, filterCommands, type ChatCommand, type ChatCommandContext } from '@/lib/chat-commands';
 import { RunTaskButton } from '@/components/board/RunTaskButton';
+import { UsagePanel } from './UsagePanel';
 import { LiveEdge } from './LiveEdge';
 import { contextFromEvents, sumTokens } from '@/lib/thinking-phrases';
 import { InteractionCard } from '@/components/InteractionCard';
@@ -297,13 +298,12 @@ function DetailsTab({ task, role, run, people, onAssign }: { task: AgentTask; ro
       {run && (
         <div className="rounded-lg border border-[var(--border)] p-3 bg-[var(--background)]">
           <div className="flex items-center gap-2 mb-2"><Icon.bolt size={16} className="text-[#fdab3d]" /><span className="font-semibold text-[var(--foreground)]">Latest run</span></div>
-          <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="grid grid-cols-1 gap-2 text-center">
             <Stat label="Status" value={run.status} />
-            <Stat label="Tokens" value={run.totalTokens.toLocaleString()} />
-            <Stat label="Cost" value={`$${run.estimatedCostUsd.toFixed(2)}`} />
           </div>
         </div>
       )}
+      <UsagePanel taskId={task.id} />
       <QaLoopSection task={task} />
     </div>
   );

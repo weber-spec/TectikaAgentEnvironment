@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using TectikaAgents.Core.Models;
+using TectikaAgents.Core.Usage;
 
 namespace TectikaAgents.Api.Services.MockData;
 
@@ -39,7 +40,9 @@ internal static class MockDataSeeder
         ConcurrentDictionary<string, WorkflowRun> runs,
         ConcurrentDictionary<string, Artifact> artifacts,
         ConcurrentDictionary<string, Approval> approvals,
-        ConcurrentDictionary<string, TaskEdge> edges)
+        ConcurrentDictionary<string, TaskEdge> edges,
+        ConcurrentDictionary<string, UsageRollup> usageRollups,
+        ConcurrentDictionary<string, UsageEvent> usageEvents)
     {
         var now = DateTimeOffset.UtcNow;
 
@@ -338,6 +341,7 @@ internal static class MockDataSeeder
         };
 
         SeedExtra(boards, tasks, agentRoles, approvals, now);
+        SeedUsage(usageRollups, usageEvents, now);
     }
 
     // Additional roles, boards and tasks so every view (table, kanban, timeline,
@@ -439,5 +443,149 @@ internal static class MockDataSeeder
             ActionDescription = "Promote beta build 2.0(118) to the open beta track.",
             IdentityToBeUsed = Maya,
         };
+    }
+
+    // Seed realistic multi-model usage events + rollups so the usage UI renders
+    // per-model breakdowns in mock mode. Covers the two tasks that have workflow runs:
+    // task-impl (run-impl) and task-deploy (run-deploy). Each task gets one gpt-4o event
+    // and one gpt-4o-mini event so PerModel always has two entries. Project and board
+    // rollups aggregate across both tasks.
+    private static void SeedUsage(
+        ConcurrentDictionary<string, UsageRollup> usageRollups,
+        ConcurrentDictionary<string, UsageEvent> usageEvents,
+        DateTimeOffset now)
+    {
+        const string Provider = "azure-foundry";
+        const string Model4o = "gpt-4o";
+        const string Model4oMini = "gpt-4o-mini";
+
+        var calc = new CostCalculator(PricingCatalogLoader.LoadEmbedded());
+        var at = now.AddDays(-2); // consistent effective date for pricing
+
+        // Stable session ids for the two tasks
+        const string SessionImpl   = "seed-session-impl";
+        const string SessionDeploy = "seed-session-deploy";
+
+        // ── Project rollup (accumulates all tasks) ──────────────────────────────
+        var projectRollup = new UsageRollup
+        {
+            Id        = UsageRollup.ProjectId(Tenant),
+            TenantId  = Tenant,
+            Scope     = UsageScope.Project,
+            ScopeId   = Tenant,
+            UpdatedAt = now,
+        };
+
+        // ── Board rollup ────────────────────────────────────────────────────────
+        var boardRollup = new UsageRollup
+        {
+            Id        = UsageRollup.BoardId(BoardId),
+            TenantId  = Tenant,
+            Scope     = UsageScope.Board,
+            ScopeId   = BoardId,
+            UpdatedAt = now,
+        };
+
+        // ── Helper: emit one event + accumulate into the supplied rollups ───────
+        int eventSeq = 0;
+        void EmitEvent(
+            string taskId, string runId, string sessionId,
+            string provider, string model,
+            TokenUsage tokens,
+            UsageRollup taskRollup,
+            params UsageRollup[] sharedRollups)
+        {
+            var cost    = calc.Compute(provider, model, tokens, at);
+            var modelKey = UsageRollup.ModelKey(provider, model);
+            var evtId   = UsageEvent.MakeId($"seed-{taskId}", 0, model, eventSeq++);
+
+            var evt = new UsageEvent
+            {
+                Id                   = evtId,
+                TenantId             = Tenant,
+                BoardId              = BoardId,
+                TaskId               = taskId,
+                RunId                = runId,
+                Step                 = 0,
+                Round                = eventSeq,
+                AgentRoleId          = "",
+                AgentRoleName        = "",
+                Provider             = provider,
+                Model                = model,
+                SessionId            = sessionId,
+                Usage                = tokens,
+                CatalogVersion       = cost.CatalogVersion,
+                InputPerMillion      = cost.InputPerMillion,
+                CachedInputPerMillion = cost.CachedInputPerMillion,
+                OutputPerMillion     = cost.OutputPerMillion,
+                Currency             = cost.Currency,
+                CostUsd              = cost.CostUsd,
+                PricingMissing       = cost.PricingMissing,
+                Timestamp            = at,
+            };
+            usageEvents[evtId] = evt;
+
+            // Accumulate into task rollup (lifetime + per-model + current session)
+            taskRollup.Lifetime.Add(tokens, cost.CostUsd);
+            if (!taskRollup.PerModel.TryGetValue(modelKey, out var taskModelBucket))
+            {
+                taskModelBucket = new UsageBucket();
+                taskRollup.PerModel[modelKey] = taskModelBucket;
+            }
+            taskModelBucket.Add(tokens, cost.CostUsd);
+            taskRollup.CurrentSession!.Add(tokens, cost.CostUsd);
+
+            // Accumulate into shared rollups (project, board)
+            foreach (var rollup in sharedRollups)
+            {
+                rollup.Lifetime.Add(tokens, cost.CostUsd);
+                if (!rollup.PerModel.TryGetValue(modelKey, out var sharedBucket))
+                {
+                    sharedBucket = new UsageBucket();
+                    rollup.PerModel[modelKey] = sharedBucket;
+                }
+                sharedBucket.Add(tokens, cost.CostUsd);
+            }
+        }
+
+        // ── task-impl (run-impl): 1× gpt-4o + 1× gpt-4o-mini ───────────────────
+        var implRollup = new UsageRollup
+        {
+            Id             = UsageRollup.TaskId(TaskImpl),
+            TenantId       = Tenant,
+            Scope          = UsageScope.Task,
+            ScopeId        = TaskImpl,
+            CurrentSession = new SessionBucket { SessionId = SessionImpl, Since = now.AddDays(-2) },
+            UpdatedAt      = now,
+        };
+        EmitEvent(TaskImpl, RunImpl, SessionImpl,
+            Provider, Model4o, new TokenUsage { Input = 3000, CachedInput = 500, Output = 1500 },
+            implRollup, projectRollup, boardRollup);
+        EmitEvent(TaskImpl, RunImpl, SessionImpl,
+            Provider, Model4oMini, new TokenUsage { Input = 2000, Output = 800 },
+            implRollup, projectRollup, boardRollup);
+        usageRollups[implRollup.Id] = implRollup;
+
+        // ── task-deploy (run-deploy): 1× gpt-4o + 1× gpt-4o-mini ───────────────
+        var deployRollup = new UsageRollup
+        {
+            Id             = UsageRollup.TaskId(TaskDeploy),
+            TenantId       = Tenant,
+            Scope          = UsageScope.Task,
+            ScopeId        = TaskDeploy,
+            CurrentSession = new SessionBucket { SessionId = SessionDeploy, Since = now.AddDays(-1) },
+            UpdatedAt      = now,
+        };
+        EmitEvent(TaskDeploy, RunDeploy, SessionDeploy,
+            Provider, Model4o, new TokenUsage { Input = 900, CachedInput = 0, Output = 300 },
+            deployRollup, projectRollup, boardRollup);
+        EmitEvent(TaskDeploy, RunDeploy, SessionDeploy,
+            Provider, Model4oMini, new TokenUsage { Input = 400, Output = 150 },
+            deployRollup, projectRollup, boardRollup);
+        usageRollups[deployRollup.Id] = deployRollup;
+
+        // Persist project + board rollups
+        usageRollups[projectRollup.Id] = projectRollup;
+        usageRollups[boardRollup.Id]   = boardRollup;
     }
 }

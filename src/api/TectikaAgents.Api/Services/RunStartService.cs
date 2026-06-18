@@ -83,6 +83,10 @@ public class RunStartService : IRunStartService
         // ── 5. Update task: link run + mark InProgress ────────────────────────
         task.WorkflowRunId = savedRun.Id;
         task.Status        = AgentTaskStatus.InProgress;
+        // Stamp a session id on first run-start (only when absent — never re-bump).
+        // /clear resets this; a task that has never been cleared gets its session stamped here.
+        if (task.UsageSessionId is null)
+            task.UsageSessionId = Guid.NewGuid().ToString();
         await _cosmos.UpdateTaskAsync(task, ct);
 
         // ── 6. Trigger Durable Functions via HTTP ─────────────────────────────
