@@ -34,7 +34,7 @@ public sealed class UsageBackfill
         _cost = cost;
         _logger = logger;
         _defaultModel = foundry.Value.DefaultModel;
-        _provider = foundry.Value.IsOpenAiDirect ? "openai" : "azure";
+        _provider = foundry.Value.IsOpenAiDirect ? "openai" : "azure-foundry";
     }
 
     /// <summary>
