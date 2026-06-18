@@ -2,7 +2,7 @@
 
 import { api } from '@/lib/api';
 import { useEffect, useState } from 'react';
-import type { Board, AgentTask, WorkflowRun, AgentRole } from '@/lib/types';
+import type { Board, AgentTask, WorkflowRun, AgentRole, UsageRollup } from '@/lib/types';
 import { colorFor } from '@/lib/palette';
 import { BarChart, LineChart, type Datum } from '@/components/charts/Charts';
 import { Skeleton, Avatar } from '@/components/ui/primitives';
@@ -11,6 +11,7 @@ import { formatCurrency, formatCompact, formatDuration, displayName } from '@/li
 
 export default function AnalyticsPage() {
   const [d, setD] = useState<{ boards: Board[]; tasks: AgentTask[]; runs: WorkflowRun[]; roles: AgentRole[] } | null>(null);
+  const [usage, setUsage] = useState<UsageRollup | null>(null);
   useEffect(() => {
     (async () => {
       const [boards, roles] = await Promise.all([api.boards.list().catch(() => []), api.agentRoles.list().catch(() => [])]);
@@ -18,6 +19,7 @@ export default function AnalyticsPage() {
       const runs = (await Promise.all(tasks.filter(t => t.workflowRunId).map(t => api.runs.get(t.id, t.workflowRunId!).catch(() => null)))).filter((r): r is WorkflowRun => !!r);
       setD({ boards, tasks, runs, roles });
     })();
+    api.usage.project().then(setUsage).catch(() => {});
   }, []);
 
   return (
@@ -27,15 +29,15 @@ export default function AnalyticsPage() {
         <p className="text-sm text-[var(--muted)] mt-0.5">Agent performance, throughput and cost across the workspace.</p>
       </div>
       <div className="px-8 pb-8">
-        {!d ? <div className="grid grid-cols-3 gap-4">{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-40" />)}</div> : <Body {...d} />}
+        {!d ? <div className="grid grid-cols-3 gap-4">{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-40" />)}</div> : <Body {...d} usage={usage} />}
       </div>
     </div>
   );
 }
 
-function Body({ tasks, runs, roles }: { boards: Board[]; tasks: AgentTask[]; runs: WorkflowRun[]; roles: AgentRole[] }) {
-  const totalTokens = runs.reduce((s, r) => s + r.totalTokens, 0);
-  const totalCost = runs.reduce((s, r) => s + r.estimatedCostUsd, 0);
+function Body({ tasks, runs, roles, usage }: { boards: Board[]; tasks: AgentTask[]; runs: WorkflowRun[]; roles: AgentRole[]; usage: UsageRollup | null }) {
+  const totalTokens = usage?.lifetime.tokens.total ?? runs.reduce((s, r) => s + r.totalTokens, 0);
+  const totalCost = usage?.lifetime.costUsd ?? runs.reduce((s, r) => s + r.estimatedCostUsd, 0);
   const avgDuration = runs.flatMap(r => r.steps).filter(s => s.durationMs).reduce((s, x, _, arr) => s + x.durationMs / arr.length, 0);
 
   // tokens per agent role (via tasks → roles)
@@ -81,6 +83,26 @@ function Body({ tasks, runs, roles }: { boards: Board[]; tasks: AgentTask[]; run
             </div>
           ))}
         </div>
+      </Card>
+
+      <Card title="Cost by model">
+        {!usage || Object.keys(usage.perModel).length === 0
+          ? <p className="text-sm text-[var(--muted)]">No usage yet.</p>
+          : <div className="flex flex-col w-full">
+              <div className="grid grid-cols-12 text-[11px] uppercase tracking-wide text-[var(--muted)] font-semibold py-2 border-b border-[var(--border)]">
+                <span className="col-span-6">Model</span>
+                <span className="col-span-3 text-right">Tokens</span>
+                <span className="col-span-3 text-right">Cost</span>
+              </div>
+              {Object.entries(usage.perModel).sort(([, a], [, b]) => b.costUsd - a.costUsd).map(([model, bucket]) => (
+                <div key={model} className="grid grid-cols-12 items-center py-2 border-b border-[var(--border)] last:border-0 text-sm">
+                  <span className="col-span-6 text-[var(--foreground)] font-medium truncate">{model}</span>
+                  <span className="col-span-3 text-right text-[var(--muted)]">{formatCompact(bucket.tokens.total)}</span>
+                  <span className="col-span-3 text-right text-[var(--foreground)]">{formatCurrency(bucket.costUsd)}</span>
+                </div>
+              ))}
+            </div>
+        }
       </Card>
     </div>
   );
