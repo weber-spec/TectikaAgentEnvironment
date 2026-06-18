@@ -32,7 +32,7 @@ export function ViewTabs({ repoActive = false, onRepoClick, onViewSelect }: { re
         header={<div className="px-3 py-1.5 text-[11px] uppercase tracking-wide text-[var(--muted)] font-semibold">Add view</div>}
         options={(['table', 'kanban', 'timeline', 'calendar', 'cards', 'chart', 'canvas'] as ViewKind[]).map(k => {
           const I = Icon[KIND_ICON[k]];
-          return { label: KIND_LABEL[k], icon: <I size={15} />, onClick: () => createView(KIND_LABEL[k], k) };
+          return { label: KIND_LABEL[k], icon: <I size={15} />, onClick: () => { onViewSelect?.(); createView(KIND_LABEL[k], k); } };
         })} />
       {onRepoClick && (
         <>

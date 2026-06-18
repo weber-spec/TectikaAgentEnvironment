@@ -86,7 +86,7 @@ function FileViewer({ boardId, branch, path }: { boardId: string; branch: string
     <div className="text-[12.5px]">
       <div className="px-3 py-1.5 border-b border-[var(--border)] text-[11px] text-[var(--muted)] font-mono">{file.path}</div>
       {html
-        ? <div className="repo-code [&_pre]:!m-0 [&_pre]:!p-3 [&_pre]:overflow-auto [&_pre]:text-[12.5px]" dangerouslySetInnerHTML={{ __html: html }} />
+        ? <div className="[&_pre]:!m-0 [&_pre]:!p-3 [&_pre]:overflow-auto [&_pre]:text-[12.5px]" dangerouslySetInnerHTML={{ __html: html }} />
         : <pre className="font-mono p-3 overflow-auto whitespace-pre text-[var(--foreground)]">{file.text}</pre>}
     </div>
   );
