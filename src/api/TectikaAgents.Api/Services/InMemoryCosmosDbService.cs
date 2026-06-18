@@ -270,6 +270,12 @@ public class InMemoryCosmosDbService : ICosmosDbService
         return Task.CompletedTask;
     }
 
+    public Task UpsertUsageEventAsync(UsageEvent ev, CancellationToken ct = default)
+    {
+        _usageEvents[ev.Id] = ev;
+        return Task.CompletedTask;
+    }
+
     public Task<UsageEventsPage> GetUsageEventsForTaskAsync(string tenantId, string taskId, int max, string? continuationToken, CancellationToken ct = default)
     {
         var items = _usageEvents.Values

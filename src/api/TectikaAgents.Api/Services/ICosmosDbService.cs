@@ -70,6 +70,7 @@ public interface ICosmosDbService
     Task<UsageRollup?> GetUsageRollupAsync(string tenantId, string id, CancellationToken ct = default);
     Task<List<UsageRollup>> GetUsageRollupsForTenantAsync(string tenantId, CancellationToken ct = default);
     Task UpsertUsageRollupAsync(UsageRollup rollup, CancellationToken ct = default);
+    Task UpsertUsageEventAsync(UsageEvent ev, CancellationToken ct = default);
     Task<UsageEventsPage> GetUsageEventsForTaskAsync(string tenantId, string taskId, int max, string? continuationToken, CancellationToken ct = default);
 
     // ── Run trace ────────────────────────────────────────────────────────────────

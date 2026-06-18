@@ -48,10 +48,11 @@ internal static class CosmosDataSeeder
         foreach (var ap in approvals.Values) await cosmos.CreateApprovalAsync(ap, ct);
         foreach (var e in edges.Values) await cosmos.CreateEdgeAsync(e, ct);
         foreach (var r in usageRollups.Values) await cosmos.UpsertUsageRollupAsync(r, ct);
+        foreach (var e in usageEvents.Values) await cosmos.UpsertUsageEventAsync(e, ct);
 
         logger.LogInformation(
             "Cosmos seed complete — {Boards} boards, {Roles} roles, {Tasks} tasks, {Runs} runs, " +
-            "{Artifacts} artifacts, {Approvals} approvals, {Edges} edges, {Rollups} usage rollups written to Cosmos.",
-            boards.Count, roles.Count, tasks.Count, runs.Count, artifacts.Count, approvals.Count, edges.Count, usageRollups.Count);
+            "{Artifacts} artifacts, {Approvals} approvals, {Edges} edges, {Rollups} usage rollups, {Events} usage events written to Cosmos.",
+            boards.Count, roles.Count, tasks.Count, runs.Count, artifacts.Count, approvals.Count, edges.Count, usageRollups.Count, usageEvents.Count);
     }
 }

@@ -414,6 +414,9 @@ public class CosmosDbService : ICosmosDbService
     public async Task UpsertUsageRollupAsync(UsageRollup rollup, CancellationToken ct = default)
         => await GetContainer(UsageRollupsContainer).UpsertItemAsync(rollup, new PartitionKey(rollup.TenantId), cancellationToken: ct);
 
+    public async Task UpsertUsageEventAsync(UsageEvent ev, CancellationToken ct = default)
+        => await GetContainer(UsageEventsContainer).UpsertItemAsync(ev, new PartitionKey(ev.TaskId), cancellationToken: ct);
+
     public async Task<UsageEventsPage> GetUsageEventsForTaskAsync(string tenantId, string taskId, int max, string? continuationToken, CancellationToken ct = default)
     {
         var q = new QueryDefinition("SELECT * FROM c WHERE c.taskId = @t AND c.tenantId = @tenant ORDER BY c.timestamp DESC")
