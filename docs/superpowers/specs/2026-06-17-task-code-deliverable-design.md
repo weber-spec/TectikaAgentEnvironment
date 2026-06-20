@@ -134,3 +134,8 @@ Each produces working, independently-testable software; 3A lands the data + endp
 - **Default base for compare** is the repo default branch; if a task's PR targets a different base, v1 still diffs against default. Refine to use the PR's base when a PR exists (small follow-up).
 - **Finalization push mechanics** depend on the workspace still being alive at the Final round (it is, before teardown). If a run ends without a workspace (no GitHub board), there's simply no Code output. Settled in the plan.
 - **Live preview (next phase):** the Code output's locator already carries the branch/PR; a future preview can build & run that ref and add a `previewUrl` to the same `ExternalRef`.
+
+### Follow-ups after 3B (surfaced during final review — minor, not blocking)
+
+- **Code card file list:** §5.5 envisioned the card showing the first few changed files. The locator stores only counts (`filesChanged`/`additions`/`deletions`), not filenames, so the card shows counts and defers the file list to the Changes tab. To list files on the card, either add the top filenames to the locator at enrichment time, or have the card lazily fetch `compare`. Acceptable as-is for v1.
+- **Binary "view on GitHub" link:** §7 calls for a binary/oversize file in the diff to link to GitHub; the `DiffView` currently shows static "Binary file — not shown." Threading `owner`/`repo` into `ChangesTab`/`DiffView` (or building the blob URL from the locator) would let it render the link. Small follow-up.
