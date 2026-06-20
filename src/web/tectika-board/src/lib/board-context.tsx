@@ -183,6 +183,9 @@ interface BoardContextValue {
   // item panel
   openTaskId?: string;
   openTask: (id: string | undefined) => void;
+  repoChangesTarget?: string;            // head branch to open in the Repo "Changes" tab
+  openRepoChanges: (head: string) => void;
+  clearRepoChangesTarget: () => void;
 
   // live sync
   liveEnabled: boolean;
@@ -223,6 +226,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [openTaskId, setOpenTaskId] = useState<string>();
+  const [repoChangesTarget, setRepoChangesTarget] = useState<string | undefined>();
   const lastSelected = useRef<string | null>(null);
   const hydrated = useRef(false);
 
@@ -777,6 +781,9 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     saveRole, chatThreads: cfg.chatThreads, pushChatTurns,
     liveEnabled, liveState, toggleLive,
     openTaskId, openTask: setOpenTaskId,
+    repoChangesTarget,
+    openRepoChanges: setRepoChangesTarget,
+    clearRepoChangesTarget: () => setRepoChangesTarget(undefined),
     activity: cfg.activity, logActivity,
     automations: cfg.automations, saveAutomation, deleteAutomation, toggleAutomation,
   };
