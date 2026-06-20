@@ -138,6 +138,13 @@ builder.Services.AddHttpClient();
 builder.Services.AddScoped<IRunStartService, RunStartService>();
 builder.Services.AddScoped<IChatService, ChatService>();
 
+// ── Pricing / Cost Calculator ────────────────────────────────────────────────
+builder.Services.AddSingleton(_ => new TectikaAgents.Core.Usage.CostCalculator(
+    TectikaAgents.Core.Usage.PricingCatalogLoader.LoadEmbedded()));
+
+// ── Usage Backfill (one-time admin migration) ────────────────────────────────
+builder.Services.AddTransient<TectikaAgents.Api.Services.UsageBackfill>();
+
 // ── Controllers + OpenAPI ────────────────────────────────────────────────────
 // Serialize enums as their string names (e.g. "InProgress") so the Next.js client's
 // string-union types line up with the API contract instead of receiving raw integers.

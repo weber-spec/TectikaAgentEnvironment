@@ -60,7 +60,8 @@ $ApiFqdn         = "https://$ApiApp.$AcaDomain"
 $WebFqdn         = "https://$WebApp.$AcaDomain"
 
 # Health/smoke verification: how long to wait for a fresh revision to go Healthy/Running.
-$VerifyTimeoutSeconds = 180
+# ACA cold starts (image pull + app startup) can take a few minutes, so keep this generous.
+$VerifyTimeoutSeconds = 300
 $VerifyPollSeconds    = 5
 
 # --------------------------------------------------------------------------------------------------
@@ -170,24 +171,28 @@ function Resolve-Sha {
 # --------------------------------------------------------------------------------------------------
 # Verification helpers
 # --------------------------------------------------------------------------------------------------
+# Poll the revision running the image we just deployed (image tag == $Sha) until Healthy/Running,
+# or time out. Targeting our own SHA avoids matching a draining old revision during the rollout.
 function Wait-Revision {
   param([string]$App)
   $deadline = (Get-Date).AddSeconds($VerifyTimeoutSeconds)
-  Write-Info "Waiting for a Healthy/Running revision of $App (timeout ${VerifyTimeoutSeconds}s)..."
+  Write-Info "Waiting for the :$($script:Sha) revision of $App to go Healthy/Running (timeout ${VerifyTimeoutSeconds}s)..."
   while ((Get-Date) -lt $deadline) {
     $state = (& az containerapp revision list -n $App -g $ResourceGroup `
-      --query "sort_by([?properties.active],&properties.createdTime)[-1].[properties.healthState,properties.runningState]" `
+      --query "[?ends_with(properties.template.containers[0].image, ':$($script:Sha)')] | sort_by([],&properties.createdTime)[-1].[properties.healthState,properties.runningState]" `
       -o tsv 2>$null)
+    # -o tsv prints the two-element [healthState, runningState] array across two lines (captured by
+    # PowerShell as a string array). Flatten on any whitespace so token 0 = health, token 1 = running.
     if ($state) {
-      $parts = $state -split "\s+"
-      if ($parts.Count -ge 2 -and $parts[0] -eq 'Healthy' -and $parts[1] -eq 'Running') {
+      $tokens = (($state -join "`n") -split '\s+') | Where-Object { $_ -ne '' }
+      if ($tokens.Count -ge 2 -and $tokens[0] -eq 'Healthy' -and $tokens[1] -eq 'Running') {
         Write-Info "Revision is Healthy/Running."
         return
       }
     }
     Start-Sleep -Seconds $VerifyPollSeconds
   }
-  Die "$App did not reach Healthy/Running within ${VerifyTimeoutSeconds}s. Check: az containerapp revision list -n $App -g $ResourceGroup"
+  Die "$App :$($script:Sha) did not reach Healthy/Running within ${VerifyTimeoutSeconds}s. Check: az containerapp revision list -n $App -g $ResourceGroup"
 }
 
 function Test-Smoke {

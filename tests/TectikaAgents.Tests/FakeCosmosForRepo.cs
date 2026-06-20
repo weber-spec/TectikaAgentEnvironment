@@ -1,5 +1,6 @@
 using TectikaAgents.Api.Services;
 using TectikaAgents.Core.Models;
+using TectikaAgents.Core.Usage;
 
 /// <summary>Shared fake ICosmosDbService for RepoController tests.</summary>
 public sealed class FakeCosmosForRepo : ICosmosDbService
@@ -66,4 +67,13 @@ public sealed class FakeCosmosForRepo : ICosmosDbService
     public Task<IReadOnlyList<RunEvent>> GetRunEventsAsync(string taskId, int? sinceRound = null, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<RunEvent> CreateRunEventAsync(RunEvent e, CancellationToken ct = default) => throw new NotImplementedException();
     public Task DeleteEdgesForTaskAsync(string boardId, string taskId, CancellationToken ct = default) => throw new NotImplementedException();
+
+    // ── Usage tracking (added on main) ───────────────────────────────────────
+    public Task<IEnumerable<WorkflowRun>> GetRunsByTaskAsync(string taskId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task ResetTaskUsageSessionAsync(string tenantId, string taskId, string newSessionId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<UsageRollup?> GetUsageRollupAsync(string tenantId, string id, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<List<UsageRollup>> GetUsageRollupsForTenantAsync(string tenantId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task UpsertUsageRollupAsync(UsageRollup rollup, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task UpsertUsageEventAsync(UsageEvent ev, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<UsageEventsPage> GetUsageEventsForTaskAsync(string tenantId, string taskId, int max, string? continuationToken, CancellationToken ct = default) => throw new NotImplementedException();
 }

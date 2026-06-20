@@ -45,6 +45,10 @@ var containers = [
   { name: 'taskEdges', pk: '/boardId' }
   { name: 'runEvents', pk: '/taskId' }
   { name: 'pendingMessages', pk: '/runId' }
+  { name: 'notifications', pk: '/tenantId' }
+  { name: 'userSettings', pk: '/userId' }
+  { name: 'usageEvents', pk: '/taskId' }
+  { name: 'usageRollups', pk: '/tenantId' }
 ]
 
 resource cosmosContainers 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-11-15' = [

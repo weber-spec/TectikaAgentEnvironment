@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using TectikaAgents.Api.Services.MockData;
 using TectikaAgents.Core.Models;
+using TectikaAgents.Core.Usage;
 
 namespace TectikaAgents.Api.Services;
 
@@ -30,7 +31,7 @@ public class InMemoryCosmosDbService : ICosmosDbService
     public InMemoryCosmosDbService(ILogger<InMemoryCosmosDbService> logger)
     {
         _logger = logger;
-        MockDataSeeder.Seed(_boards, _tasks, _agentRoles, _runs, _artifacts, _approvals, _edges);
+        MockDataSeeder.Seed(_boards, _tasks, _agentRoles, _runs, _artifacts, _approvals, _edges, _usageRollups, _usageEvents);
         _logger.LogWarning(
             "MockDatabase enabled — serving {Boards} boards, {Tasks} tasks, {Roles} agent roles, " +
             "{Runs} runs, {Artifacts} artifacts, {Approvals} approvals, {Edges} edges from in-memory store (no Cosmos DB).",
@@ -122,6 +123,9 @@ public class InMemoryCosmosDbService : ICosmosDbService
 
     public Task<WorkflowRun?> GetRunAsync(string taskId, string runId, CancellationToken ct = default) =>
         Task.FromResult(_runs.TryGetValue(runId, out var r) && r.TaskId == taskId ? r : null);
+
+    public Task<IEnumerable<WorkflowRun>> GetRunsByTaskAsync(string taskId, CancellationToken ct = default) =>
+        Task.FromResult(_runs.Values.Where(r => r.TaskId == taskId).AsEnumerable());
 
     public Task<WorkflowRun> UpdateRunAsync(WorkflowRun run, CancellationToken ct = default)
     {
@@ -228,5 +232,57 @@ public class InMemoryCosmosDbService : ICosmosDbService
             _edges.TryRemove(e.Id, out _);
         }
         return Task.CompletedTask;
+    }
+
+    // ── Usage ──────────────────────────────────────────────────────────────────
+
+    // Keyed by rollup id (e.g. "task:<taskId>", "board:<boardId>", "project:<tenantId>").
+    public readonly ConcurrentDictionary<string, UsageRollup> _usageRollups = new();
+    // Keyed by event id.
+    public readonly ConcurrentDictionary<string, UsageEvent> _usageEvents = new();
+
+    /// <summary>Called by seeders (e.g. Task 17) to pre-populate a rollup in mock mode.</summary>
+    public void AddUsageRollup(UsageRollup rollup) => _usageRollups[rollup.Id] = rollup;
+
+    /// <summary>Called by seeders (e.g. Task 17) to pre-populate a usage event in mock mode.</summary>
+    public void AddUsageEvent(UsageEvent evt) => _usageEvents[evt.Id] = evt;
+
+    public Task ResetTaskUsageSessionAsync(string tenantId, string taskId, string newSessionId, CancellationToken ct = default)
+    {
+        var id = UsageRollup.TaskId(taskId);
+        if (_usageRollups.TryGetValue(id, out var rollup) && rollup.TenantId == tenantId)
+        {
+            rollup.CurrentSession = new SessionBucket { SessionId = newSessionId, Since = DateTimeOffset.UtcNow };
+            rollup.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task<UsageRollup?> GetUsageRollupAsync(string tenantId, string id, CancellationToken ct = default) =>
+        Task.FromResult(_usageRollups.TryGetValue(id, out var r) && r.TenantId == tenantId ? r : null);
+
+    public Task<List<UsageRollup>> GetUsageRollupsForTenantAsync(string tenantId, CancellationToken ct = default) =>
+        Task.FromResult(_usageRollups.Values.Where(r => r.TenantId == tenantId).ToList());
+
+    public Task UpsertUsageRollupAsync(UsageRollup rollup, CancellationToken ct = default)
+    {
+        _usageRollups[rollup.Id] = rollup;
+        return Task.CompletedTask;
+    }
+
+    public Task UpsertUsageEventAsync(UsageEvent ev, CancellationToken ct = default)
+    {
+        _usageEvents[ev.Id] = ev;
+        return Task.CompletedTask;
+    }
+
+    public Task<UsageEventsPage> GetUsageEventsForTaskAsync(string tenantId, string taskId, int max, string? continuationToken, CancellationToken ct = default)
+    {
+        var items = _usageEvents.Values
+            .Where(e => e.TaskId == taskId && e.TenantId == tenantId)
+            .OrderByDescending(e => e.Timestamp)
+            .Take(max)
+            .ToList();
+        return Task.FromResult(new UsageEventsPage { Items = items, ContinuationToken = null });
     }
 }

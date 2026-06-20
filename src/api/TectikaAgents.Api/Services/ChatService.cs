@@ -81,6 +81,9 @@ public class ChatService : IChatService
 
         task.WorkflowRunId = newRun.Id;
         task.Status = AgentTaskStatus.InProgress;
+        // Stamp a session id on first run-start (only when absent — never re-bump).
+        if (task.UsageSessionId is null)
+            task.UsageSessionId = Guid.NewGuid().ToString();
         await _cosmos.UpdateTaskAsync(task, ct);
 
         await EchoUserMessageAsync(newRun.Id, taskId, 0, text, ct);
@@ -141,7 +144,10 @@ public class ChatService : IChatService
         task.FoundryThreadId = null;
         task.TaskBrief = "";
         task.ChatClearedAt = DateTimeOffset.UtcNow;
+        var newSessionId = Guid.NewGuid().ToString();
+        task.UsageSessionId = newSessionId;          // new session: subsequent events accrue to a fresh bucket
         await _cosmos.UpdateTaskAsync(task, ct);
+        await _cosmos.ResetTaskUsageSessionAsync(task.TenantId, taskId, newSessionId, ct);  // reset rollup currentSession bucket
         _logger.LogInformation("[Chat] cleared task {TaskId}", taskId);
         return true;
     }
