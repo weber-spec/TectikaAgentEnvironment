@@ -2,7 +2,7 @@
 
 import type {
   Board, AgentTask, AgentRole, AgentUpsertResult, Artifact, Approval, WorkflowRun, AgentEvent, HumanInteraction, TaskEdge, EdgeKind, RunEvent,
-  RepoMeta, BranchInfo, TreeEntry, FileContent, CommitInfo, PullRequestInfo,
+  RepoMeta, BranchInfo, TreeEntry, FileContent, CommitInfo, PullRequestInfo, CompareResult,
 } from './types';
 import { trackEvent, trackException, redact } from './telemetry';
 
@@ -80,6 +80,8 @@ export const api = {
       fetchApi<CommitInfo[]>(`/api/boards/${boardId}/repo/commits?ref=${encodeURIComponent(ref ?? '')}&path=${encodeURIComponent(path ?? '')}&page=${page}`),
     pulls: (boardId: string, state = 'open') =>
       fetchApi<PullRequestInfo[]>(`/api/boards/${boardId}/repo/pulls?state=${encodeURIComponent(state)}`),
+    compare: (boardId: string, base: string, head: string) =>
+      fetchApi<CompareResult>(`/api/boards/${boardId}/repo/compare?base=${encodeURIComponent(base)}&head=${encodeURIComponent(head)}`),
   },
 
   tasks: {
