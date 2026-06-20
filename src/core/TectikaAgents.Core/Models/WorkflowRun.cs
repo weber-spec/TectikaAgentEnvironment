@@ -55,6 +55,12 @@ public class WorkflowRun
 
     [JsonPropertyName("workspaceToken")]
     public string? WorkspaceToken { get; set; }
+
+    [JsonPropertyName("branchName")]
+    public string? BranchName { get; set; }
+
+    [JsonPropertyName("pullRequestNumber")]
+    public int? PullRequestNumber { get; set; }
 }
 
 public class PipelineStep
