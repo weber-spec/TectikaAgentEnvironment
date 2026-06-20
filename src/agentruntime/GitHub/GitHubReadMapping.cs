@@ -22,4 +22,16 @@ public static class GitHubReadMapping
         if (Array.IndexOf(bytes, (byte)0) >= 0) return (true, null);
         return (false, Encoding.UTF8.GetString(bytes));
     }
+
+    /// <summary>Provider-agnostic shape of one changed file, so the compare mapper is unit-testable
+    /// without Octokit types.</summary>
+    public sealed record RawDiffFile(string Filename, string Status, int Additions, int Deletions, string? Patch);
+
+    public static CompareResult MapCompare(string headSha, IReadOnlyList<RawDiffFile> files)
+    {
+        var mapped = files
+            .Select(f => new DiffFile(f.Filename, f.Status, f.Additions, f.Deletions, f.Patch is null, f.Patch))
+            .ToList();
+        return new CompareResult(headSha, mapped.Count, mapped.Sum(f => f.Additions), mapped.Sum(f => f.Deletions), mapped);
+    }
 }

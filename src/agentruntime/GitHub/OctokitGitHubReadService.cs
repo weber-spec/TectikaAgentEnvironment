@@ -1,4 +1,5 @@
 using Octokit;
+using OctokitCompareResult = Octokit.CompareResult;
 using TectikaAgents.Core.Interfaces;
 using TectikaAgents.Core.Models;
 
@@ -89,6 +90,17 @@ public sealed class OctokitGitHubReadService : IGitHubReadService
         var c = await ClientAsync(repo, ct);
         try { return Map(await c.PullRequest.Get(repo.Owner, repo.Repo, number)); }
         catch (NotFoundException) { return null; }
+    }
+
+    public async Task<CompareResult> CompareAsync(GitHubRepoConnection repo, string @base, string head, CancellationToken ct)
+    {
+        var c = await ClientAsync(repo, ct);
+        var cmp = await c.Repository.Commit.Compare(repo.Owner, repo.Repo, @base, head);
+        var raw = (cmp.Files ?? new List<GitHubCommitFile>())
+            .Select(f => new GitHubReadMapping.RawDiffFile(f.Filename, f.Status, f.Additions, f.Deletions, f.Patch))
+            .ToList();
+        var headSha = cmp.Commits is { Count: > 0 } ? cmp.Commits[^1].Sha : head;
+        return GitHubReadMapping.MapCompare(headSha, raw);
     }
 
     private static PullRequestInfo Map(PullRequest p) => new(

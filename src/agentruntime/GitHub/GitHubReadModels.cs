@@ -8,6 +8,8 @@ public sealed record TreeEntry(string Name, string Path, string Type, long Size)
 public sealed record FileContent(string Path, string Sha, long Size, bool IsBinary, string? Text);
 public sealed record CommitInfo(string Sha, string Message, string Author, DateTimeOffset Date, string Url);
 public sealed record PullRequestInfo(int Number, string Title, string State, string Author, string Head, string Base, string Url, DateTimeOffset CreatedAt);
+public sealed record DiffFile(string Path, string Status, int Additions, int Deletions, bool IsBinary, string? Patch);
+public sealed record CompareResult(string HeadSha, int FilesChanged, int Additions, int Deletions, IReadOnlyList<DiffFile> Files);
 
 /// <summary>Read-only GitHub repository access for a board's connected repo.</summary>
 public interface IGitHubReadService
@@ -19,4 +21,5 @@ public interface IGitHubReadService
     Task<IReadOnlyList<CommitInfo>> ListCommitsAsync(GitHubRepoConnection repo, string @ref, string? path, int page, CancellationToken ct);
     Task<IReadOnlyList<PullRequestInfo>> ListPullRequestsAsync(GitHubRepoConnection repo, string state, CancellationToken ct);
     Task<PullRequestInfo?> GetPullRequestAsync(GitHubRepoConnection repo, int number, CancellationToken ct);
+    Task<CompareResult> CompareAsync(GitHubRepoConnection repo, string @base, string head, CancellationToken ct);
 }
