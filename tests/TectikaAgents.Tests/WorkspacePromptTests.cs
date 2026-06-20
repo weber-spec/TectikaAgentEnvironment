@@ -19,4 +19,12 @@ public class WorkspacePromptTests
 
     [Fact] public void No_workspace_prompt_tells_user_to_reassign() =>
         Assert.Contains("workspace permission", RunAgentRoundActivity.WorkspacePrompt(canUseWorkspace: false, repoConnected: false));
+
+    [Fact]
+    public void ConnectedRepoPrompt_InstructsPushAndPullRequest()
+    {
+        var prompt = RunAgentRoundActivity.WorkspacePrompt(canUseWorkspace: true, repoConnected: true);
+        Assert.Contains("push", prompt);
+        Assert.Contains("pull request", prompt);
+    }
 }

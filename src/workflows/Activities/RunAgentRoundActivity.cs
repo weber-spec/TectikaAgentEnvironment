@@ -219,7 +219,9 @@ public class RunAgentRoundActivity
               "and ask them to reassign the task to an agent that does."
             : repoConnected
                 ? "\n\n## Sandbox\nYou have an on-demand sandbox terminal via `run_command`. On first use, the connected " +
-                  "GitHub repository is cloned to `/workspace` with git configured (you can `git commit`/`git push`)."
+                  "GitHub repository is cloned to `/workspace` with git configured (you can `git commit`/`git push`). " +
+                  "When you change code, commit it and `git push` your branch, then open a pull request " +
+                  "(e.g. with the github_create_pr tool) so the change is reviewable and shows up as the task's code deliverable."
                 : "\n\n## Sandbox\nYou have an on-demand sandbox terminal via `run_command` — an empty `/workspace` " +
                   "(no git repo connected). Use it to write and run code.";
 
