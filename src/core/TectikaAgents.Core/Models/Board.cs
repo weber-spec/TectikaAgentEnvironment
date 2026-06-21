@@ -15,6 +15,19 @@ public class GitHubRepoConnection
 
     [JsonPropertyName("patSecretName")]
     public string PatSecretName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Strips a trailing ".git" suffix from a repository name. Clone URLs
+    /// (e.g. https://github.com/owner/repo.git) carry the suffix, but the
+    /// GitHub REST API expects the bare name — passing "repo.git" yields a 404.
+    /// </summary>
+    public static string NormalizeRepoName(string repo)
+    {
+        if (string.IsNullOrEmpty(repo)) return repo;
+        return repo.EndsWith(".git", StringComparison.OrdinalIgnoreCase)
+            ? repo[..^4]
+            : repo;
+    }
 }
 
 public class Board

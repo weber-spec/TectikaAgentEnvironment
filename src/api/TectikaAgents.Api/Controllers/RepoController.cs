@@ -26,6 +26,9 @@ public class RepoController : ControllerBase
         var board = await _cosmos.GetBoardAsync(TenantId, boardId, ct);
         if (board is null) return (null, NotFound());
         if (board.GitHub is null) return (null, Conflict(new { error = "GitHubNotConnected" }));
+        // Defensive: boards connected before the parse fix may have a ".git" suffix
+        // stored in Repo, which 404s against the GitHub REST API. Normalize on read.
+        board.GitHub.Repo = Core.Models.GitHubRepoConnection.NormalizeRepoName(board.GitHub.Repo);
         return (board.GitHub, null);
     }
 

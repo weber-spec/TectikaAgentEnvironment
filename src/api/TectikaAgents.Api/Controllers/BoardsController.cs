@@ -118,7 +118,7 @@ public class BoardsController : ControllerBase
         {
             RepoUrl = req.RepoUrl,
             Owner = parts[0],
-            Repo = parts[1],
+            Repo = GitHubRepoConnection.NormalizeRepoName(parts[1]),
             PatSecretName = secretName
         };
 
