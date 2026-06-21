@@ -20,6 +20,15 @@ public class NotificationRepository
         _logger = logger;
     }
 
+    /// <summary>For in-memory subclasses that override all data methods and never touch Cosmos.
+    /// Avoids constructing a real CosmosClient (which eagerly validates its key) in mock mode.</summary>
+    protected NotificationRepository(ILogger<NotificationRepository> logger)
+    {
+        _client = null!;
+        _dbName = "mock";
+        _logger = logger;
+    }
+
     private Container Container => _client.GetContainer(_dbName, ContainerName);
 
     public virtual async Task SaveAsync(NotificationDocument doc, CancellationToken ct = default)
