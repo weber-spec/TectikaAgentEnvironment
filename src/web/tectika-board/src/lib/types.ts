@@ -559,3 +559,5 @@ export interface TreeEntry { name: string; path: string; type: 'file' | 'dir'; s
 export interface FileContent { path: string; sha: string; size: number; isBinary: boolean; text: string | null; }
 export interface CommitInfo { sha: string; message: string; author: string; date: string; url: string; }
 export interface PullRequestInfo { number: number; title: string; state: string; author: string; head: string; base: string; url: string; createdAt: string; }
+export interface DiffFile { path: string; status: string; additions: number; deletions: number; isBinary: boolean; patch: string | null; }
+export interface CompareResult { headSha: string; filesChanged: number; additions: number; deletions: number; files: DiffFile[]; }

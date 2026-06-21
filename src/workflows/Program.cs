@@ -74,6 +74,12 @@ else
     builder.Services.AddSingleton<ISecretProvider, KeyVaultSecretProvider>();
 
 builder.Services.AddSingleton<IGitHubToolExecutor, OctokitGitHubToolExecutor>();
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<OctokitGitHubReadService>();
+builder.Services.AddSingleton<IGitHubReadService>(sp =>
+    new CachedGitHubReadService(
+        sp.GetRequiredService<OctokitGitHubReadService>(),
+        sp.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>()));
 builder.Services.AddSingleton<IWorkspaceService, WorkspaceService>();
 builder.Services.AddSingleton<WorkspaceToolExecutor>();
 

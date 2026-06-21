@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useBoard } from '@/lib/board-context';
@@ -27,7 +27,7 @@ import { Menu, Modal } from '@/components/ui/overlays';
 import { Icon } from '@/components/ui/icons';
 
 export function BoardView() {
-  const { loading, error, board, activeView, automations, tasks, addTask } = useBoard();
+  const { loading, error, board, activeView, automations, tasks, addTask, repoChangesTarget, clearRepoChangesTarget } = useBoard();
   const router = useRouter();
   const [autoOpen, setAutoOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -47,6 +47,15 @@ export function BoardView() {
   const [boardOverride, setBoardOverride] = useState<Board | null>(null);
 
   const isOwner = board?.ownerId === CURRENT_USER.id;
+
+  useEffect(() => {
+    if (repoChangesTarget) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- open Repo tab when deep-link arrives
+      setShowRepo(true);
+      const t = setTimeout(() => clearRepoChangesTarget(), 0);
+      return () => clearTimeout(t);
+    }
+  }, [repoChangesTarget, clearRepoChangesTarget]);
 
   const openEdit = () => {
     setEditName(nameOverride ?? board?.name ?? '');
@@ -138,7 +147,7 @@ export function BoardView() {
 
       <div className="flex-1 min-h-0 relative">
         {showRepo ? (
-          board ? <RepoView boardId={board.id} onConnectGitHub={() => setGithubOpen(true)} /> : null
+          board ? <RepoView boardId={board.id} onConnectGitHub={() => setGithubOpen(true)} changesTarget={repoChangesTarget} /> : null
         ) : loading ? <SkeletonRows rows={8} /> : tasks.length === 0 ? (
           <EmptyState icon={<Icon.board size={48} />} title="This board is empty"
             description="Add your first item to start orchestrating agents and humans."

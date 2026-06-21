@@ -90,4 +90,14 @@ public class RepoController : ControllerBase
         var pr = await _gh.GetPullRequestAsync(repo!, number, ct);
         return pr is null ? NotFound() : Ok(pr);
     }
+
+    [HttpGet("compare")]
+    public async Task<IActionResult> Compare(string boardId, [FromQuery] string? @base, [FromQuery] string head, CancellationToken ct)
+    {
+        var (repo, error) = await ResolveAsync(boardId, ct);
+        if (error is not null) return error;
+        if (string.IsNullOrEmpty(head)) return BadRequest(new { error = "head is required" });
+        var b = string.IsNullOrEmpty(@base) ? (await _gh.GetRepoMetadataAsync(repo!, ct)).DefaultBranch : @base;
+        return Ok(await _gh.CompareAsync(repo!, b, head, ct));
+    }
 }
