@@ -3,7 +3,7 @@
 import type {
   Board, AgentTask, AgentRole, AgentUpsertResult, Artifact, Approval, WorkflowRun, AgentEvent, HumanInteraction, TaskEdge, EdgeKind, RunEvent,
   RepoMeta, BranchInfo, TreeEntry, FileContent, CommitInfo, PullRequestInfo, CompareResult,
-  UsageRollup, UsageEventsPage, PricingCatalog,
+  UsageRollup, UsageEventsPage, PricingCatalog, UsageTimePoint,
 } from './types';
 import { trackEvent, trackException, redact } from './telemetry';
 
@@ -200,6 +200,8 @@ export const api = {
     board: (boardId: string) => fetchApi<UsageRollup>(`/api/usage/board/${boardId}`),
     task: (taskId: string) => fetchApi<UsageRollup>(`/api/usage/task/${taskId}`),
     events: (taskId: string, max = 50) => fetchApi<UsageEventsPage>(`/api/usage/task/${taskId}/events?max=${max}`),
+    projectTimeseries: (days = 14) => fetchApi<UsageTimePoint[]>(`/api/usage/project/timeseries?days=${days}`),
+    boardTimeseries: (boardId: string, days = 14) => fetchApi<UsageTimePoint[]>(`/api/usage/board/${boardId}/timeseries?days=${days}`),
     pricing: () => fetchApi<PricingCatalog>('/api/usage/pricing'),
   },
 };
