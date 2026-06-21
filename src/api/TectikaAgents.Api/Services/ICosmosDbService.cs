@@ -72,6 +72,8 @@ public interface ICosmosDbService
     Task UpsertUsageRollupAsync(UsageRollup rollup, CancellationToken ct = default);
     Task UpsertUsageEventAsync(UsageEvent ev, CancellationToken ct = default);
     Task<UsageEventsPage> GetUsageEventsForTaskAsync(string tenantId, string taskId, int max, string? continuationToken, CancellationToken ct = default);
+    /// <summary>Daily token/cost series for the last <paramref name="days"/> days. scope = "board" (scopeId=boardId) or "project" (scopeId=tenantId). Days with no usage are returned as zero points so the chart is continuous.</summary>
+    Task<List<UsageTimePoint>> GetUsageTimeSeriesAsync(string scope, string scopeId, int days, CancellationToken ct = default);
 
     // ── Run trace ────────────────────────────────────────────────────────────────
     /// <summary>Steerable run trace for a task (Activity tab replay), ordered oldest-first.</summary>

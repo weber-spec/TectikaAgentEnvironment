@@ -534,6 +534,12 @@ internal static class MockDataSeeder
             }
             taskModelBucket.Add(tokens, cost.CostUsd);
             taskRollup.CurrentSession!.Add(tokens, cost.CostUsd);
+            if (!taskRollup.CurrentSession!.PerModel.TryGetValue(modelKey, out var sessionModelBucket))
+            {
+                sessionModelBucket = new UsageBucket();
+                taskRollup.CurrentSession!.PerModel[modelKey] = sessionModelBucket;
+            }
+            sessionModelBucket.Add(tokens, cost.CostUsd);
 
             // Accumulate into shared rollups (project, board)
             foreach (var rollup in sharedRollups)
