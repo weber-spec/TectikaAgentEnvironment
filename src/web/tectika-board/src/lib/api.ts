@@ -107,6 +107,9 @@ export const api = {
     /** Slash-command effects. */
     clear: (boardId: string, taskId: string) =>
       fetchApi<void>(`/api/boards/${boardId}/tasks/${taskId}/clear`, { method: 'POST' }),
+    /** Start a new usage session (current-session tokens reset) without clearing the chat. */
+    resetUsage: (boardId: string, taskId: string) =>
+      fetchApi<void>(`/api/boards/${boardId}/tasks/${taskId}/reset-usage`, { method: 'POST' }),
     stop: (boardId: string, taskId: string) =>
       fetchApi<void>(`/api/boards/${boardId}/tasks/${taskId}/stop`, { method: 'POST' }),
     compact: (boardId: string, taskId: string) =>

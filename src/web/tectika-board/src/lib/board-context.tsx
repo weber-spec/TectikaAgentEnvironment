@@ -798,12 +798,18 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     if (!task || task.assignee?.type !== 'Agent') return;
     try {
       await api.tasks.updateStatus(boardId, taskId, 'Backlog');
+      // "Reset" is a deliberate fresh start → begin a new usage session (current-session
+      // tokens reset to zero; lifetime/board/project cost persist). Refresh usage right away
+      // so the reset shows even if the run fails to start.
+      await api.tasks.resetUsage(boardId, taskId).catch(() => {});
+      void refreshUsage(taskId);
       const res = await api.runs.start(boardId, taskId);
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, workflowRunId: res.runId, status: 'InProgress' } : t));
+      void refreshUsage(taskId);
     } catch {
       toast('Could not reset and run', 'error');
     }
-  }, [boardId, tasks]);
+  }, [boardId, tasks, refreshUsage]);
 
   const stopTask = useCallback(async (taskId: string) => {
     try {
