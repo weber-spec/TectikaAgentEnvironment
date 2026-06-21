@@ -77,6 +77,10 @@ public class RunAgentRoundActivity
             await _cosmos.PatchTaskThreadIdAsync(input.BoardId, input.TaskId, threadId, ct);
 
         // Round 0 seeds the conversation with assembled task context (+ any user/chat message).
+        // On continuation runs that reuse an existing Foundry thread (hadThread == true), the model
+        // already has the full context from the first run — resending it every time causes the thread
+        // to accumulate duplicate instructions and confuses the model. Only seed the full context when
+        // opening a brand-new thread.
         var userInput = input.UserInput;
         if (input.Round == 0)
         {
@@ -85,15 +89,20 @@ public class RunAgentRoundActivity
             if (await AgentSelfHeal.EnsureCurrentAsync(_provisioner, role, ct))
                 await _cosmos.UpsertAgentRoleAsync(role, ct);
 
-            var upstreamIds = await _cosmos.GetUpstreamTaskIdsAsync(task.BoardId, input.TaskId, ct);
-            var upstream = await _cosmos.GetUpstreamArtifactsAsync(upstreamIds, ct);
-            var qa = await _cosmos.GetQaFeedbackArtifactsAsync(task.BoardId, input.TaskId, ct);
-            var context = await _contextManager.BuildUserContentAsync(role, task, board, upstream.Concat(qa).ToList(), ct);
-            userInput = string.IsNullOrEmpty(input.UserInput)
-                ? context
-                : context + "\n\n## User message\n" + input.UserInput;
+            if (!hadThread)
+            {
+                var upstreamIds = await _cosmos.GetUpstreamTaskIdsAsync(task.BoardId, input.TaskId, ct);
+                var upstream = await _cosmos.GetUpstreamArtifactsAsync(upstreamIds, ct);
+                var qa = await _cosmos.GetQaFeedbackArtifactsAsync(task.BoardId, input.TaskId, ct);
+                var context = await _contextManager.BuildUserContentAsync(role, task, board, upstream.Concat(qa).ToList(), ct);
+                userInput = string.IsNullOrEmpty(input.UserInput)
+                    ? context
+                    : context + "\n\n## User message\n" + input.UserInput;
 
-            userInput += WorkspacePrompt(role.Permissions.CanUseWorkspace, board.GitHub is not null);
+                userInput += WorkspacePrompt(role.Permissions.CanUseWorkspace, board.GitHub is not null);
+            }
+            // else: continuing on an existing thread — send only the user's message (already in userInput).
+            // The model retains the full context from the thread's first run.
         }
 
         var explorer = new BoardProjectExplorer(_cosmos, input.BoardId, input.TenantId);
@@ -190,24 +199,33 @@ public class RunAgentRoundActivity
                    "code or git operations, inform the user that your role does not have workspace permission " +
                    "and ask them to reassign the task to an agent that does.";
 
-        const string table =
-            "\n\n## Sandbox & File Tools\n\n" +
-            "You have dedicated tools for file operations — **prefer them over `run_command`** for anything file-related:\n\n" +
-            "| Task | Use | Not |\n" +
-            "|------|-----|-----|\n" +
-            "| Read a file | `read_file` | `run_command cat` |\n" +
-            "| Write a new file | `write_file` | `run_command` + heredoc |\n" +
-            "| Edit part of a file | `edit_file` | `run_command sed/awk` |\n" +
-            "| List directory | `list_dir` | `run_command ls` |\n" +
-            "| Search code | `search_code` | `run_command grep` |\n\n" +
-            "Workflow: `read_file` → understand → `edit_file` (new files: `write_file`).\n" +
-            "Use `run_command` for: builds, tests, git operations, package installs, and other shell execution.\n";
+        const string header =
+            "\n\n## Sandbox — MANDATORY WORKFLOW\n\n" +
+            "You have a live sandbox workspace at `/workspace` and **MUST** use it for all implementation work.\n\n" +
+            "**REQUIRED steps — do not skip:**\n" +
+            "1. Call `list_dir` or `run_command git log --oneline -5` to see the current workspace state\n" +
+            "2. Read files with `read_file` before editing them\n" +
+            "3. Create/edit files using `write_file` / `edit_file` — **do NOT write code as text in your response**\n" +
+            "4. Verify: `run_command dotnet build` / `run_command npm test` / `run_command python -m pytest`\n" +
+            "5. Commit: `run_command git add -A && git commit -m \"...\"` then `run_command git push`\n\n" +
+            "**NEVER:**\n" +
+            "- Write implementation code as text in your response or inside `declare_output`\n" +
+            "- Ask \"how would you like me to proceed?\" — explore and implement directly\n" +
+            "- Mark the task done without having run at least one `run_command` or `write_file`\n\n" +
+            "**`declare_output` is for documents only** (specs, ADRs, READMEs, reports).\n" +
+            "Code belongs in workspace files, not in tool call arguments.\n\n" +
+            "| File task      | Use          | NOT               |\n" +
+            "|----------------|--------------|-------------------|\n" +
+            "| Read a file    | `read_file`  | `run_command cat` |\n" +
+            "| Write new file | `write_file` | heredoc in shell  |\n" +
+            "| Edit file      | `edit_file`  | `run_command sed` |\n" +
+            "| List directory | `list_dir`   | `run_command ls`  |\n" +
+            "| Search code    | `search_code`| `run_command grep`|\n";
 
         return repoConnected
-            ? table + "\nOn first `run_command` use, the connected GitHub repository is cloned to `/workspace` " +
+            ? header + "\nOn first `run_command` use, the connected GitHub repository is cloned to `/workspace` " +
               "with git configured (you can `git commit`/`git push`)."
-            : table + "\nYour sandbox is `/workspace` — an empty directory with no git repo. " +
-              "Use `run_command` for builds, tests, and other shell execution.";
+            : header + "\nYour sandbox is `/workspace` — an empty directory with no git repo.";
     }
 
     private sealed class RunWorkspaceProvider : IWorkspaceProvider

@@ -54,10 +54,10 @@ public class ContextManager
         if (!string.IsNullOrWhiteSpace(task.TaskBrief))
             sb.AppendLine($"\n## Task brief (recent history)\n{TrimBrief(task.TaskBrief)}");
 
-        // Exploration nudge — the agent has board-scoped tools and should use them.
-        sb.AppendLine("\nYou can and should explore this board before doing significant work: call");
-        sb.AppendLine("get_board_overview to see the whole project, search_tasks / get_task to find related");
-        sb.AppendLine("work, and get_artifact to read any task's full output. Don't guess when you can look.");
+        // Exploration nudge — mandatory: the agent must call get_board_overview before any significant work.
+        sb.AppendLine("\n**Your first action must be to call `get_board_overview`** to see the full project.");
+        sb.AppendLine("Then use `search_tasks`, `get_task`, and `get_artifact` as needed before doing any work.");
+        sb.AppendLine("Do not write your final response without first calling at least `get_board_overview`.");
 
         // Direct upstream: full content within the token budget, then summaries (expandable via get_artifact).
         var used = EstimateTokens(sb.ToString());
