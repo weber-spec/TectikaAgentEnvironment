@@ -99,6 +99,7 @@ interface BoardContextValue {
   tasks: AgentTask[];
   roles: AgentRole[];
   runsById: Record<string, WorkflowRun>;
+  usageByTaskId: Record<string, UsageRollup>;
   peopleById: Record<string, Person>;
   people: Person[];
   cellContext: CellContext;
@@ -144,6 +145,7 @@ interface BoardContextValue {
   // mutations
   updateTask: (id: string, patch: TaskPatch, opts?: { silent?: boolean }) => Promise<void>;
   refreshTask: (id: string) => Promise<void>;
+  refreshUsage: (id: string) => Promise<void>;
   setStatus: (id: string, status: AgentTaskStatus) => Promise<void>;
   setCustomCell: (taskId: string, colId: string, value: string) => void;
   addTask: (partial: Partial<AgentTask> & { title: string }, groupValue?: { colId: string; key: string }) => Promise<AgentTask | null>;
@@ -395,6 +397,8 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
       if ((ev.type || '').toLowerCase().includes('status') && ev.content) {
         setTasks(prev => prev.map(t => t.id === ev.taskId ? { ...t, status: ev.content as AgentTaskStatus } : t));
       }
+      // Any run event for a task may carry new usage — refresh its rollup so token/cost stay live.
+      void refreshUsage(ev.taskId);
     }));
 
     const tick = async () => {
@@ -430,6 +434,20 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
             return added.length ? [...updated, ...added] : updated;
           });
           if (freshEdges) setEdges(freshEdges);
+        }
+        // Reconcile usage for tasks that have a run (their tokens/cost can change as runs
+        // progress or after a /clear). Resilient: a per-task failure is skipped.
+        const usagePairs = await Promise.all(
+          fresh.filter(x => x.workflowRunId).map(x =>
+            api.usage.task(x.id).then(u => [x.id, u] as const).catch(() => null)),
+        );
+        if (!cancelled) {
+          const usageUpdates = usagePairs.filter((p): p is readonly [string, UsageRollup] => !!p);
+          if (usageUpdates.length) setUsageByTaskId(prev => {
+            const next = { ...prev };
+            usageUpdates.forEach(([id, u]) => { next[id] = u; });
+            return next;
+          });
         }
       } catch { if (!cancelled) setLiveState('reconnecting'); }
       if (!cancelled) timer = setTimeout(tick, 7000);
@@ -582,10 +600,17 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   }, [boardId, logActivity]);
 
   // Re-fetch a task from the server (e.g. after a slash-command mutates it out-of-band).
+  // Refetch one task's usage rollup so token/cost (table column + panel) reflect runs and /clear.
+  const refreshUsage = useCallback(async (id: string) => {
+    try { const u = await api.usage.task(id); setUsageByTaskId(prev => ({ ...prev, [id]: u })); }
+    catch { /* ignore — keep current */ }
+  }, []);
+
   const refreshTask = useCallback(async (id: string) => {
     try { const t = await api.tasks.get(boardId, id); setTasks(prev => prev.map(x => x.id === id ? t : x)); }
     catch { /* ignore — keep current */ }
-  }, [boardId]);
+    void refreshUsage(id);   // e.g. after /clear (which resets the session bucket)
+  }, [boardId, refreshUsage]);
 
   const setStatus = useCallback(async (id: string, status: AgentTaskStatus) => {
     await updateTask(id, { status });
@@ -773,12 +798,18 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     if (!task || task.assignee?.type !== 'Agent') return;
     try {
       await api.tasks.updateStatus(boardId, taskId, 'Backlog');
+      // "Reset" is a deliberate fresh start → begin a new usage session (current-session
+      // tokens reset to zero; lifetime/board/project cost persist). Refresh usage right away
+      // so the reset shows even if the run fails to start.
+      await api.tasks.resetUsage(boardId, taskId).catch(() => {});
+      void refreshUsage(taskId);
       const res = await api.runs.start(boardId, taskId);
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, workflowRunId: res.runId, status: 'InProgress' } : t));
+      void refreshUsage(taskId);
     } catch {
       toast('Could not reset and run', 'error');
     }
-  }, [boardId, tasks]);
+  }, [boardId, tasks, refreshUsage]);
 
   const stopTask = useCallback(async (taskId: string) => {
     try {
@@ -800,7 +831,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   }, []);
 
   const value: BoardContextValue = {
-    loading, error, board, tasks, roles, runsById, peopleById, people, cellContext,
+    loading, error, board, tasks, roles, runsById, usageByTaskId, peopleById, people, cellContext,
     views: cfg.views, activeView, columns: cfg.columns, visibleColumns,
     setActiveView, createView, updateActiveView, renameView, deleteView,
     setColumns, toggleColumnHidden, resizeColumn, addColumn, removeColumn, setAggregation,
@@ -808,7 +839,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     groups, visibleTasks,
     collapsedGroups: cfg.collapsedGroups, toggleGroup,
     selectedIds, toggleSelect, selectAll, clearSelection,
-    updateTask, refreshTask, setStatus, setCustomCell, addTask, deleteTasks, moveCanvas,
+    updateTask, refreshTask, refreshUsage, setStatus, setCustomCell, addTask, deleteTasks, moveCanvas,
     edges, upstreamIds, downstreamIds, connectEdge, disconnectEdge, updateEdge,
     runBoard, stopBoard, runPhase, boardRunnableCount: runnableTaskIds.length, boardRetryCount: retryTaskIds.length, runTask, resetAndRun, stopTask, isTaskRunning,
     saveRole, chatThreads: cfg.chatThreads, pushChatTurns,

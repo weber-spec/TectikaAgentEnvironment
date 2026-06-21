@@ -26,6 +26,10 @@ public class SessionBucket : UsageBucket
 {
     [JsonPropertyName("sessionId")] public string SessionId { get; set; } = "";
     [JsonPropertyName("since")] public DateTimeOffset Since { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>Per-model breakdown for THIS session only, keyed by "provider/model".
+    /// Resets (empty) on /clear, so the UI's Session view shows a true session breakdown.</summary>
+    [JsonPropertyName("perModel")] public Dictionary<string, UsageBucket> PerModel { get; set; } = new();
 }
 
 public enum UsageScope { Project, Board, Task }

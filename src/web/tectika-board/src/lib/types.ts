@@ -198,6 +198,8 @@ export interface UsageBucket {
 export interface SessionBucket extends UsageBucket {
   sessionId: string;
   since: string;
+  /** Per-model breakdown for the current session only, keyed by "provider/model". */
+  perModel: Record<string, UsageBucket>;
 }
 
 export type UsageScope = 'Project' | 'Board' | 'Task';
@@ -232,6 +234,12 @@ export interface UsageEvent {
 export interface UsageEventsPage {
   items: UsageEvent[];
   continuationToken?: string | null;
+}
+
+export interface UsageTimePoint {
+  date: string;     // "yyyy-MM-dd"
+  tokens: number;
+  costUsd: number;
 }
 
 export interface ModelPrice {
