@@ -305,4 +305,29 @@ public class InMemoryCosmosDbService : ICosmosDbService
         }
         return Task.FromResult(byDay.Values.OrderBy(p => p.Date).ToList());
     }
+
+    // ── Preview Sessions ──────────────────────────────────────────────────────────
+    private readonly List<PreviewSession> _previews = new();
+
+    public Task<PreviewSession?> GetPreviewAsync(string boardId, CancellationToken ct = default) =>
+        Task.FromResult(_previews
+            .Where(p => p.BoardId == boardId && (p.Status == PreviewStatus.Provisioning || p.Status == PreviewStatus.Running))
+            .OrderByDescending(p => p.CreatedAt).FirstOrDefault());
+
+    public Task UpsertPreviewAsync(PreviewSession session, CancellationToken ct = default)
+    {
+        _previews.RemoveAll(p => p.Id == session.Id);
+        _previews.Add(session);
+        return Task.CompletedTask;
+    }
+
+    public Task DeletePreviewAsync(string boardId, string id, CancellationToken ct = default)
+    {
+        _previews.RemoveAll(p => p.Id == id && p.BoardId == boardId);
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<PreviewSession>> ListActivePreviewsAsync(CancellationToken ct = default) =>
+        Task.FromResult((IReadOnlyList<PreviewSession>)_previews
+            .Where(p => p.Status == PreviewStatus.Provisioning || p.Status == PreviewStatus.Running).ToList());
 }

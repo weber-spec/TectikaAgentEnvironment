@@ -31,6 +31,7 @@ public class CosmosDbService : ICosmosDbService
     public const string UserSettingsContainer = "userSettings";
     public const string UsageEventsContainer = "usageEvents";
     public const string UsageRollupsContainer = "usageRollups";
+    public const string PreviewSessionsContainer = "previewSessions";
 
     /// <summary>Authoritative list of Cosmos containers this app requires (name + partition key).
     /// Source of truth for <see cref="EnsureInfrastructureAsync"/> and kept in sync with infra/modules/data.bicep.</summary>
@@ -51,6 +52,7 @@ public class CosmosDbService : ICosmosDbService
         (UserSettingsContainer,      "/userId"),
         (UsageEventsContainer,       "/taskId"),
         (UsageRollupsContainer,      "/tenantId"),
+        (PreviewSessionsContainer,   "/boardId"),
     };
 
     public CosmosDbService(CosmosClient client, IOptions<CosmosDbSettings> settings, ILogger<CosmosDbService> logger)
@@ -498,6 +500,38 @@ public class CosmosDbService : ICosmosDbService
             pt.CostUsd += e.CostUsd;
         }
         return byDay.Values.OrderBy(p => p.Date).ToList();
+    }
+
+    // ── Preview Sessions ──────────────────────────────────────────────────────
+
+    public async Task<PreviewSession?> GetPreviewAsync(string boardId, CancellationToken ct = default)
+    {
+        var q = new QueryDefinition(
+            "SELECT * FROM c WHERE c.boardId = @b AND c.status IN ('Provisioning','Running') ORDER BY c.createdAt DESC")
+            .WithParameter("@b", boardId);
+        using var it = GetContainer(PreviewSessionsContainer).GetItemQueryIterator<PreviewSession>(
+            q, requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(boardId), MaxItemCount = 1 });
+        if (it.HasMoreResults)
+            foreach (var s in await it.ReadNextAsync(ct)) return s;
+        return null;
+    }
+
+    public async Task UpsertPreviewAsync(PreviewSession session, CancellationToken ct = default) =>
+        await GetContainer(PreviewSessionsContainer).UpsertItemAsync(session, new PartitionKey(session.BoardId), cancellationToken: ct);
+
+    public async Task DeletePreviewAsync(string boardId, string id, CancellationToken ct = default)
+    {
+        try { await GetContainer(PreviewSessionsContainer).DeleteItemAsync<PreviewSession>(id, new PartitionKey(boardId), cancellationToken: ct); }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { }
+    }
+
+    public async Task<IReadOnlyList<PreviewSession>> ListActivePreviewsAsync(CancellationToken ct = default)
+    {
+        var q = new QueryDefinition("SELECT * FROM c WHERE c.status IN ('Provisioning','Running')");
+        using var it = GetContainer(PreviewSessionsContainer).GetItemQueryIterator<PreviewSession>(q);
+        var list = new List<PreviewSession>();
+        while (it.HasMoreResults) list.AddRange(await it.ReadNextAsync(ct));
+        return list;
     }
 
     // ── Generic query helper ──────────────────────────────────────────────────

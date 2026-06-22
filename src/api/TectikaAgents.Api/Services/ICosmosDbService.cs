@@ -80,4 +80,10 @@ public interface ICosmosDbService
     Task<IReadOnlyList<RunEvent>> GetRunEventsAsync(string taskId, int? sinceRound = null, CancellationToken ct = default);
     Task<RunEvent> CreateRunEventAsync(RunEvent e, CancellationToken ct = default);
     Task DeleteEdgesForTaskAsync(string boardId, string taskId, CancellationToken ct = default);
+
+    // ── Preview Sessions ─────────────────────────────────────────────────────────
+    Task<PreviewSession?> GetPreviewAsync(string boardId, CancellationToken ct = default);
+    Task UpsertPreviewAsync(PreviewSession session, CancellationToken ct = default);
+    Task DeletePreviewAsync(string boardId, string id, CancellationToken ct = default);
+    Task<IReadOnlyList<PreviewSession>> ListActivePreviewsAsync(CancellationToken ct = default);
 }
