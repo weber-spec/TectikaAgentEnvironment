@@ -119,7 +119,8 @@ public class RunAgentRoundActivity
             // New threads always get it; existing threads get it only on button-triggered runs so the agent
             // is reminded to use the workspace even when task context is already in the thread history.
             if (string.IsNullOrEmpty(input.UserInput))
-                userInput += WorkspacePrompt(role.Permissions.CanUseWorkspace, board.GitHub is not null, role.Permissions.CanPushCode);
+                userInput += WorkspacePrompt(role.Permissions.CanUseWorkspace, board.GitHub is not null, role.Permissions.CanPushCode,
+                    $"agent/{input.RunId[..Math.Min(8, input.RunId.Length)]}");
 
             // Continuation run (new run reusing the task's existing Foundry thread): its files were restored
             // via the per-task branch, so tell the agent to build on them instead of assuming a blank sandbox.
@@ -276,8 +277,31 @@ public class RunAgentRoundActivity
         return new RoundActivityResult(outcome, artifactId);
     }
 
+<<<<<<< HEAD
     // Best-effort: build the Code output for this task's branch (null if no repo / no changes / error).
     private async Task<Output?> TryBuildCodeOutputAsync(Board board, string taskId, string runId, CancellationToken ct)
+=======
+    // Best-effort: push the run branch to origin so its commits are durable + enrichable.
+    private async Task TryPushBranchAsync(string runId, CancellationToken ct)
+    {
+        try
+        {
+            var run = await _cosmos.GetRunByIdAsync(runId, ct);
+            if (run?.WorkspaceEndpoint is null || run.WorkspaceToken is null) return; // no workspace was used
+            var branchName = $"agent/{runId[..Math.Min(8, runId.Length)]}";
+            var res = await _workspace.RunCommandAsync(run.WorkspaceEndpoint, run.WorkspaceToken,
+                $"cd /workspace && git push origin {branchName}", 120, ct);
+            if (res.ExitCode == 0)
+                _logger.LogInformation("[RunAgentRound] finalization push run={RunId} ok", runId);
+            else
+                _logger.LogWarning("[RunAgentRound] finalization push run={RunId} non-zero exit={Exit} stderr={Stderr}", runId, res.ExitCode, res.Stderr);
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "[RunAgentRound] finalization push failed run={RunId}", runId); }
+    }
+
+    // Best-effort: build the Code output for this run's branch (null if no repo / no changes / error).
+    private async Task<Output?> TryBuildCodeOutputAsync(Board board, string runId, CancellationToken ct)
+>>>>>>> 971d018 (fix/sandbox)
     {
         if (board.GitHub is null) return null;
         var head = BranchForTask(taskId);
@@ -306,7 +330,7 @@ public class RunAgentRoundActivity
         "That AUTOMATICALLY re-runs the upstream task with your feedback — do not ask a human, and do not " +
         "try to fix the upstream work yourself. State exactly what must change so the re-run can address it.";
 
-    public static string WorkspacePrompt(bool canUseWorkspace, bool repoConnected, bool canPushCode)
+    public static string WorkspacePrompt(bool canUseWorkspace, bool repoConnected, bool canPushCode, string? branchName = null)
     {
         if (!canUseWorkspace)
             return "\n\n## Sandbox\nYou do not have sandbox (workspace) access. If the task requires running " +
@@ -315,11 +339,11 @@ public class RunAgentRoundActivity
 
         // Step 5 reflects the role's push permission. Without CanPushCode the workspace's push remote is
         // disabled (entrypoint), so instructing the agent to push would only produce confusing failures.
+        var branch = branchName ?? "agent/your-branch";
         var commitStep = repoConnected && canPushCode
-            ? "5. Commit: `run_command git add -A && git commit -m \"...\"` then `run_command git push`\n\n"
+            ? $"5. Commit & push: `run_command git checkout -b {branch}` (first time only) → `run_command git add -A && git commit -m \"...\" && git push -u origin {branch}`\n\n"
             : repoConnected
-                ? "5. Commit locally: `run_command git add -A && git commit -m \"...\"`. Do NOT push — your role " +
-                  "lacks push permission; a human will review your branch and push it.\n\n"
+                ? $"5. Commit locally: `run_command git checkout -b {branch}` (first time only) → `run_command git add -A && git commit -m \"...\"`. Do NOT push — your role lacks push permission.\n\n"
                 : "5. (No git repo connected — write and run code in `/workspace`.)\n\n";
 
         var header =
@@ -356,10 +380,9 @@ public class RunAgentRoundActivity
             "| Search code    | `search_code`| `run_command grep`|\n";
 
         return repoConnected
-            ? header + "\nOn first `run_command` use, the connected GitHub repository is cloned to `/workspace` " +
-              (canPushCode
-                  ? "with git configured (you can `git commit`/`git push`)."
-                  : "with git configured. You can `git commit` locally, but pushing is disabled for your role.")
+            ? header + $"\nThe connected GitHub repository is cloned to `/workspace` on the default branch. " +
+              $"**Before making any changes, create your working branch:** `run_command git checkout -b {branch}`\n" +
+              (canPushCode ? "Git is configured — you can `git commit` and `git push`." : "Git is configured — you can `git commit` locally. Pushing is disabled for your role.")
             : header + "\nYour sandbox is `/workspace` — an empty directory with no git repo.";
     }
 
@@ -408,6 +431,7 @@ public class RunAgentRoundActivity
             // another full poll window, so we don't retry that case; we fail fast and let the run stop cleanly.
             for (var attempt = 1; attempt <= 2; attempt++)
             {
+<<<<<<< HEAD
                 try
                 {
                     var info = await _workspace.ProvisionAsync(_board, branch, _runId, _canPush, ct);
@@ -429,6 +453,17 @@ public class RunAgentRoundActivity
                     _logger.LogError(ex, "[RunAgentRound] sandbox provisioning failed for run {RunId}", _runId);
                     break;
                 }
+=======
+                var info = await _workspace.ProvisionAsync(_board, _runId, _canPush, ct);
+                if (info is null) return null;
+                await _cosmos.PatchRunWorkspaceAsync(_runId, _taskId, info.ContainerName, info.Endpoint, info.Token, ct);
+                return _cached = new WorkspaceConnection(info.Endpoint, info.Token);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[RunAgentRound] sandbox provisioning failed for run {RunId}", _runId);
+                return null;
+>>>>>>> 971d018 (fix/sandbox)
             }
             _failed = true;
             return null;
