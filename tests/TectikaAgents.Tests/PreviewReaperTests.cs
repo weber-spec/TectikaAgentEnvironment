@@ -32,4 +32,13 @@ public class PreviewReaperTests
         var orphans = PreviewReaper.SelectOrphans(groups, active).Select(g => g.Name).ToList();
         Assert.Equal(new[] { "orphan" }, orphans);
     }
+
+    [Fact]
+    public void Does_not_orphan_a_provisioning_session_group()
+    {
+        var active = new[] { new PreviewSession { Id = "tpv-abc", ContainerName = null, Status = PreviewStatus.Provisioning } };
+        var groups = new[] { new PreviewGroupInfo("tpv-abc", "o1"), new PreviewGroupInfo("orphan", "o2") };
+        var orphans = PreviewReaper.SelectOrphans(groups, active).Select(g => g.Name).ToList();
+        Assert.Equal(new[] { "orphan" }, orphans); // tpv-abc must NOT be orphaned
+    }
 }

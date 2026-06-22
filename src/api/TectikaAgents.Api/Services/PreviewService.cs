@@ -59,13 +59,17 @@ public sealed class PreviewService : IPreviewService
         return s;
     }
 
-    public Task<PreviewSession?> GetAsync(string tenantId, string boardId, CancellationToken ct)
-        => _cosmos.GetPreviewAsync(boardId, ct);
+    public async Task<PreviewSession?> GetAsync(string tenantId, string boardId, CancellationToken ct)
+    {
+        var s = await _cosmos.GetPreviewAsync(boardId, ct);
+        return s is null || s.TenantId != tenantId ? null : s;
+    }
 
     public async Task<PreviewSession?> HeartbeatAsync(string tenantId, string boardId, CancellationToken ct)
     {
         var s = await _cosmos.GetPreviewAsync(boardId, ct);
-        if (s is null || s.Status != PreviewStatus.Running) return s;
+        if (s is null || s.TenantId != tenantId) return null;
+        if (s.Status != PreviewStatus.Running) return s;
         var now = _now();
         s.LastActivityAt = now;
         s.ExpiresAt = PreviewLifecycle.ComputeExpiry(s.CreatedAt, now, _settings.IdleMinutes, _settings.CapMinutes);
@@ -76,7 +80,7 @@ public sealed class PreviewService : IPreviewService
     public async Task StopAsync(string tenantId, string boardId, CancellationToken ct)
     {
         var s = await _cosmos.GetPreviewAsync(boardId, ct);
-        if (s is null) return;
+        if (s is null || s.TenantId != tenantId) return;
         if (s.ContainerName is not null) await _prov.DestroyAsync(s.ContainerName, ct);
         s.Status = PreviewStatus.Stopped;
         await _cosmos.UpsertPreviewAsync(s, ct);

@@ -99,4 +99,21 @@ public class PreviewServiceTests
         var s = await svc.HeartbeatAsync("t1", "b1", default);
         Assert.Equal(t0.AddMinutes(25), s!.ExpiresAt);
     }
+
+    [Fact]
+    public async Task Get_heartbeat_stop_are_tenant_scoped()
+    {
+        var now = new DateTimeOffset(2026, 6, 22, 12, 0, 0, TimeSpan.Zero);
+        var (svc, _, prov) = await MakeAsync(now);
+        await svc.StartAsync("t1", "b1", "main", default);
+
+        // foreign tenant sees nothing
+        Assert.Null(await svc.GetAsync("other", "b1", default));
+        Assert.Null(await svc.HeartbeatAsync("other", "b1", default));
+        await svc.StopAsync("other", "b1", default); // no-op: must NOT destroy
+        Assert.Empty(prov.Destroyed);
+
+        // owning tenant still works
+        Assert.NotNull(await svc.GetAsync("t1", "b1", default));
+    }
 }

@@ -12,7 +12,9 @@ public static class PreviewReaper
     public static IEnumerable<PreviewGroupInfo> SelectOrphans(
         IEnumerable<PreviewGroupInfo> groups, IEnumerable<PreviewSession> active)
     {
-        var live = active.Where(a => a.ContainerName is not null).Select(a => a.ContainerName!).ToHashSet();
+        var live = active
+            .SelectMany(a => new[] { a.ContainerName, a.Id })
+            .Where(n => !string.IsNullOrEmpty(n)).Select(n => n!).ToHashSet();
         return groups.Where(g => !live.Contains(g.Name));
     }
 }
