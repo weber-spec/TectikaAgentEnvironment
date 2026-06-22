@@ -270,4 +270,24 @@ public class InMemoryCosmosDbService : ICosmosDbService
             .ToList();
         return Task.FromResult(new UsageEventsPage { Items = items, ContinuationToken = null });
     }
+
+    public Task<List<UsageTimePoint>> GetUsageTimeSeriesAsync(string scope, string scopeId, int days, CancellationToken ct = default)
+    {
+        days = Math.Clamp(days, 1, 90);
+        var today = DateTimeOffset.UtcNow.Date;
+        var since = today.AddDays(-(days - 1));
+        var byDay = new Dictionary<string, UsageTimePoint>();
+        for (var i = 0; i < days; i++)
+        {
+            var key = since.AddDays(i).ToString("yyyy-MM-dd");
+            byDay[key] = new UsageTimePoint { Date = key };
+        }
+        foreach (var e in _usageEvents.Values.Where(e =>
+            (scope == "board" ? e.BoardId == scopeId : e.TenantId == scopeId) && e.Timestamp.UtcDateTime.Date >= since))
+        {
+            var key = e.Timestamp.UtcDateTime.ToString("yyyy-MM-dd");
+            if (byDay.TryGetValue(key, out var pt)) { pt.Tokens += e.Usage.Total; pt.CostUsd += e.CostUsd; }
+        }
+        return Task.FromResult(byDay.Values.OrderBy(p => p.Date).ToList());
+    }
 }

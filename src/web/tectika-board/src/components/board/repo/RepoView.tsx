@@ -7,14 +7,16 @@ import { Icon } from '@/components/ui/icons';
 import { CodeTab } from './CodeTab';
 import { HistoryTab } from './HistoryTab';
 import { PullsTab } from './PullsTab';
+import { ChangesTab } from './ChangesTab';
 
-type Sub = 'code' | 'history' | 'pulls';
+type Sub = 'code' | 'history' | 'pulls' | 'changes';
 
-export function RepoView({ boardId, onConnectGitHub }: { boardId: string; onConnectGitHub: () => void }) {
+export function RepoView({ boardId, onConnectGitHub, changesTarget }: { boardId: string; onConnectGitHub: () => void; changesTarget?: string }) {
   const [sub, setSub] = useState<Sub>('code');
   const [meta, setMeta] = useState<RepoMeta | null>(null);
   const [branch, setBranch] = useState<string>('');
   const [branches, setBranches] = useState<string[]>([]);
+  const [changesHead, setChangesHead] = useState<string | undefined>();
   const [notConnected, setNotConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +43,11 @@ export function RepoView({ boardId, onConnectGitHub }: { boardId: string; onConn
     return () => { live = false; };
   }, [boardId]);
 
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- deep-link: copy prop into local state on change
+    if (changesTarget) { setChangesHead(changesTarget); setSub('changes'); }
+  }, [changesTarget]);
+
   if (notConnected) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3 text-[var(--muted)]">
@@ -66,6 +73,12 @@ export function RepoView({ boardId, onConnectGitHub }: { boardId: string; onConn
             {s === 'code' ? 'Code' : s === 'history' ? 'History' : 'Pull Requests'}
           </button>
         ))}
+        {changesHead && (
+          <button onClick={() => setSub('changes')}
+            className={`text-[13px] font-medium border-b-2 -mb-2.5 pb-2 ${sub === 'changes' ? 'border-[var(--primary)] text-[var(--primary)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'}`}>
+            Changes
+          </button>
+        )}
         <div className="flex-1" />
         <select value={branch} onChange={e => setBranch(e.target.value)}
           className="text-xs bg-[var(--surface)] rounded px-2 py-1 outline-none border border-[var(--border)] text-[var(--foreground)]">
@@ -77,6 +90,7 @@ export function RepoView({ boardId, onConnectGitHub }: { boardId: string; onConn
         {sub === 'code' && <CodeTab boardId={boardId} branch={branch} />}
         {sub === 'history' && <HistoryTab boardId={boardId} branch={branch} />}
         {sub === 'pulls' && <PullsTab boardId={boardId} />}
+        {sub === 'changes' && changesHead && <ChangesTab boardId={boardId} base={meta.defaultBranch} head={changesHead} />}
       </div>
     </div>
   );

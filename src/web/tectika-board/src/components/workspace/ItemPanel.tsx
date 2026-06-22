@@ -865,10 +865,40 @@ function OutputView({ output }: { output: Output }) {
       ? <Markdown text={output.inline.content} />
       : <pre className="font-mono text-[12.5px] bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 overflow-auto whitespace-pre-wrap text-[var(--foreground)]">{output.inline.content}</pre>;
   }
-  // Non-Document kinds (Code, Design, …) are produced/rendered in later specs.
+  if (output.kind === 'Code' && output.external) {
+    return <CodeOutputCard output={output} />;
+  }
   return (
     <div className="border border-dashed border-[var(--border)] rounded-lg p-3 text-[12px] text-[var(--muted)]">
       <span className="font-semibold text-[var(--foreground)]">{output.label ?? output.kind}</span>{' — '}{output.kind} output rendering coming soon.
+    </div>
+  );
+}
+
+function CodeOutputCard({ output }: { output: Output }) {
+  const { openRepoChanges, openTask } = useBoard();
+  const loc = (output.external!.locator ?? {}) as Record<string, string>;
+  const branch = loc.branch ?? '';
+  const base = loc.base ?? 'main';
+  const files = loc.filesChanged ?? '0';
+  const adds = loc.additions ?? '0';
+  const dels = loc.deletions ?? '0';
+  const prNumber = loc.prNumber;
+  const prUrl = loc.prUrl;
+
+  return (
+    <div className="border border-[var(--border)] rounded-lg p-3">
+      <div className="flex items-center gap-2 mb-1">
+        <Icon.file size={14} className="text-[var(--muted)]" />
+        <span className="font-semibold text-[13px] text-[var(--foreground)]">{output.label ?? 'Code'}</span>
+        {prUrl && <a href={prUrl} target="_blank" rel="noreferrer" className="ml-auto text-[12px] text-[var(--primary)] hover:underline">PR #{prNumber}</a>}
+      </div>
+      <div className="text-[11px] text-[var(--muted)] font-mono">{branch} · vs {base} · {files} files · <span className="text-emerald-500">+{adds}</span> <span className="text-red-500">−{dels}</span></div>
+      <button
+        onClick={() => { if (branch) { openRepoChanges(branch); openTask(undefined); } }}
+        className="mt-2 px-2.5 py-1 rounded-md bg-[var(--primary)] text-white text-[12px] font-medium">
+        Open diff →
+      </button>
     </div>
   );
 }

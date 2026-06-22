@@ -2,8 +2,8 @@
 
 import type {
   Board, AgentTask, AgentRole, AgentUpsertResult, Artifact, WorkflowRun, AgentEvent, HumanInteraction, TaskEdge, EdgeKind, RunEvent,
-  RepoMeta, BranchInfo, TreeEntry, FileContent, CommitInfo, PullRequestInfo,
-  UsageRollup, UsageEventsPage, PricingCatalog,
+  RepoMeta, BranchInfo, TreeEntry, FileContent, CommitInfo, PullRequestInfo, CompareResult,
+  UsageRollup, UsageEventsPage, PricingCatalog, UsageTimePoint,
 } from './types';
 import { trackEvent, trackException, redact } from './telemetry';
 
@@ -81,6 +81,8 @@ export const api = {
       fetchApi<CommitInfo[]>(`/api/boards/${boardId}/repo/commits?ref=${encodeURIComponent(ref ?? '')}&path=${encodeURIComponent(path ?? '')}&page=${page}`),
     pulls: (boardId: string, state = 'open') =>
       fetchApi<PullRequestInfo[]>(`/api/boards/${boardId}/repo/pulls?state=${encodeURIComponent(state)}`),
+    compare: (boardId: string, base: string, head: string) =>
+      fetchApi<CompareResult>(`/api/boards/${boardId}/repo/compare?base=${encodeURIComponent(base)}&head=${encodeURIComponent(head)}`),
   },
 
   tasks: {
@@ -105,6 +107,9 @@ export const api = {
     /** Slash-command effects. */
     clear: (boardId: string, taskId: string) =>
       fetchApi<void>(`/api/boards/${boardId}/tasks/${taskId}/clear`, { method: 'POST' }),
+    /** Start a new usage session (current-session tokens reset) without clearing the chat. */
+    resetUsage: (boardId: string, taskId: string) =>
+      fetchApi<void>(`/api/boards/${boardId}/tasks/${taskId}/reset-usage`, { method: 'POST' }),
     stop: (boardId: string, taskId: string) =>
       fetchApi<void>(`/api/boards/${boardId}/tasks/${taskId}/stop`, { method: 'POST' }),
     compact: (boardId: string, taskId: string) =>
@@ -189,6 +194,8 @@ export const api = {
     board: (boardId: string) => fetchApi<UsageRollup>(`/api/usage/board/${boardId}`),
     task: (taskId: string) => fetchApi<UsageRollup>(`/api/usage/task/${taskId}`),
     events: (taskId: string, max = 50) => fetchApi<UsageEventsPage>(`/api/usage/task/${taskId}/events?max=${max}`),
+    projectTimeseries: (days = 14) => fetchApi<UsageTimePoint[]>(`/api/usage/project/timeseries?days=${days}`),
+    boardTimeseries: (boardId: string, days = 14) => fetchApi<UsageTimePoint[]>(`/api/usage/board/${boardId}/timeseries?days=${days}`),
     pricing: () => fetchApi<PricingCatalog>('/api/usage/pricing'),
   },
 };

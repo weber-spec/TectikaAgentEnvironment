@@ -404,7 +404,6 @@ internal static class MockDataSeeder
         const string Model4oMini = "gpt-4o-mini";
 
         var calc = new CostCalculator(PricingCatalogLoader.LoadEmbedded());
-        var at = now.AddDays(-2); // consistent effective date for pricing
 
         // Stable session ids for the two tasks
         const string SessionImpl   = "seed-session-impl";
@@ -439,9 +438,11 @@ internal static class MockDataSeeder
             UsageRollup taskRollup,
             params UsageRollup[] sharedRollups)
         {
-            var cost    = calc.Compute(provider, model, tokens, at);
+            var seq     = eventSeq++;
+            var ts      = now.AddDays(-(seq * 2)).AddHours(-1);   // spread seed events across ~2 weeks for a real time-series
+            var cost    = calc.Compute(provider, model, tokens, ts);
             var modelKey = UsageRollup.ModelKey(provider, model);
-            var evtId   = UsageEvent.MakeId($"seed-{taskId}", 0, model, eventSeq++);
+            var evtId   = UsageEvent.MakeId($"seed-{taskId}", 0, model, seq);
 
             var evt = new UsageEvent
             {
@@ -451,7 +452,7 @@ internal static class MockDataSeeder
                 TaskId               = taskId,
                 RunId                = runId,
                 Step                 = 0,
-                Round                = eventSeq,
+                Round                = seq,
                 AgentRoleId          = "",
                 AgentRoleName        = "",
                 Provider             = provider,
@@ -465,7 +466,7 @@ internal static class MockDataSeeder
                 Currency             = cost.Currency,
                 CostUsd              = cost.CostUsd,
                 PricingMissing       = cost.PricingMissing,
-                Timestamp            = at,
+                Timestamp            = ts,
             };
             usageEvents[evtId] = evt;
 
@@ -478,6 +479,12 @@ internal static class MockDataSeeder
             }
             taskModelBucket.Add(tokens, cost.CostUsd);
             taskRollup.CurrentSession!.Add(tokens, cost.CostUsd);
+            if (!taskRollup.CurrentSession!.PerModel.TryGetValue(modelKey, out var sessionModelBucket))
+            {
+                sessionModelBucket = new UsageBucket();
+                taskRollup.CurrentSession!.PerModel[modelKey] = sessionModelBucket;
+            }
+            sessionModelBucket.Add(tokens, cost.CostUsd);
 
             // Accumulate into shared rollups (project, board)
             foreach (var rollup in sharedRollups)

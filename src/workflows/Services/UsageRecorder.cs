@@ -72,22 +72,29 @@ public sealed class UsageRecorder
             r => ApplyTask(r, a.Provider, a.Model, usage, cost.CostUsd, a.SessionId), ct);
     }
 
+    /// <summary>Add usage to a bucket's perModel map (creating the model entry on first use).</summary>
+    private static void AddToPerModel(Dictionary<string, UsageBucket> perModel, string provider, string model, TokenUsage usage, decimal costUsd)
+    {
+        var key = UsageRollup.ModelKey(provider, model);
+        if (!perModel.TryGetValue(key, out var bucket)) { bucket = new UsageBucket(); perModel[key] = bucket; }
+        bucket.Add(usage, costUsd);
+    }
+
     /// <summary>Increment lifetime + perModel. Used for project/board scopes.</summary>
     public static void ApplyShared(UsageRollup r, string provider, string model, TokenUsage usage, decimal costUsd)
     {
         r.Lifetime.Add(usage, costUsd);
-        var key = UsageRollup.ModelKey(provider, model);
-        if (!r.PerModel.TryGetValue(key, out var bucket)) { bucket = new UsageBucket(); r.PerModel[key] = bucket; }
-        bucket.Add(usage, costUsd);
+        AddToPerModel(r.PerModel, provider, model, usage, costUsd);
     }
 
-    /// <summary>Increment lifetime + perModel + currentSession (resetting the session bucket if the
-    /// sessionId changed — i.e. a /clear happened since this rollup was last written).</summary>
+    /// <summary>Increment lifetime + perModel + currentSession (incl. session perModel), resetting the
+    /// session bucket if the sessionId changed — i.e. a /clear happened since this rollup was last written.</summary>
     public static void ApplyTask(UsageRollup r, string provider, string model, TokenUsage usage, decimal costUsd, string sessionId)
     {
         ApplyShared(r, provider, model, usage, costUsd);
         if (r.CurrentSession is null || r.CurrentSession.SessionId != sessionId)
             r.CurrentSession = new SessionBucket { SessionId = sessionId, Since = DateTimeOffset.UtcNow };
         r.CurrentSession.Add(usage, costUsd);
+        AddToPerModel(r.CurrentSession.PerModel, provider, model, usage, costUsd);
     }
 }

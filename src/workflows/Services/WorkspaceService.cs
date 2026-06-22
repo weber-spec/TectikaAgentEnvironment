@@ -33,7 +33,7 @@ public class WorkspaceService : IWorkspaceService
     private const string AciLocation = "westeurope";
     private const int ExecutorPort = 8080;
     private const int HealthPollIntervalMs = 3_000;
-    private const int HealthPollTimeoutSec = 120;
+    private const int HealthPollTimeoutSec = 300;
 
     private readonly string _resourceGroup;
     private readonly string _acrImage;

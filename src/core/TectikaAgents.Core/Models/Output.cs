@@ -25,7 +25,7 @@ public sealed class ExternalRef
     public string Provider { get; set; } = string.Empty;
 
     [JsonPropertyName("locator")]
-    public Dictionary<string, object?> Locator { get; set; } = new();
+    public Dictionary<string, string> Locator { get; set; } = new();
 
     [JsonPropertyName("previewUrl")]
     public string? PreviewUrl { get; set; }

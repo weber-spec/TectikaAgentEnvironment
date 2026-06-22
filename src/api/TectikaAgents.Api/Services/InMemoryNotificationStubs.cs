@@ -1,6 +1,4 @@
 using Microsoft.Azure.Cosmos;
-using Microsoft.Extensions.Options;
-using TectikaAgents.Core.Configuration;
 using TectikaAgents.Core.Models;
 
 namespace TectikaAgents.Api.Services;
@@ -10,12 +8,7 @@ public sealed class InMemoryNotificationRepository : NotificationRepository
 {
     private readonly List<NotificationDocument> _store = [];
 
-    public InMemoryNotificationRepository(ILogger<NotificationRepository> logger)
-        : base(
-            new CosmosClient("AccountEndpoint=https://localhost:8081/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2NP9SdVmlDkFNfKKhVvFkTTa25aAWmIBQJrYVTbVA=="),
-            Options.Create(new CosmosDbSettings { DatabaseName = "mock" }),
-            logger)
-    { }
+    public InMemoryNotificationRepository(ILogger<NotificationRepository> logger) : base(logger) { }
 
     public override Task SaveAsync(NotificationDocument doc, CancellationToken ct = default)
     {
@@ -38,12 +31,7 @@ public sealed class InMemoryUserSettingsRepository : UserSettingsRepository
 {
     private readonly Dictionary<string, UserSettingsDocument> _store = [];
 
-    public InMemoryUserSettingsRepository(ILogger<UserSettingsRepository> logger)
-        : base(
-            new CosmosClient("AccountEndpoint=https://localhost:8081/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2NP9SdVmlDkFNfKKhVvFkTTa25aAWmIBQJrYVTbVA=="),
-            Options.Create(new CosmosDbSettings { DatabaseName = "mock" }),
-            logger)
-    { }
+    public InMemoryUserSettingsRepository(ILogger<UserSettingsRepository> logger) : base(logger) { }
 
     public override Task<UserSettingsDocument> GetOrCreateAsync(string userId, CancellationToken ct = default)
     {
