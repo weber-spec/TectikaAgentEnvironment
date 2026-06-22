@@ -399,6 +399,20 @@ export interface HumanInteraction {
   identityToBeUsed?: string;
 }
 
+// ── Live preview (mirrors backend PreviewSession JSON) ─────────────────────────
+export type PreviewStatus = 'Provisioning' | 'Running' | 'Failed' | 'Stopped';
+
+export interface PreviewSession {
+  id: string;
+  boardId: string;
+  branch: string;
+  status: PreviewStatus;
+  url?: string;
+  error?: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Front-end-only models — board views, columns, filters, automations, collab.
 // These power the rich Monday.com-style UI. View/column config and the

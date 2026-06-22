@@ -4,6 +4,7 @@ import type {
   Board, AgentTask, AgentRole, AgentUpsertResult, Artifact, Approval, WorkflowRun, AgentEvent, HumanInteraction, TaskEdge, EdgeKind, RunEvent,
   RepoMeta, BranchInfo, TreeEntry, FileContent, CommitInfo, PullRequestInfo, CompareResult,
   UsageRollup, UsageEventsPage, PricingCatalog, UsageTimePoint,
+  PreviewSession,
 } from './types';
 import { trackEvent, trackException, redact } from './telemetry';
 
@@ -11,8 +12,12 @@ import { trackEvent, trackException, redact } from './telemetry';
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5138').replace(/\/+$/, '');
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  readonly status: number;
+  // Plain field assignment (not a TS parameter property) so the file is importable under
+  // Node's `--experimental-strip-types` test runner, which can't transform param properties.
+  constructor(status: number, message: string) {
     super(message);
+    this.status = status;
     this.name = 'ApiError';
   }
 }
@@ -83,6 +88,26 @@ export const api = {
       fetchApi<PullRequestInfo[]>(`/api/boards/${boardId}/repo/pulls?state=${encodeURIComponent(state)}`),
     compare: (boardId: string, base: string, head: string) =>
       fetchApi<CompareResult>(`/api/boards/${boardId}/repo/compare?base=${encodeURIComponent(base)}&head=${encodeURIComponent(head)}`),
+  },
+
+  preview: {
+    /** Start (or re-provision) a live preview for a board's branch. */
+    start: (boardId: string, branch: string) =>
+      fetchApi<PreviewSession>(`/api/boards/${boardId}/preview`, { method: 'POST', body: JSON.stringify({ branch }) }),
+    /** Current preview session, or null when none is active (backend 404s). Polled while Provisioning. */
+    get: async (boardId: string): Promise<PreviewSession | null> => {
+      try {
+        return await fetchApi<PreviewSession>(`/api/boards/${boardId}/preview`);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) return null;
+        throw err;
+      }
+    },
+    /** Keep-alive: pushes back the session's expiry while the tab is open. */
+    heartbeat: (boardId: string) =>
+      fetchApi<PreviewSession>(`/api/boards/${boardId}/preview/heartbeat`, { method: 'POST' }),
+    stop: (boardId: string) =>
+      fetchApi<void>(`/api/boards/${boardId}/preview`, { method: 'DELETE' }),
   },
 
   tasks: {
