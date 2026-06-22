@@ -8,8 +8,9 @@ import { CodeTab } from './CodeTab';
 import { HistoryTab } from './HistoryTab';
 import { PullsTab } from './PullsTab';
 import { ChangesTab } from './ChangesTab';
+import { PreviewTab } from './PreviewTab';
 
-type Sub = 'code' | 'history' | 'pulls' | 'changes';
+type Sub = 'code' | 'history' | 'pulls' | 'preview' | 'changes';
 
 export function RepoView({ boardId, onConnectGitHub, changesTarget }: { boardId: string; onConnectGitHub: () => void; changesTarget?: string }) {
   const [sub, setSub] = useState<Sub>('code');
@@ -67,10 +68,10 @@ export function RepoView({ boardId, onConnectGitHub, changesTarget }: { boardId:
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-4 px-4 py-2 border-b border-[var(--border)]">
-        {(['code', 'history', 'pulls'] as Sub[]).map(s => (
+        {(['code', 'history', 'pulls', 'preview'] as Sub[]).map(s => (
           <button key={s} onClick={() => setSub(s)}
             className={`text-[13px] font-medium border-b-2 -mb-2.5 pb-2 ${sub === s ? 'border-[var(--primary)] text-[var(--primary)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'}`}>
-            {s === 'code' ? 'Code' : s === 'history' ? 'History' : 'Pull Requests'}
+            {s === 'code' ? 'Code' : s === 'history' ? 'History' : s === 'pulls' ? 'Pull Requests' : 'Preview'}
           </button>
         ))}
         {changesHead && (
@@ -90,6 +91,7 @@ export function RepoView({ boardId, onConnectGitHub, changesTarget }: { boardId:
         {sub === 'code' && <CodeTab boardId={boardId} branch={branch} />}
         {sub === 'history' && <HistoryTab boardId={boardId} branch={branch} />}
         {sub === 'pulls' && <PullsTab boardId={boardId} />}
+        {sub === 'preview' && <PreviewTab boardId={boardId} branch={branch} />}
         {sub === 'changes' && changesHead && <ChangesTab boardId={boardId} base={meta.defaultBranch} head={changesHead} />}
       </div>
     </div>
