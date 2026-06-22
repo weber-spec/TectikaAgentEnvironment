@@ -1,7 +1,6 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
-using TectikaAgents.Api.Controllers;
 using TectikaAgents.Core.Configuration;
 using TectikaAgents.Core.Models;
 
@@ -55,15 +54,10 @@ public class RunStartService : IRunStartService
             return null;
         }
 
-        // ── 3. Resolve pipeline from task assignee ────────────────────────────
-        List<PipelineStep> pipeline;
-        try
+        // ── 3. Resolve agent role id from assignee ────────────────────────────
+        if (task.Assignee.Type != AssigneeType.Agent || string.IsNullOrEmpty(task.Assignee.Id))
         {
-            pipeline = RunPipelineFactory.FromTask(task);
-        }
-        catch (InvalidOperationException ex)
-        {
-            _logger.LogWarning(ex, "[RunStart] could not start run for task {TaskId} (cannot build pipeline: {Message})", taskId, ex.Message);
+            _logger.LogWarning("[RunStart] could not start run for task {TaskId} (no assigned agent)", taskId);
             return null;
         }
 
@@ -72,7 +66,6 @@ public class RunStartService : IRunStartService
         {
             TenantId           = tenantId,
             TaskId             = taskId,
-            PipelineDefinition = pipeline,
             Status             = RunStatus.Pending,
             PreviousTaskStatus = task.Status
         };
@@ -84,30 +77,27 @@ public class RunStartService : IRunStartService
         task.WorkflowRunId = savedRun.Id;
         task.Status        = AgentTaskStatus.InProgress;
         // Stamp a session id on first run-start (only when absent — never re-bump).
-        // /clear resets this; a task that has never been cleared gets its session stamped here.
         if (task.UsageSessionId is null)
             task.UsageSessionId = Guid.NewGuid().ToString();
         await _cosmos.UpdateTaskAsync(task, ct);
 
-        // ── 6. Trigger Durable Functions via HTTP ─────────────────────────────
-        var durableStartUrl = _settings.StartUrl;
-        if (!string.IsNullOrEmpty(_settings.FunctionKey))
-            durableStartUrl += $"?code={Uri.EscapeDataString(_settings.FunctionKey)}";
-
-        var pipelineInput = new
+        // ── 6. Trigger steerable orchestrator ────────────────────────────────
+        var steerableUrl = BuildSteerableUrl(_settings.StartUrl, _settings.FunctionKey);
+        var steerableInput = new
         {
-            RunId    = savedRun.Id,
-            TaskId   = taskId,
-            BoardId  = boardId,
-            TenantId = tenantId,
-            Steps    = pipeline
+            RunId       = savedRun.Id,
+            TaskId      = taskId,
+            BoardId     = boardId,
+            TenantId    = tenantId,
+            AgentRoleId = task.Assignee.Id,
+            SeedMessage = (string?)null
         };
 
         try
         {
             var http    = _httpFactory.CreateClient();
-            var content = new StringContent(JsonSerializer.Serialize(pipelineInput), Encoding.UTF8, "application/json");
-            var res     = await http.PostAsync(durableStartUrl, content, ct);
+            var content = new StringContent(JsonSerializer.Serialize(steerableInput), Encoding.UTF8, "application/json");
+            var res     = await http.PostAsync(steerableUrl, content, ct);
 
             if (!res.IsSuccessStatusCode)
             {
@@ -116,7 +106,7 @@ public class RunStartService : IRunStartService
             }
             else
             {
-                var body       = await res.Content.ReadAsStringAsync(ct);
+                var body        = await res.Content.ReadAsStringAsync(ct);
                 var durableData = JsonSerializer.Deserialize<JsonElement>(body);
                 var instanceId  = durableData.TryGetProperty("instanceId", out var id) ? id.GetString() : null;
 
@@ -125,7 +115,7 @@ public class RunStartService : IRunStartService
                 {
                     savedRun.DurableFunctionInstanceId = instanceId;
                     await _cosmos.UpdateRunAsync(savedRun, ct);
-                    _logger.LogInformation("[RunStart] pipeline started run={RunId} instance={InstanceId}", savedRun.Id, instanceId);
+                    _logger.LogInformation("[RunStart] steerable run started run={RunId} instance={InstanceId}", savedRun.Id, instanceId);
                 }
             }
         }
@@ -136,5 +126,16 @@ public class RunStartService : IRunStartService
         }
 
         return savedRun;
+    }
+
+    private static string BuildSteerableUrl(string startUrl, string? functionKey)
+    {
+        var baseUrl = startUrl.EndsWith("/start", StringComparison.OrdinalIgnoreCase)
+            ? startUrl[..^"/start".Length]
+            : startUrl;
+        var url = $"{baseUrl}/steerable/start";
+        if (!string.IsNullOrEmpty(functionKey))
+            url += $"?code={Uri.EscapeDataString(functionKey)}";
+        return url;
     }
 }
