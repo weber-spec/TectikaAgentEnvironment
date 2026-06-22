@@ -5,8 +5,9 @@ namespace TectikaAgents.Core.Interfaces;
 /// <summary>Outcome of provisioning a preview container group.</summary>
 public sealed record PreviewProvisionResult(string Fqdn, string ContainerName);
 
-/// <summary>A summary of a live preview container group (for orphan reconciliation).</summary>
-public sealed record PreviewGroupInfo(string Name, string BoardId);
+/// <summary>A summary of a live preview container group (for orphan reconciliation).
+/// <paramref name="Owner"/> is the GitHub owner from the boardOwner tag.</summary>
+public sealed record PreviewGroupInfo(string Name, string Owner);
 
 /// <summary>Provisions and tears down ephemeral preview container groups (ACI in prod).</summary>
 public interface IPreviewProvisioner

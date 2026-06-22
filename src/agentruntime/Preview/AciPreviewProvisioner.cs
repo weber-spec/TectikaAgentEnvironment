@@ -127,6 +127,12 @@ public sealed class AciPreviewProvisioner : IPreviewProvisioner
         {
             _log.LogInformation("[Preview] destroy no-op, {Name} already gone", containerName);
         }
+        catch (Exception ex)
+        {
+            // Best-effort teardown: swallow transient failures (auth blip, 429, 5xx) so
+            // cleanup paths don't fail. Mirrors WorkspaceService.DestroyAsync.
+            _log.LogWarning(ex, "[Preview] destroy failed for {Name}", containerName);
+        }
     }
 
     public async Task<IReadOnlyList<PreviewGroupInfo>> ListPreviewGroupsAsync(CancellationToken ct)
