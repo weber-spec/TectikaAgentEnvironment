@@ -15,6 +15,11 @@ src/web/
 .git/
 .gitignore
 
+# Agent worktrees + session data — each worktree under .claude/ carries its own full source
+# tree, so without this the root build context balloons by gigabytes (and uploads to ACR).
+.claude/
+.claire/
+
 # IDE
 .vs/
 .vscode/
