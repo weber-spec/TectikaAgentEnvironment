@@ -18,7 +18,8 @@ public sealed record RoundProcessResult(
     string? RoundIntent,
     string? BriefUpdate,
     IReadOnlyList<RoundToolCall> ToolCalls,        // summarised trace for RunEvents
-    IReadOnlyList<OutputOp> OutputOps);            // declared-output edits this round
+    IReadOnlyList<OutputOp> OutputOps,             // declared-output edits this round
+    string? WorkspaceUnavailable = null);          // set when a needed sandbox couldn't be provisioned → fail the run cleanly
 
 /// <summary>Executes the tool calls of one round against the board-scoped explorer.</summary>
 public static class RoundExecutor
@@ -35,7 +36,7 @@ public static class RoundExecutor
         var outputs = new List<ToolOutput>();
         var traced = new List<RoundToolCall>();
         var ops = new List<OutputOp>();
-        string? intent = null, brief = null, openControlCallId = null;
+        string? intent = null, brief = null, openControlCallId = null, workspaceUnavailable = null;
         PendingControl? control = null;
 
         foreach (var call in resp.ToolCalls)
@@ -128,10 +129,22 @@ public static class RoundExecutor
                             outputs.Add(new(call.CallId, wsResult));
                             traced.Add(new(call.Name, WorkspaceArgSummary(call.Name, args), Summarize(wsResult)));
                         }
+                        else if (workspaceProvider is not null)
+                        {
+                            // The agent was given workspace tools (a provider exists) but the sandbox could not
+                            // be provisioned. It needs the workspace; rather than letting it limp on and emit a
+                            // misleading artifact, signal the runtime to fail the run cleanly. Still answer the
+                            // call so the conversation isn't left awaiting tool output.
+                            workspaceUnavailable = "The workspace sandbox could not be started, so this run cannot use its workspace tools.";
+                            outputs.Add(new(call.CallId, """{"error":"The workspace sandbox could not be started. This run will stop."}"""));
+                            traced.Add(new(call.Name, WorkspaceArgSummary(call.Name, args), "sandbox unavailable — failing run"));
+                        }
                         else
                         {
-                            outputs.Add(new(call.CallId, """{"error":"The sandbox could not be started for this run."}"""));
-                            traced.Add(new(call.Name, WorkspaceArgSummary(call.Name, args), "no sandbox"));
+                            // No workspace is configured for this run at all (e.g. the compact path). Degrade:
+                            // answer the call with an error so the model can continue without the workspace.
+                            outputs.Add(new(call.CallId, """{"error":"No workspace is available for this run."}"""));
+                            traced.Add(new(call.Name, WorkspaceArgSummary(call.Name, args), "no workspace"));
                         }
                         break;
                     }
@@ -164,7 +177,7 @@ public static class RoundExecutor
             .Select(o => new ToolOutput(o.CallId, CapOutput(SecretScrubber.Scrub(o.Output))))
             .ToList();
 
-        return new RoundProcessResult(false, null, safeOutputs, openControlCallId, control, intent, brief, traced, ops);
+        return new RoundProcessResult(false, null, safeOutputs, openControlCallId, control, intent, brief, traced, ops, workspaceUnavailable);
     }
 
     /// <summary>Max characters of any single tool output submitted back to the model. Oversized output

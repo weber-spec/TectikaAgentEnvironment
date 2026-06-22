@@ -144,7 +144,14 @@ public class RunAgentRoundActivity
             await _cosmos.PatchTaskPendingOutputsAsync(input.BoardId, input.TaskId, task.PendingOutputs, ct);
 
         string? artifactId = null;
-        if (outcome.Kind == RoundKind.Final && outcome.Error is null)
+        if (outcome.Error is not null)
+        {
+            // Infra/sandbox failure (e.g. the workspace couldn't start). Fail the task cleanly — produce no
+            // artifact and don't leave it stranded InProgress. The run itself is marked Failed by the
+            // orchestrator (OnStateAsync) carrying this same error message, so the user sees why it stopped.
+            await _cosmos.UpdateTaskStatusAsync(input.BoardId, input.TaskId, AgentTaskStatus.Failed, input.RunId, ct);
+        }
+        else if (outcome.Kind == RoundKind.Final)
         {
             // Only push for roles permitted to (CanPushCode); the sandbox's push remote is disabled
             // otherwise, so an ungated push would just fail and log noise every run.
@@ -339,6 +346,7 @@ public class RunAgentRoundActivity
         private readonly bool _canPush;
         private readonly ILogger _logger;
         private WorkspaceConnection? _cached;
+        private bool _failed;   // sticky: once provisioning fails, don't re-attempt (a retry would burn another full health-poll window)
 
         public RunWorkspaceProvider(WorkflowCosmosService cosmos, IWorkspaceService workspace, Board board, string runId, string taskId, bool canPush, ILogger logger)
         { _cosmos = cosmos; _workspace = workspace; _board = board; _runId = runId; _taskId = taskId; _canPush = canPush; _logger = logger; }
@@ -346,22 +354,43 @@ public class RunAgentRoundActivity
         public async Task<WorkspaceConnection?> EnsureAsync(CancellationToken ct = default)
         {
             if (_cached is not null) return _cached;
+            // Sticky failure: a sandbox that couldn't start won't start on a later tool call either, and
+            // re-provisioning would hang the run for another health-poll window each time. Fail fast.
+            if (_failed) return null;
             var run = await _cosmos.GetRunByIdAsync(_runId, ct);
             if (run is { WorkspaceEndpoint: not null, WorkspaceToken: not null })
                 return _cached = new WorkspaceConnection(run.WorkspaceEndpoint, run.WorkspaceToken);
-            try
+
+            var branch = $"agent/{_runId[..Math.Min(8, _runId.Length)]}";
+            // One retry for a transient infra blip (ARM throttling, a flaky create). A health TimeoutException
+            // means the container started but never became healthy (e.g. a broken image) — retrying just burns
+            // another full poll window, so we don't retry that case; we fail fast and let the run stop cleanly.
+            for (var attempt = 1; attempt <= 2; attempt++)
             {
-                var branch = $"agent/{_runId[..Math.Min(8, _runId.Length)]}";
-                var info = await _workspace.ProvisionAsync(_board, branch, _runId, _canPush, ct);
-                if (info is null) return null;
-                await _cosmos.PatchRunWorkspaceAsync(_runId, _taskId, info.ContainerName, info.Endpoint, info.Token, ct);
-                return _cached = new WorkspaceConnection(info.Endpoint, info.Token);
+                try
+                {
+                    var info = await _workspace.ProvisionAsync(_board, branch, _runId, _canPush, ct);
+                    if (info is null) break;
+                    await _cosmos.PatchRunWorkspaceAsync(_runId, _taskId, info.ContainerName, info.Endpoint, info.Token, ct);
+                    return _cached = new WorkspaceConnection(info.Endpoint, info.Token);
+                }
+                catch (TimeoutException ex)
+                {
+                    _logger.LogError(ex, "[RunAgentRound] sandbox never became healthy for run {RunId} — failing the run", _runId);
+                    break;
+                }
+                catch (Exception ex) when (attempt < 2)
+                {
+                    _logger.LogWarning(ex, "[RunAgentRound] sandbox provisioning hit a transient error for run {RunId}; retrying once", _runId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[RunAgentRound] sandbox provisioning failed for run {RunId}", _runId);
+                    break;
+                }
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[RunAgentRound] sandbox provisioning failed for run {RunId}", _runId);
-                return null;
-            }
+            _failed = true;
+            return null;
         }
     }
 }

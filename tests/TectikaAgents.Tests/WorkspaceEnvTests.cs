@@ -36,4 +36,33 @@ public class WorkspaceEnvTests
         var canPush = WorkspaceService.BuildEnv(gh, "agent/x", "tok", "pat", canPush: true);
         Assert.Equal("true", canPush.Single(e => e.Name == "GIT_CAN_PUSH").Value);
     }
+
+    // ── ContainerNameFor: provisioning and teardown MUST derive the same ACI name from a runId.
+    //    A mismatch (or a name ACI rejects) is exactly what leaves crash-looping groups orphaned.
+
+    [Fact]
+    public void ContainerName_is_tws_prefix_plus_first8_of_runId()
+    {
+        Assert.Equal("tws-54a86b65", WorkspaceService.ContainerNameFor("54a86b65-7502-4d9d-b3d2-5830c7fbadfe"));
+    }
+
+    [Fact]
+    public void ContainerName_is_lowercased_for_aci_dns_label()
+    {
+        // ACI DNS labels must be lowercase; an upper-case runId must still yield a valid name.
+        Assert.Equal("tws-abcd1234", WorkspaceService.ContainerNameFor("ABCD1234-FFFF"));
+    }
+
+    [Fact]
+    public void ContainerName_handles_runId_shorter_than_8_chars()
+    {
+        Assert.Equal("tws-abc", WorkspaceService.ContainerNameFor("abc"));
+    }
+
+    [Fact]
+    public void ContainerName_is_deterministic_for_same_runId()
+    {
+        const string runId = "deadBEEF-1111-2222";
+        Assert.Equal(WorkspaceService.ContainerNameFor(runId), WorkspaceService.ContainerNameFor(runId));
+    }
 }

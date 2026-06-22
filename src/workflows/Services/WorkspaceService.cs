@@ -56,6 +56,12 @@ public class WorkspaceService : IWorkspaceService
         _logger = logger;
     }
 
+    /// <summary>Deterministic ACI container-group name for a run. ACI names must be ≤63 chars,
+    /// alphanumeric + hyphens, and start with a letter. Centralised so provisioning and teardown
+    /// always derive the same name from a runId — a mismatch here silently leaks crash-looping groups.</summary>
+    public static string ContainerNameFor(string runId) =>
+        $"tws-{runId[..Math.Min(8, runId.Length)].ToLowerInvariant()}";
+
     /// <summary>Env vars for the workspace container. Repo vars (REPO_URL/GIT_BRANCH/GIT_PAT) are
     /// included only when a repo is connected — the entrypoint provisions a bare, git-free /workspace
     /// otherwise.</summary>
@@ -82,8 +88,7 @@ public class WorkspaceService : IWorkspaceService
     {
         var pat = board.GitHub is null ? null : await _secrets.GetSecretAsync(board.GitHub.PatSecretName, ct);
         var token = GenerateToken();
-        // ACI name: max 63 chars, alphanumeric + hyphens, must start with letter
-        var containerName = $"tws-{runId[..Math.Min(8, runId.Length)].ToLowerInvariant()}";
+        var containerName = ContainerNameFor(runId);
 
         _logger.LogInformation("[Workspace] provisioning ACI {Name} run={RunId}", containerName, runId);
 
@@ -141,7 +146,21 @@ public class WorkspaceService : IWorkspaceService
         var endpoint = $"http://{fqdn}:{ExecutorPort}";
 
         _logger.LogInformation("[Workspace] ACI {Name} at {Endpoint} — polling health", containerName, endpoint);
-        await WaitForHealthAsync(endpoint, token, ct);
+        try
+        {
+            await WaitForHealthAsync(endpoint, token, ct);
+        }
+        catch (Exception ex)
+        {
+            // The group was created but never became healthy (most often the image crash-loops, e.g. a
+            // CRLF entrypoint). ProvisionAsync throws before returning a handle, so the caller never records
+            // it and the orchestrator's DestroyWorkspace would leave a billing, crash-looping orphan behind.
+            // Tear it down here — at the source — before rethrowing. CancellationToken.None so the cleanup
+            // still runs when the failure is a cancelled run. DestroyAsync is itself best-effort.
+            _logger.LogWarning(ex, "[Workspace] ACI {Name} never became healthy within {Timeout}s — destroying to avoid an orphan", containerName, HealthPollTimeoutSec);
+            await DestroyAsync(containerName, CancellationToken.None);
+            throw;
+        }
         _logger.LogInformation("[Workspace] ACI {Name} healthy", containerName);
 
         return new WorkspaceInfo(containerName, endpoint, token);

@@ -1,0 +1,10 @@
+# Normalize line endings in the repo so a Windows checkout can't ship CRLF where it breaks.
+* text=auto
+
+# Shell scripts MUST be LF. A CRLF entrypoint.sh makes bash fail on the first directive inside a
+# Linux container — e.g. `set -euo pipefail\r` → "set: pipefail: invalid option name" — which
+# crash-loops the workspace sandbox image (CrashLoopBackOff) so the agent's tools silently never start.
+*.sh text eol=lf
+
+# The workspace-executor container entrypoint and its scripts are Linux-only; pin them to LF.
+docker/** text eol=lf

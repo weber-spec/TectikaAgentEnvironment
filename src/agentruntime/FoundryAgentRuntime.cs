@@ -273,6 +273,12 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
             var next = p.ToolOutputs.Select(o => new PriorToolOutput(o.CallId, o.Output)).ToList();
             var id = r.Id ?? $"round-{req.RunId}-{req.Round}";
 
+            // A needed sandbox couldn't be provisioned → fail the run cleanly (surfaced as RunStatus.Failed
+            // with this message), instead of letting the agent finish without its workspace tools.
+            if (p.WorkspaceUnavailable is not null)
+                return new RoundOutcome(RoundKind.Final, null, [], null, null, p.RoundIntent, p.BriefUpdate,
+                    p.ToolCalls, usage, id, Error: p.WorkspaceUnavailable, OutputOps: p.OutputOps);
+
             if (p.IsFinal)
             {
                 if (!string.IsNullOrEmpty(p.FinalText)) OnText?.Invoke(p.FinalText);
