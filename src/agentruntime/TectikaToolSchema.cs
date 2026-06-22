@@ -8,7 +8,7 @@ namespace TectikaAgents.AgentRuntime;
 /// whenever the toolset changes so AgentInstructionsHash republishes agent versions.</summary>
 public static class TectikaToolSchema
 {
-    public const string Version = "tools-v5";
+    public const string Version = "tools-v6";
 
     public sealed record ToolProp(string Type, string? Description = null, string[]? Enum = null);
     public sealed record ToolDef(
@@ -82,21 +82,75 @@ public static class TectikaToolSchema
          gh => gh.CanRead),
     ];
 
-    // ── Workspace tools (appended when an ACI workspace is provisioned for the run) ──
+    // ── Workspace tools (appended when CanUseWorkspace = true) ──────────────────
     private static readonly ToolDef RunCommandTool = new(
         "run_command",
         "Run a bash shell command in your sandbox workspace at `/workspace`. " +
         "Returns stdout, stderr, and exit_code. The sandbox is created the first time you call this. " +
         "When a GitHub repo is connected to the board it is cloned into `/workspace` with git configured " +
         "(you can git commit / git push); otherwise `/workspace` is an empty sandbox with no git repo. " +
-        "Use it to write and run code, run builds (dotnet build, npm install), execute tests, etc. " +
-        "Prefer small focused commands; chain them with &&. For file edits prefer 'cat > path <<EOF ... EOF'.",
+        "Use for: builds (dotnet build, npm install), tests, git operations, package installs, and other shell execution. " +
+        "For file operations prefer the dedicated tools: read_file, write_file, edit_file, list_dir, search_code.",
         new Dictionary<string, ToolProp>
         {
-            ["cmd"] = new("string", "The bash command to run, e.g. 'dotnet build src/MyProject.csproj'."),
+            ["cmd"]     = new("string",  "The bash command to run, e.g. 'dotnet build src/MyProject.csproj'."),
             ["timeout"] = new("integer", "Max seconds to wait (default 60, max 300).")
         },
         ["cmd"]);
+
+    private static readonly IReadOnlyList<ToolDef> FileTools =
+    [
+        new("read_file",
+            "Read the content of a file in the workspace. Returns content with line numbers (format: 'N\\tline'). " +
+            "Use offset/limit for large files (default: 200 lines, max: 500). " +
+            "**Prefer over run_command cat** — returns numbered lines and handles large files efficiently. " +
+            "Always call read_file before edit_file to confirm the exact text to match.",
+            new Dictionary<string, ToolProp> {
+                ["path"]   = new("string",  "File path relative to /workspace, e.g. 'src/main.cs'."),
+                ["offset"] = new("integer", "Line offset to start from (0-based, default 0)."),
+                ["limit"]  = new("integer", "Max lines to return (default 200, max 500).") },
+            ["path"]),
+
+        new("write_file",
+            "Create or overwrite a file in the workspace. Content is passed directly — no shell escaping needed. " +
+            "Quotes, dollar signs, and backslashes work as-is. Intermediate directories are created automatically. " +
+            "**Prefer over run_command with heredoc** — heredoc breaks on special characters. " +
+            "Use for new files or when replacing an entire file.",
+            new Dictionary<string, ToolProp> {
+                ["path"]    = new("string", "File path relative to /workspace."),
+                ["content"] = new("string", "Full file content to write.") },
+            ["path", "content"]),
+
+        new("edit_file",
+            "Replace an exact string in an existing file. **Always call read_file first** to confirm the exact " +
+            "text including indentation and whitespace. old_string must match character-for-character. " +
+            "Returns an error if old_string is not found — make the match as specific as needed to be unique. " +
+            "**Prefer over run_command sed/awk** — reliable, no escaping issues, fails clearly if not found.",
+            new Dictionary<string, ToolProp> {
+                ["path"]        = new("string",  "File path relative to /workspace."),
+                ["old_string"]  = new("string",  "The exact text to find and replace (must match precisely)."),
+                ["new_string"]  = new("string",  "The replacement text."),
+                ["replace_all"] = new("boolean", "Replace all occurrences (default: false, replaces only the first).") },
+            ["path", "old_string", "new_string"]),
+
+        new("list_dir",
+            "List files and directories at a path in the workspace. Returns name, type (file/dir), and size. " +
+            "Directories are listed before files, both sorted alphabetically. " +
+            "**Prefer over run_command ls** — structured output, easy to navigate programmatically.",
+            new Dictionary<string, ToolProp> {
+                ["path"] = new("string", "Directory path relative to /workspace. Omit or use '' for the workspace root.") },
+            []),
+
+        new("search_code",
+            "Search for a regex pattern in workspace files. Returns matching lines with file path and line number. " +
+            "**Prefer over run_command grep** — structured results (file, line, text) instead of raw output. " +
+            "Use the glob parameter to restrict search to specific file types (e.g. '*.cs', '*.ts').",
+            new Dictionary<string, ToolProp> {
+                ["pattern"] = new("string", "Regex pattern to search for, e.g. 'class AuthService'."),
+                ["path"]    = new("string", "Subdirectory to search in (default: entire workspace)."),
+                ["glob"]    = new("string", "File glob filter, e.g. '*.cs' or '*.ts'. Omit to search all files.") },
+            ["pattern"]),
+    ];
 
     /// <summary>Project the catalog into the Foundry flat function-tool array (definition.tools).
     /// Workspace permission (layer 1) controls run_command and cascades GitHub read access.
@@ -115,7 +169,10 @@ public static class TectikaToolSchema
                 .Where(t => t.Allowed(effectiveGitHub))
                 .Select(t => (object)ToFoundryTool(t.Def)));
         if (permissions.CanUseWorkspace)
+        {
             tools.Add(ToFoundryTool(RunCommandTool));
+            tools.AddRange(FileTools.Select(d => (object)ToFoundryTool(d)));
+        }
         return tools;
     }
 

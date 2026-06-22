@@ -77,6 +77,10 @@ public class RunAgentRoundActivity
             await _cosmos.PatchTaskThreadIdAsync(input.BoardId, input.TaskId, threadId, ct);
 
         // Round 0 seeds the conversation with assembled task context (+ any user/chat message).
+        // On continuation runs that reuse an existing Foundry thread (hadThread == true), the model
+        // already has the full context from the first run — resending it every time causes the thread
+        // to accumulate duplicate instructions and confuses the model. Only seed the full context when
+        // opening a brand-new thread.
         var userInput = input.UserInput;
         if (input.Round == 0)
         {
@@ -85,15 +89,22 @@ public class RunAgentRoundActivity
             if (await AgentSelfHeal.EnsureCurrentAsync(_provisioner, role, ct))
                 await _cosmos.UpsertAgentRoleAsync(role, ct);
 
-            var upstreamIds = await _cosmos.GetUpstreamTaskIdsAsync(task.BoardId, input.TaskId, ct);
-            var upstream = await _cosmos.GetUpstreamArtifactsAsync(upstreamIds, ct);
-            var qa = await _cosmos.GetQaFeedbackArtifactsAsync(task.BoardId, input.TaskId, ct);
-            var context = await _contextManager.BuildUserContentAsync(role, task, board, upstream.Concat(qa).ToList(), ct);
-            userInput = string.IsNullOrEmpty(input.UserInput)
-                ? context
-                : context + "\n\n## User message\n" + input.UserInput;
-
-            userInput += WorkspacePrompt(role.Permissions.CanUseWorkspace, board.GitHub is not null);
+            if (!hadThread)
+            {
+                var upstreamIds = await _cosmos.GetUpstreamTaskIdsAsync(task.BoardId, input.TaskId, ct);
+                var upstream = await _cosmos.GetUpstreamArtifactsAsync(upstreamIds, ct);
+                var qa = await _cosmos.GetQaFeedbackArtifactsAsync(task.BoardId, input.TaskId, ct);
+                var context = await _contextManager.BuildUserContentAsync(role, task, board, upstream.Concat(qa).ToList(), ct);
+                userInput = string.IsNullOrEmpty(input.UserInput)
+                    ? context
+                    : context + "\n\n## User message\n" + input.UserInput;
+            }
+            // Workspace prompt is always sent at round 0 when there is no user seed message
+            // (button-triggered run). For chat continuations (UserInput set) the user's message is enough.
+            // New threads always get it; existing threads get it only on button-triggered runs so the agent
+            // is reminded to use the workspace even when task context is already in the thread history.
+            if (string.IsNullOrEmpty(input.UserInput))
+                userInput += WorkspacePrompt(role.Permissions.CanUseWorkspace, board.GitHub is not null);
         }
 
         var explorer = new BoardProjectExplorer(_cosmos, input.BoardId, input.TenantId);
@@ -102,7 +113,7 @@ public class RunAgentRoundActivity
             {
                 BoardGitHub = board.GitHub,
                 Workspace = role.Permissions.CanUseWorkspace
-                    ? new RunWorkspaceProvider(_cosmos, _workspace, board, input.RunId, _logger)
+                    ? new RunWorkspaceProvider(_cosmos, _workspace, board, input.RunId, input.TaskId, _logger)
                     : null,
             },
             explorer, ct);
@@ -183,16 +194,41 @@ public class RunAgentRoundActivity
 
     private static string Short(string s) => s[..Math.Min(6, s.Length)];
 
-    public static string WorkspacePrompt(bool canUseWorkspace, bool repoConnected) =>
-        !canUseWorkspace
-            ? "\n\n## Sandbox\nYou do not have sandbox (workspace) access. If the task requires running " +
-              "code or git operations, inform the user that your role does not have workspace permission " +
-              "and ask them to reassign the task to an agent that does."
-            : repoConnected
-                ? "\n\n## Sandbox\nYou have an on-demand sandbox terminal via `run_command`. On first use, the connected " +
-                  "GitHub repository is cloned to `/workspace` with git configured (you can `git commit`/`git push`)."
-                : "\n\n## Sandbox\nYou have an on-demand sandbox terminal via `run_command` — an empty `/workspace` " +
-                  "(no git repo connected). Use it to write and run code.";
+    public static string WorkspacePrompt(bool canUseWorkspace, bool repoConnected)
+    {
+        if (!canUseWorkspace)
+            return "\n\n## Sandbox\nYou do not have sandbox (workspace) access. If the task requires running " +
+                   "code or git operations, inform the user that your role does not have workspace permission " +
+                   "and ask them to reassign the task to an agent that does.";
+
+        const string header =
+            "\n\n## Sandbox — MANDATORY WORKFLOW\n\n" +
+            "You have a live sandbox workspace at `/workspace` and **MUST** use it for all implementation work.\n\n" +
+            "**REQUIRED steps — do not skip:**\n" +
+            "1. Call `list_dir` or `run_command git log --oneline -5` to see the current workspace state\n" +
+            "2. Read files with `read_file` before editing them\n" +
+            "3. Create/edit files using `write_file` / `edit_file` — **do NOT write code as text in your response**\n" +
+            "4. Verify: `run_command dotnet build` / `run_command npm test` / `run_command python -m pytest`\n" +
+            "5. Commit: `run_command git add -A && git commit -m \"...\"` then `run_command git push`\n\n" +
+            "**NEVER:**\n" +
+            "- Write implementation code as text in your response or inside `declare_output`\n" +
+            "- Ask \"how would you like me to proceed?\" — explore and implement directly\n" +
+            "- Mark the task done without having run at least one `run_command` or `write_file`\n\n" +
+            "**`declare_output` is for documents only** (specs, ADRs, READMEs, reports).\n" +
+            "Code belongs in workspace files, not in tool call arguments.\n\n" +
+            "| File task      | Use          | NOT               |\n" +
+            "|----------------|--------------|-------------------|\n" +
+            "| Read a file    | `read_file`  | `run_command cat` |\n" +
+            "| Write new file | `write_file` | heredoc in shell  |\n" +
+            "| Edit file      | `edit_file`  | `run_command sed` |\n" +
+            "| List directory | `list_dir`   | `run_command ls`  |\n" +
+            "| Search code    | `search_code`| `run_command grep`|\n";
+
+        return repoConnected
+            ? header + "\nOn first `run_command` use, the connected GitHub repository is cloned to `/workspace` " +
+              "with git configured (you can `git commit`/`git push`)."
+            : header + "\nYour sandbox is `/workspace` — an empty directory with no git repo.";
+    }
 
     private sealed class RunWorkspaceProvider : IWorkspaceProvider
     {
@@ -200,11 +236,12 @@ public class RunAgentRoundActivity
         private readonly IWorkspaceService _workspace;
         private readonly Board _board;
         private readonly string _runId;
+        private readonly string _taskId;
         private readonly ILogger _logger;
         private WorkspaceConnection? _cached;
 
-        public RunWorkspaceProvider(WorkflowCosmosService cosmos, IWorkspaceService workspace, Board board, string runId, ILogger logger)
-        { _cosmos = cosmos; _workspace = workspace; _board = board; _runId = runId; _logger = logger; }
+        public RunWorkspaceProvider(WorkflowCosmosService cosmos, IWorkspaceService workspace, Board board, string runId, string taskId, ILogger logger)
+        { _cosmos = cosmos; _workspace = workspace; _board = board; _runId = runId; _taskId = taskId; _logger = logger; }
 
         public async Task<WorkspaceConnection?> EnsureAsync(CancellationToken ct = default)
         {
@@ -217,7 +254,7 @@ public class RunAgentRoundActivity
                 var branch = $"agent/{_runId[..Math.Min(8, _runId.Length)]}";
                 var info = await _workspace.ProvisionAsync(_board, branch, _runId, ct);
                 if (info is null) return null;
-                await _cosmos.PatchRunWorkspaceAsync(_runId, info.ContainerName, info.Endpoint, info.Token, ct);
+                await _cosmos.PatchRunWorkspaceAsync(_runId, _taskId, info.ContainerName, info.Endpoint, info.Token, ct);
                 return _cached = new WorkspaceConnection(info.Endpoint, info.Token);
             }
             catch (Exception ex)

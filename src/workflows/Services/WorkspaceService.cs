@@ -168,6 +168,24 @@ public class WorkspaceService : IWorkspaceService
         return new CommandResult(result.Stdout, result.Stderr, result.ExitCode);
     }
 
+    public async Task<string> InvokeAsync(
+        string endpoint, string token, string route, object body, CancellationToken ct = default)
+    {
+        var http = _httpFactory.CreateClient();
+        http.Timeout = TimeSpan.FromSeconds(30);
+
+        var json = JsonSerializer.Serialize(body);
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}{route}")
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json"),
+        };
+        req.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+
+        var resp = await http.SendAsync(req, ct);
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadAsStringAsync(ct);
+    }
+
     public async Task DestroyAsync(string containerName, CancellationToken ct = default)
     {
         _logger.LogInformation("[Workspace] destroying ACI {Name}", containerName);
