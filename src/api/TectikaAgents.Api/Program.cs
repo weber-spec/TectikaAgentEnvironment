@@ -103,6 +103,25 @@ builder.Services.AddSingleton<IGitHubReadService>(sp =>
         sp.GetRequiredService<OctokitGitHubReadService>(),
         sp.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>()));
 
+// ── Live Preview ────────────────────────────────────────────────────────────
+builder.Services.AddSingleton(new PreviewSettings
+{
+    IdleMinutes = builder.Configuration.GetValue("Preview:IdleMinutes", 15),
+    CapMinutes  = builder.Configuration.GetValue("Preview:CapMinutes", 45),
+});
+builder.Services.AddSingleton(new TectikaAgents.AgentRuntime.Preview.AciPreviewOptions
+{
+    ResourceGroup  = builder.Configuration["Preview:ResourceGroup"] ?? "rg-agentteam-dev-001",
+    Region         = builder.Configuration["Preview:Region"] ?? "westeurope",
+    AcrImage       = builder.Configuration["Preview:AcrImage"] ?? "tacragentteam.azurecr.io/preview-runner:latest",
+    AcrLoginServer = builder.Configuration["Preview:AcrLoginServer"] ?? "tacragentteam.azurecr.io",
+    MiResourceId   = builder.Configuration["Preview:MiResourceId"],
+});
+builder.Services.AddSingleton<TectikaAgents.Core.Interfaces.IPreviewProvisioner, TectikaAgents.AgentRuntime.Preview.AciPreviewProvisioner>();
+builder.Services.AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow);
+builder.Services.AddSingleton<IPreviewService, PreviewService>();
+builder.Services.AddHostedService<PreviewIdleReaperService>();
+
 // ── Foundry / Agent provisioning ─────────────────────────────────────────────
 // "Foundry:UseMock" selects mock vs real Foundry provisioning; defaults to the DB flag.
 var useMockAgents = builder.Configuration.GetValue<bool>("Foundry:UseMock", useMockDatabase);
