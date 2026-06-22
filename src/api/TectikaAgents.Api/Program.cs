@@ -107,9 +107,15 @@ builder.Services.AddSingleton<IGitHubReadService>(sp =>
 // "Foundry:UseMock" selects mock vs real Foundry provisioning; defaults to the DB flag.
 var useMockAgents = builder.Configuration.GetValue<bool>("Foundry:UseMock", useMockDatabase);
 if (useMockAgents)
+{
     builder.Services.AddSingleton<IAgentProvisioner, MockAgentProvisioner>();
+    builder.Services.AddSingleton<IModelCatalog, MockModelCatalog>();
+}
 else
+{
     builder.Services.AddSingleton<IAgentProvisioner, FoundryAgentRuntime>();
+    builder.Services.AddSingleton<IModelCatalog, FoundryModelCatalog>();
+}
 
 // ── SSE + Service Bus ────────────────────────────────────────────────────────
 builder.Services.AddSingleton<SseConnectionManager>();

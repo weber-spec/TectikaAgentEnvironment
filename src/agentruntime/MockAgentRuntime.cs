@@ -19,6 +19,17 @@ public sealed class MockAgentProvisioner : IAgentProvisioner
     public Task DeleteAgentAsync(string? foundryAgentId, CancellationToken ct = default) => Task.CompletedTask;
 }
 
+/// <summary>No-Azure model catalog: a static, representative list so the model picker works in
+/// mock/dev mode. Mirrors the models the real Foundry project is expected to expose.</summary>
+public sealed class MockModelCatalog : IModelCatalog
+{
+    private static readonly IReadOnlyList<string> Models =
+        ["gpt-4o", "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5", "o3"];
+
+    public Task<IReadOnlyList<string>> ListModelsAsync(CancellationToken ct = default) =>
+        Task.FromResult(Models);
+}
+
 /// <summary>Deterministic, no-Azure runtime. Stable thread per task; echoes the task into the artifact.</summary>
 public sealed class MockAgentRuntime : IAgentRuntime
 {

@@ -139,6 +139,11 @@ export const api = {
       fetchApi<AgentUpsertResult>('/api/agentroles', { method: 'POST', body: JSON.stringify(role) }),
   },
 
+  models: {
+    /** Available model names for the agent picker (Foundry deployments, or the mock list). */
+    list: () => fetchApi<string[]>('/api/models'),
+  },
+
   artifacts: {
     versions: (taskId: string) => fetchApi<Artifact[]>(`/api/artifacts/${taskId}`),
     save: (taskId: string, content: string, contentType: Artifact['contentType'], runId?: string) =>

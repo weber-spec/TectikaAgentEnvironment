@@ -7,9 +7,8 @@ import { colorFor } from '@/lib/palette';
 import { Avatar, Button, Skeleton, EmptyState, Tag } from '@/components/ui/primitives';
 import { Modal } from '@/components/ui/overlays';
 import { Icon } from '@/components/ui/icons';
+import { ModelSelect } from '@/components/ModelSelect';
 import { toast } from '@/lib/toast';
-
-const MODELS = ['gpt-4o', 'claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5', 'o3'];
 
 /** Per-role sync state set after a successful upsert. */
 type SyncState = { synced: boolean; error?: string | null };
@@ -135,7 +134,7 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
       <div className="flex flex-col gap-3">
         <L label="Display name"><input value={r.displayName} onChange={e => set({ displayName: e.target.value })} className="inp" /></L>
         <L label="System prompt"><textarea value={r.systemPrompt} onChange={e => set({ systemPrompt: e.target.value })} rows={4} className="inp resize-none" /></L>
-        <L label="Model"><select value={r.modelOverride ?? ''} onChange={e => set({ modelOverride: e.target.value })} className="inp">{MODELS.map(m => <option key={m} value={m}>{m}</option>)}</select></L>
+        <L label="Model"><ModelSelect value={r.modelOverride} onChange={v => set({ modelOverride: v || undefined })} selectClassName="inp" /></L>
 
         {/* Layer 1: Workspace */}
         <div className="rounded-lg border border-[var(--border)] p-3">
