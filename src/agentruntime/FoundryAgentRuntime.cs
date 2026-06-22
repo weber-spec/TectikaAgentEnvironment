@@ -273,6 +273,10 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
                 if (!string.IsNullOrEmpty(p.FinalText)) OnText?.Invoke(p.FinalText);
                 return new RoundOutcome(RoundKind.Final, p.FinalText, [], null, null, p.RoundIntent, p.BriefUpdate, p.ToolCalls, usage, id, OutputOps: p.OutputOps);
             }
+            // A validator's request_revision ends the run and drives the QA feedback loop (auto re-run of
+            // the upstream loop target) — it must NOT pause for a human like the other control tools.
+            if (p.Control is { Kind: PendingControlKind.Revision })
+                return new RoundOutcome(RoundKind.NeedsRevision, null, next, p.OpenControlCallId, p.Control, p.RoundIntent, p.BriefUpdate, p.ToolCalls, usage, id, OutputOps: p.OutputOps);
             if (p.Control is not null)
                 return new RoundOutcome(RoundKind.AwaitUser, null, next, p.OpenControlCallId, p.Control, p.RoundIntent, p.BriefUpdate, p.ToolCalls, usage, id, OutputOps: p.OutputOps);
             return new RoundOutcome(RoundKind.Continue, null, next, null, null, p.RoundIntent, p.BriefUpdate, p.ToolCalls, usage, id, OutputOps: p.OutputOps);

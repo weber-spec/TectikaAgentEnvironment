@@ -22,20 +22,18 @@ public class InMemoryCosmosDbService : ICosmosDbService
     private readonly ConcurrentDictionary<string, AgentRole> _agentRoles = new();
     private readonly ConcurrentDictionary<string, WorkflowRun> _runs = new();
     private readonly ConcurrentDictionary<string, Artifact> _artifacts = new();
-    private readonly ConcurrentDictionary<string, Approval> _approvals = new();
     private readonly ConcurrentDictionary<string, HumanInteraction> _interactions = new();
-    private readonly ConcurrentDictionary<string, AuditEntry> _audit = new();
 
     private readonly ILogger<InMemoryCosmosDbService> _logger;
 
     public InMemoryCosmosDbService(ILogger<InMemoryCosmosDbService> logger)
     {
         _logger = logger;
-        MockDataSeeder.Seed(_boards, _tasks, _agentRoles, _runs, _artifacts, _approvals, _edges, _usageRollups, _usageEvents);
+        MockDataSeeder.Seed(_boards, _tasks, _agentRoles, _runs, _artifacts, _edges, _usageRollups, _usageEvents);
         _logger.LogWarning(
             "MockDatabase enabled — serving {Boards} boards, {Tasks} tasks, {Roles} agent roles, " +
-            "{Runs} runs, {Artifacts} artifacts, {Approvals} approvals, {Edges} edges from in-memory store (no Cosmos DB).",
-            _boards.Count, _tasks.Count, _agentRoles.Count, _runs.Count, _artifacts.Count, _approvals.Count, _edges.Count);
+            "{Runs} runs, {Artifacts} artifacts, {Edges} edges from in-memory store (no Cosmos DB).",
+            _boards.Count, _tasks.Count, _agentRoles.Count, _runs.Count, _artifacts.Count, _edges.Count);
     }
 
     // ── Bootstrap ──────────────────────────────────────────────────────────────
@@ -85,6 +83,21 @@ public class InMemoryCosmosDbService : ICosmosDbService
     {
         _tasks[task.Id] = task;
         return Task.FromResult(task);
+    }
+
+    private readonly object _claimLock = new();
+    public Task<AgentTask?> TryClaimTaskForRunAsync(string boardId, string taskId, string runId, string sessionId, CancellationToken ct = default)
+    {
+        // Mirror the Cosmos compare-and-set atomically so concurrent claims can't both succeed.
+        lock (_claimLock)
+        {
+            if (!_tasks.TryGetValue(taskId, out var t) || t.BoardId != boardId) return Task.FromResult<AgentTask?>(null);
+            if (t.Status != AgentTaskStatus.Backlog) return Task.FromResult<AgentTask?>(null);
+            t.Status         = AgentTaskStatus.InProgress;
+            t.WorkflowRunId  = runId;
+            t.UsageSessionId ??= sessionId;
+            return Task.FromResult<AgentTask?>(t);
+        }
     }
 
     public Task DeleteTaskAsync(string boardId, string taskId, CancellationToken ct = default)
@@ -146,27 +159,6 @@ public class InMemoryCosmosDbService : ICosmosDbService
             .OrderByDescending(a => a.Version)
             .AsEnumerable());
 
-    // ── Approvals ──────────────────────────────────────────────────────────────
-    public Task<Approval> CreateApprovalAsync(Approval approval, CancellationToken ct = default)
-    {
-        _approvals[approval.Id] = approval;
-        return Task.FromResult(approval);
-    }
-
-    public Task<Approval?> GetApprovalAsync(string runId, string approvalId, CancellationToken ct = default) =>
-        Task.FromResult(_approvals.TryGetValue(approvalId, out var a) && a.RunId == runId ? a : null);
-
-    public Task<Approval> UpdateApprovalAsync(Approval approval, CancellationToken ct = default)
-    {
-        _approvals[approval.Id] = approval;
-        return Task.FromResult(approval);
-    }
-
-    public Task<IEnumerable<Approval>> GetPendingApprovalsAsync(string tenantId, CancellationToken ct = default) =>
-        Task.FromResult(_approvals.Values
-            .Where(a => a.TenantId == tenantId && a.Status == ApprovalStatus.Pending)
-            .AsEnumerable());
-
     // ── Human Interactions ──────────────────────────────────────────────────────
     public Task<HumanInteraction> CreateInteractionAsync(HumanInteraction interaction, CancellationToken ct = default)
     {
@@ -187,13 +179,6 @@ public class InMemoryCosmosDbService : ICosmosDbService
         Task.FromResult(_interactions.Values
             .Where(i => i.TenantId == tenantId && i.Status == InteractionStatus.Pending)
             .AsEnumerable());
-
-    // ── Audit Log ──────────────────────────────────────────────────────────────
-    public Task AppendAuditAsync(AuditEntry entry, CancellationToken ct = default)
-    {
-        _audit[entry.Id] = entry;
-        return Task.CompletedTask;
-    }
 
     // ── Edges ──────────────────────────────────────────────────────────────────
     public Task<TaskEdge> CreateEdgeAsync(TaskEdge edge, CancellationToken ct = default)

@@ -51,6 +51,13 @@ public sealed class BoardProjectExplorer : IProjectExplorer
 
     public async Task<ArtifactView?> GetArtifactAsync(string taskId, int? version, CancellationToken ct = default)
     {
+        // Scope guard: the artifacts container is partitioned by /taskId only, so a raw artifact query
+        // would expose any task's output in any board/tenant. Confirm the task lives on THIS board
+        // (a board-partitioned read returns null otherwise) before returning its artifact. Without this,
+        // a prompt-injected or guessed taskId could read across board/tenant boundaries.
+        var task = await _cosmos.GetTaskAsync(_boardId, taskId, ct);
+        if (task is null) return null;
+
         var arts = await _cosmos.GetUpstreamArtifactsAsync([taskId], ct); // latest per task
         var art = version is null ? arts.FirstOrDefault() : arts.FirstOrDefault(a => a.Version == version);
         return art is null ? null

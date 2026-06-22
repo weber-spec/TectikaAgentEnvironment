@@ -39,7 +39,6 @@ internal static class MockDataSeeder
         ConcurrentDictionary<string, AgentRole> agentRoles,
         ConcurrentDictionary<string, WorkflowRun> runs,
         ConcurrentDictionary<string, Artifact> artifacts,
-        ConcurrentDictionary<string, Approval> approvals,
         ConcurrentDictionary<string, TaskEdge> edges,
         ConcurrentDictionary<string, UsageRollup> usageRollups,
         ConcurrentDictionary<string, UsageEvent> usageEvents)
@@ -177,7 +176,7 @@ internal static class MockDataSeeder
             BoardId = BoardId,
             Title = "Deploy to staging",
             Description = "Deploy the reviewed build to the staging environment.",
-            Status = AgentTaskStatus.AwaitingApproval,
+            Status = AgentTaskStatus.AwaitingInteraction,
             Priority = TaskPriority.Critical,
             Assignee = new TaskAssignee { Type = AssigneeType.Agent, Id = RoleReviewer },
             CreatedBy = Owner,
@@ -279,19 +278,6 @@ internal static class MockDataSeeder
             TaskId = TaskImpl,
             Status = RunStatus.Completed,
             CurrentStep = 1,
-            PipelineDefinition =
-            [
-                new PipelineStep { Step = 0, Type = StepType.AgentExecution, AgentRoleId = RoleEngineer, Action = "implement" },
-            ],
-            Steps =
-            [
-                new StepResult
-                {
-                    Step = 0, Status = RunStatus.Completed, ArtifactId = "art-impl-v2",
-                    TokenUsage = new TokenUsage { Input = 3200, Output = 1800 },
-                    DurationMs = 42_000, CompletedAt = now.AddDays(-2),
-                },
-            ],
             TotalTokens = 5000,
             EstimatedCostUsd = 0.06m,
             StartedAt = now.AddDays(-2).AddMinutes(-1),
@@ -302,45 +288,14 @@ internal static class MockDataSeeder
             Id = RunDeploy,
             TenantId = Tenant,
             TaskId = TaskDeploy,
-            Status = RunStatus.PausedApproval,
+            Status = RunStatus.AwaitingInteraction,
             CurrentStep = 1,
-            PipelineDefinition =
-            [
-                new PipelineStep { Step = 0, Type = StepType.AgentExecution, AgentRoleId = RoleReviewer, Action = "build" },
-                new PipelineStep { Step = 1, Type = StepType.ApprovalGate, Approvers = [Owner] },
-            ],
-            Steps =
-            [
-                new StepResult
-                {
-                    Step = 0, Status = RunStatus.Completed,
-                    TokenUsage = new TokenUsage { Input = 900, Output = 300 },
-                    DurationMs = 8_000, CompletedAt = now.AddHours(-3),
-                },
-                new StepResult { Step = 1, Status = RunStatus.PausedApproval },
-            ],
             TotalTokens = 1200,
             EstimatedCostUsd = 0.02m,
             StartedAt = now.AddHours(-3).AddMinutes(-1),
         };
 
-        // ── Approvals ───────────────────────────────────────────────────────────────
-        approvals["approval-deploy"] = new Approval
-        {
-            Id = "approval-deploy",
-            TenantId = Tenant,
-            RunId = RunDeploy,
-            TaskId = TaskDeploy,
-            StepIndex = 1,
-            RequestedAt = now.AddHours(-3),
-            ExpiresAt = now.AddHours(45),
-            RequestedFrom = [Owner],
-            Status = ApprovalStatus.Pending,
-            ActionDescription = "Deploy checkout service build #482 to staging.",
-            IdentityToBeUsed = Owner,
-        };
-
-        SeedExtra(boards, tasks, agentRoles, approvals, now);
+        SeedExtra(boards, tasks, agentRoles, now);
         SeedUsage(usageRollups, usageEvents, now);
     }
 
@@ -350,7 +305,6 @@ internal static class MockDataSeeder
         ConcurrentDictionary<string, Board> boards,
         ConcurrentDictionary<string, AgentTask> tasks,
         ConcurrentDictionary<string, AgentRole> agentRoles,
-        ConcurrentDictionary<string, Approval> approvals,
         DateTimeOffset now)
     {
         const string Maya = "maya@tectika.com";
@@ -404,7 +358,7 @@ internal static class MockDataSeeder
             (B2, "Design onboarding flow", "Wireframe and prototype the new onboarding.", AgentTaskStatus.Done, TaskPriority.High, AssigneeType.Agent, "role-designer", 25, -10),
             (B2, "Implement push notifications", "Wire up APNs/FCM and preferences.", AgentTaskStatus.InProgress, TaskPriority.Critical, AssigneeType.Agent, "role-engineer", 12, 4),
             (B2, "App Store assets", "Screenshots, copy and metadata.", AgentTaskStatus.Review, TaskPriority.Medium, AssigneeType.Human, Maya, 8, 7),
-            (B2, "Beta feedback triage", "Triage TestFlight feedback into issues.", AgentTaskStatus.AwaitingApproval, TaskPriority.Medium, AssigneeType.Human, Noah, 5, 2),
+            (B2, "Beta feedback triage", "Triage TestFlight feedback into issues.", AgentTaskStatus.AwaitingInteraction, TaskPriority.Medium, AssigneeType.Human, Noah, 5, 2),
             (B2, "Crash-free rate dashboard", "Set up crash analytics dashboard.", AgentTaskStatus.Backlog, TaskPriority.Low, AssigneeType.Agent, "role-analyst", 3, 14),
             (B2, "Release v2.0 to stores", "Submit final build for review.", AgentTaskStatus.Backlog, TaskPriority.Critical, AssigneeType.Agent, "role-devops", 2, 12),
             // board-003 (Data Platform Migration)
@@ -433,16 +387,6 @@ internal static class MockDataSeeder
             };
             i++; col++;
         }
-
-        // A second pending approval on board-002 so the approvals inbox has variety.
-        approvals["approval-beta"] = new Approval
-        {
-            Id = "approval-beta", TenantId = Tenant, RunId = "run-beta", TaskId = "task-x06",
-            StepIndex = 0, RequestedAt = now.AddHours(-6), ExpiresAt = now.AddHours(30),
-            RequestedFrom = [Maya], Status = ApprovalStatus.Pending,
-            ActionDescription = "Promote beta build 2.0(118) to the open beta track.",
-            IdentityToBeUsed = Maya,
-        };
     }
 
     // Seed realistic multi-model usage events + rollups so the usage UI renders

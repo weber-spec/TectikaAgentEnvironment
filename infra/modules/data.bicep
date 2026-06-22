@@ -39,8 +39,6 @@ var containers = [
   { name: 'agentRoles', pk: '/tenantId' }
   { name: 'workflowRuns', pk: '/taskId' }
   { name: 'artifacts', pk: '/taskId' }
-  { name: 'approvals', pk: '/runId' }
-  { name: 'auditLog', pk: '/tenantId' }
   { name: 'humanInteractions', pk: '/runId' }
   { name: 'taskEdges', pk: '/boardId' }
   { name: 'runEvents', pk: '/taskId' }
@@ -85,11 +83,6 @@ resource sbSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2024-01-01'
 resource sbQueueTrigger 'Microsoft.ServiceBus/namespaces/queues@2024-01-01' = {
   parent: sb
   name: 'task-trigger'
-}
-
-resource sbQueueApprovals 'Microsoft.ServiceBus/namespaces/queues@2024-01-01' = {
-  parent: sb
-  name: 'approvals'
 }
 
 // ── Storage (Durable Functions / Function App host) ──────────────────────────

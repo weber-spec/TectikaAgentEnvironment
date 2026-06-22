@@ -1,5 +1,6 @@
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
+using Microsoft.DurableTask;
 using Microsoft.DurableTask.Client;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -17,36 +18,6 @@ public class HttpTrigger
 
     public HttpTrigger(ILogger<HttpTrigger> logger) => _logger = logger;
 
-    [Function(nameof(StartPipeline))]
-    public async Task<HttpResponseData> StartPipeline(
-        [HttpTrigger(AuthorizationLevel.Function, "post", Route = "pipelines/start")] HttpRequestData req,
-        [DurableClient] DurableTaskClient durableClient,
-        FunctionContext context)
-    {
-        _logger.LogInformation("[HttpTrigger] {Function} invoked", nameof(StartPipeline));
-
-        var body = await req.ReadAsStringAsync();
-        var input = JsonSerializer.Deserialize<PipelineInput>(body ?? "{}");
-
-        if (input is null)
-        {
-            var badResponse = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-            await badResponse.WriteStringAsync("Invalid pipeline input");
-            return badResponse;
-        }
-
-        var instanceId = await durableClient.ScheduleNewOrchestrationInstanceAsync(
-            nameof(TaskPipelineOrchestrator),
-            input);
-
-        _logger.LogInformation("[HttpTrigger] started orchestration {InstanceId} for task {TaskId} run {RunId}",
-            instanceId, input.TaskId, input.RunId);
-
-        var response = req.CreateResponse(System.Net.HttpStatusCode.Accepted);
-        await response.WriteAsJsonAsync(new { instanceId, runId = input.RunId });
-        return response;
-    }
-
     [Function(nameof(StartSteerablePipeline))]
     public async Task<HttpResponseData> StartSteerablePipeline(
         [HttpTrigger(AuthorizationLevel.Function, "post", Route = "pipelines/steerable/start")] HttpRequestData req,
@@ -62,8 +33,11 @@ public class HttpTrigger
             return bad;
         }
 
+        // Deterministic instance id keyed on the run id: a retried/duplicate POST for the same run
+        // collides on the existing instance instead of spawning a second orchestration for one run.
         var instanceId = await durableClient.ScheduleNewOrchestrationInstanceAsync(
-            nameof(SteerableAgentOrchestrator), input);
+            nameof(SteerableAgentOrchestrator), input,
+            new StartOrchestrationOptions(InstanceId: $"steer-{input.RunId}"), context.CancellationToken);
 
         _logger.LogInformation("[HttpTrigger] started steerable run {InstanceId} task {TaskId} run {RunId}",
             instanceId, input.TaskId, input.RunId);
@@ -103,32 +77,5 @@ public class HttpTrigger
         await response.WriteStringAsync("terminated");
         return response;
     }
-
-    [Function(nameof(RaiseApprovalEvent))]
-    public async Task<HttpResponseData> RaiseApprovalEvent(
-        [HttpTrigger(AuthorizationLevel.Function, "post", Route = "pipelines/{instanceId}/approval/{step}")] HttpRequestData req,
-        string instanceId,
-        int step,
-        [DurableClient] DurableTaskClient durableClient,
-        FunctionContext context)
-    {
-        _logger.LogInformation("[HttpTrigger] {Function} invoked instance={InstanceId} step={Step}",
-            nameof(RaiseApprovalEvent), instanceId, step);
-
-        var body = await req.ReadAsStringAsync();
-        var payload = JsonSerializer.Deserialize<ApprovalEventPayload>(body ?? "{}");
-        var decision = payload?.Approved == true ? "Approved" : "Rejected";
-
-        await durableClient.RaiseEventAsync(instanceId, $"approval-gate-{step}", decision);
-
-        _logger.LogInformation("[HttpTrigger] raised approval event instance={InstanceId} step={Step} decision={Decision}",
-            instanceId, step, decision);
-
-        var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
-        await response.WriteStringAsync($"Approval event raised: {decision}");
-        return response;
-    }
 }
-
-public record ApprovalEventPayload(bool Approved, string? Notes);
 public record UserMessagePayload(string Text);

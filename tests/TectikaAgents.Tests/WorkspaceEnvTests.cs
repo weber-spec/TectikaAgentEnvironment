@@ -24,4 +24,16 @@ public class WorkspaceEnvTests
         Assert.Contains(env, e => e.Name == "GIT_PAT");
         Assert.Contains(env, e => e.Name == "EXECUTOR_TOKEN");
     }
+
+    [Fact]
+    public void Push_permission_flows_to_GIT_CAN_PUSH()
+    {
+        var gh = new GitHubRepoConnection { RepoUrl = "https://github.com/o/r", Owner = "o", Repo = "r", PatSecretName = "s" };
+
+        var noPush = WorkspaceService.BuildEnv(gh, "agent/x", "tok", "pat", canPush: false);
+        Assert.Equal("false", noPush.Single(e => e.Name == "GIT_CAN_PUSH").Value);
+
+        var canPush = WorkspaceService.BuildEnv(gh, "agent/x", "tok", "pat", canPush: true);
+        Assert.Equal("true", canPush.Single(e => e.Name == "GIT_CAN_PUSH").Value);
+    }
 }

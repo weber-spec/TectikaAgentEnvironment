@@ -19,7 +19,6 @@ public static class SteerableInteractionFactory
             TaskId = taskId,
             BoardId = boardId,
             StepIndex = round,
-            Origin = InteractionOrigin.Steerable,
             Status = InteractionStatus.Pending,
             ActionDescription = control.Text,
             RequestedFrom = string.IsNullOrEmpty(humanAuditorId) ? [] : [humanAuditorId],

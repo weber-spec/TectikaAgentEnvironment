@@ -37,7 +37,7 @@ export function CommandPalette() {
     const nav: Command[] = [
       { id: 'boards', label: 'Go to Boards', icon: 'board', run: go('/boards'), group: 'Navigate' },
       { id: 'agents', label: 'Go to Agents', icon: 'robot', run: go('/agents'), group: 'Navigate' },
-      { id: 'approvals', label: 'Go to Approvals', icon: 'approvals', run: go('/approvals'), group: 'Navigate' },
+      { id: 'interactions', label: 'Go to Interactions', icon: 'approvals', run: go('/interactions'), group: 'Navigate' },
       { id: 'dash', label: 'Go to Dashboards', icon: 'chart', run: go('/dashboards'), group: 'Navigate' },
       { id: 'analytics', label: 'Go to Analytics', icon: 'chart', run: go('/analytics'), group: 'Navigate' },
       { id: 'settings', label: 'Open Settings', icon: 'settings', run: go('/settings'), group: 'Navigate' },

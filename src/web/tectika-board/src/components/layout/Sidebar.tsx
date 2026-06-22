@@ -43,8 +43,8 @@ const NAV_MAIN: NavItem[] = [
     ),
   },
   {
-    href: '/approvals',
-    labelKey: 'approvals',
+    href: '/interactions',
+    labelKey: 'interactions',
     badge: 'approvals',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
@@ -177,7 +177,7 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
-    api.approvals.pending().then(list => setPendingApprovals(list.length)).catch(() => {});
+    api.interactions.pending().then(list => setPendingApprovals(list.length)).catch(() => {});
   }, []);
   // restore persisted collapse state after mount (avoids hydration mismatch)
   useEffect(() => {

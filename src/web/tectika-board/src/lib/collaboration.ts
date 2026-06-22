@@ -56,7 +56,7 @@ export function seedCollaboration(tasks: AgentTask[]): { comments: Comment[]; ac
     });
 
     // A couple of tasks get a richer thread.
-    if (t.status === 'InProgress' || t.status === 'Review' || t.status === 'AwaitingApproval') {
+    if (t.status === 'InProgress' || t.status === 'Review') {
       activity.push({
         id: uid('a'), taskId: t.id, kind: 'status', actorId: 'noah@tectika.com',
         from: 'Backlog', to: STATUS_CONFIG[t.status].label,

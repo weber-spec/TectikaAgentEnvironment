@@ -26,16 +26,6 @@ public static class NotificationMapper
             TaskId = e.TaskId,
             SourceEventType = e.Type,
         },
-        AgentEvent.Types.ApprovalRequired => new NotificationDocument
-        {
-            TenantId = tenantId,
-            Type = "approval",
-            Title = "Approval required",
-            Subtitle = e.AgentRole is not null ? $"Agent: {e.AgentRole}" : null,
-            RunId = e.RunId,
-            TaskId = e.TaskId,
-            SourceEventType = e.Type,
-        },
         AgentEvent.Types.InteractionRequired => new NotificationDocument
         {
             TenantId = tenantId,

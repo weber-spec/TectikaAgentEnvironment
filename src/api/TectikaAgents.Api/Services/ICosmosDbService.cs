@@ -25,6 +25,10 @@ public interface ICosmosDbService
     Task<AgentTask?> GetTaskAsync(string boardId, string taskId, CancellationToken ct = default);
     Task<IEnumerable<AgentTask>> GetTasksByBoardAsync(string boardId, CancellationToken ct = default);
     Task<AgentTask> UpdateTaskAsync(AgentTask task, CancellationToken ct = default);
+    /// <summary>Atomically transition a task Backlog→InProgress and link the run, only if it is still
+    /// Backlog. Returns the updated task on success, or null if the task is gone, no longer Backlog, or
+    /// another caller won the race. The single guard against the same task starting two concurrent runs.</summary>
+    Task<AgentTask?> TryClaimTaskForRunAsync(string boardId, string taskId, string runId, string sessionId, CancellationToken ct = default);
     Task DeleteTaskAsync(string boardId, string taskId, CancellationToken ct = default);
 
     // ── Agent Roles ────────────────────────────────────────────────────────────
@@ -43,20 +47,12 @@ public interface ICosmosDbService
     Task<Artifact> CreateArtifactAsync(Artifact artifact, CancellationToken ct = default);
     Task<IEnumerable<Artifact>> GetArtifactVersionsAsync(string taskId, CancellationToken ct = default);
 
-    // ── Approvals ──────────────────────────────────────────────────────────────
-    Task<Approval> CreateApprovalAsync(Approval approval, CancellationToken ct = default);
-    Task<Approval?> GetApprovalAsync(string runId, string approvalId, CancellationToken ct = default);
-    Task<Approval> UpdateApprovalAsync(Approval approval, CancellationToken ct = default);
-    Task<IEnumerable<Approval>> GetPendingApprovalsAsync(string tenantId, CancellationToken ct = default);
-
     // ── Human Interactions ─────────────────────────────────────────────────────
     Task<HumanInteraction> CreateInteractionAsync(HumanInteraction interaction, CancellationToken ct = default);
     Task<HumanInteraction?> GetInteractionAsync(string runId, string interactionId, CancellationToken ct = default);
     Task<HumanInteraction> UpdateInteractionAsync(HumanInteraction interaction, CancellationToken ct = default);
     Task<IEnumerable<HumanInteraction>> GetPendingInteractionsAsync(string tenantId, CancellationToken ct = default);
 
-    // ── Audit Log ──────────────────────────────────────────────────────────────
-    Task AppendAuditAsync(AuditEntry entry, CancellationToken ct = default);
 
     // ── Edges ──────────────────────────────────────────────────────────────────
     Task<TaskEdge> CreateEdgeAsync(TaskEdge edge, CancellationToken ct = default);

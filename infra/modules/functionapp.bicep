@@ -80,7 +80,6 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'ServiceBus__Namespace', value: serviceBusFqdn }
         { name: 'ServiceBus__AgentEventsTopic', value: 'agent-events' }
         { name: 'ServiceBus__TaskTriggerQueue', value: 'task-trigger' }
-        { name: 'ServiceBus__ApprovalsQueue', value: 'approvals' }
         { name: 'Foundry__Endpoint', value: foundryEndpoint }
         { name: 'Foundry__ProjectName', value: foundryProjectName }
         { name: 'Foundry__ProjectEndpoint', value: foundryProjectEndpoint }

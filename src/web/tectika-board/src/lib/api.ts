@@ -1,7 +1,7 @@
 // API client — all calls to the .NET backend.
 
 import type {
-  Board, AgentTask, AgentRole, AgentUpsertResult, Artifact, Approval, WorkflowRun, AgentEvent, HumanInteraction, TaskEdge, EdgeKind, RunEvent,
+  Board, AgentTask, AgentRole, AgentUpsertResult, Artifact, WorkflowRun, AgentEvent, HumanInteraction, TaskEdge, EdgeKind, RunEvent,
   RepoMeta, BranchInfo, TreeEntry, FileContent, CommitInfo, PullRequestInfo,
   UsageRollup, UsageEventsPage, PricingCatalog,
 } from './types';
@@ -150,15 +150,6 @@ export const api = {
         '/api/runs/start',
         { method: 'POST', body: JSON.stringify({ boardId, taskId, pipeline: null }) }
       ),
-  },
-
-  approvals: {
-    pending: () => fetchApi<Approval[]>('/api/approvals/pending'),
-    respond: (approvalId: string, runId: string, approved: boolean, notes?: string) =>
-      fetchApi<Approval>(`/api/approvals/${approvalId}/respond`, {
-        method: 'POST',
-        body: JSON.stringify({ runId, approved, notes }),
-      }),
   },
 
   interactions: {

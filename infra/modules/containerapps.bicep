@@ -95,7 +95,6 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'ServiceBus__Namespace', value: serviceBusFqdn }
             { name: 'ServiceBus__AgentEventsTopic', value: 'agent-events' }
             { name: 'ServiceBus__TaskTriggerQueue', value: 'task-trigger' }
-            { name: 'ServiceBus__ApprovalsQueue', value: 'approvals' }
             { name: 'KeyVault__VaultUri', value: keyVaultUri }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsightsConnectionString }
             { name: 'Logging__LogSensitiveContent', value: 'true' }

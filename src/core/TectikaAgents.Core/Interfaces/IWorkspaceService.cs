@@ -8,8 +8,10 @@ public interface IWorkspaceService
 {
     /// <summary>Provision an ACI workspace container for the run. When <paramref name="board"/> has a
     /// GitHub connection the entrypoint clones the repo and checks out <paramref name="branchName"/>;
-    /// otherwise it provisions a bare, git-free /workspace. A sandbox is provisioned in both cases.</summary>
-    Task<WorkspaceInfo?> ProvisionAsync(Board board, string branchName, string runId, CancellationToken ct = default);
+    /// otherwise it provisions a bare, git-free /workspace. A sandbox is provisioned in both cases.
+    /// <paramref name="canPush"/> reflects the agent's CanPushCode permission; when false the entrypoint
+    /// disables the push remote so the workspace can read but not push.</summary>
+    Task<WorkspaceInfo?> ProvisionAsync(Board board, string branchName, string runId, bool canPush, CancellationToken ct = default);
 
     /// <summary>Run a shell command in the workspace container. Returns stdout/stderr/exit_code.</summary>
     Task<CommandResult> RunCommandAsync(string endpoint, string token, string command, int timeoutSeconds = 60, CancellationToken ct = default);

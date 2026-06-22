@@ -60,7 +60,7 @@ public class WorkspaceService : IWorkspaceService
     /// included only when a repo is connected — the entrypoint provisions a bare, git-free /workspace
     /// otherwise.</summary>
     public static List<ContainerEnvironmentVariable> BuildEnv(
-        GitHubRepoConnection? github, string branchName, string token, string? pat)
+        GitHubRepoConnection? github, string branchName, string token, string? pat, bool canPush = false)
     {
         var env = new List<ContainerEnvironmentVariable>
         {
@@ -68,15 +68,17 @@ public class WorkspaceService : IWorkspaceService
         };
         if (github is not null)
         {
-            env.Add(new("REPO_URL")   { Value = github.RepoUrl });
-            env.Add(new("GIT_BRANCH") { Value = branchName });
-            env.Add(new("GIT_PAT")    { SecureValue = pat });
+            env.Add(new("REPO_URL")     { Value = github.RepoUrl });
+            env.Add(new("GIT_BRANCH")   { Value = branchName });
+            env.Add(new("GIT_PAT")      { SecureValue = pat });
+            // Push permission gate consumed by the entrypoint (disables the push remote when false).
+            env.Add(new("GIT_CAN_PUSH") { Value = canPush ? "true" : "false" });
         }
         return env;
     }
 
     public async Task<WorkspaceInfo?> ProvisionAsync(
-        Board board, string branchName, string runId, CancellationToken ct = default)
+        Board board, string branchName, string runId, bool canPush, CancellationToken ct = default)
     {
         var pat = board.GitHub is null ? null : await _secrets.GetSecretAsync(board.GitHub.PatSecretName, ct);
         var token = GenerateToken();
@@ -97,7 +99,7 @@ public class WorkspaceService : IWorkspaceService
         {
             Ports = { new ContainerPort(ExecutorPort) },
         };
-        foreach (var e in BuildEnv(board.GitHub, branchName, token, pat))
+        foreach (var e in BuildEnv(board.GitHub, branchName, token, pat, canPush))
             workspaceContainer.EnvironmentVariables.Add(e);
 
         var dnsLabel = containerName; // unique per run, ACI enforces global uniqueness in the region

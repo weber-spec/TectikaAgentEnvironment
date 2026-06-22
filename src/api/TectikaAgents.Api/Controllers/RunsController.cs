@@ -96,5 +96,4 @@ public class RunsController : ControllerBase
 
 public record StartRunRequest(
     string TaskId,
-    string BoardId,
-    List<PipelineStep>? Pipeline);
+    string BoardId);
