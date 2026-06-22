@@ -120,7 +120,8 @@ builder.Services.AddSingleton(new TectikaAgents.AgentRuntime.Preview.AciPreviewO
 builder.Services.AddSingleton<TectikaAgents.Core.Interfaces.IPreviewProvisioner, TectikaAgents.AgentRuntime.Preview.AciPreviewProvisioner>();
 builder.Services.AddSingleton<Func<DateTimeOffset>>(_ => () => DateTimeOffset.UtcNow);
 builder.Services.AddSingleton<IPreviewService, PreviewService>();
-builder.Services.AddHostedService<PreviewIdleReaperService>();
+if (!useMockDatabase)
+    builder.Services.AddHostedService<PreviewIdleReaperService>();
 
 // ── Foundry / Agent provisioning ─────────────────────────────────────────────
 // "Foundry:UseMock" selects mock vs real Foundry provisioning; defaults to the DB flag.
