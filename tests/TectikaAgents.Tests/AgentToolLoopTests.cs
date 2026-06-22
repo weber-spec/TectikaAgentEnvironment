@@ -79,4 +79,53 @@ public class AgentToolLoopTests
         Assert.True(result.MaxRoundsHit);
         Assert.Equal(3, result.Rounds);
     }
+
+    // ── Dangling-call prevention: the loop must surface calls left unanswered when it exits, so the
+    //    runtime can close them and avoid poisoning the reused Foundry conversation. ───────────────
+
+    [Fact]
+    public async Task Loop_OnControlPause_SurfacesOpenControlCallId_AndUnsubmittedOutputs()
+    {
+        var rounds = new Queue<RoundResponse>(new[]
+        {
+            RoundResponse.Tools(new[]{ FC("round_intent", new { text = "Checking budget" }),
+                                       FC("request_human_input", new { question = "Which hotel?" }) }),
+        });
+        var loop = new AgentToolLoop(new FakeExplorer());
+        var result = await loop.RunAsync((i,c)=>Task.FromResult(rounds.Dequeue()), 8, (_,__)=>{}, default);
+
+        Assert.NotNull(result.Control);
+        // The control tool's call_id must be surfaced (RoundExecutor emits no output for it).
+        Assert.Equal("call_request_human_input", result.OpenControlCallId);
+        // The sibling explore/intent output executed this round was also never submitted.
+        Assert.Contains(result.UnsubmittedOutputs, o => o.CallId == "call_round_intent");
+    }
+
+    [Fact]
+    public async Task Loop_OnMaxRounds_SurfacesFinalRoundsUnsubmittedOutputs()
+    {
+        var loop = new AgentToolLoop(new FakeExplorer());
+        var result = await loop.RunAsync(
+            (i,c)=>Task.FromResult(RoundResponse.Tools(new[]{ FC("get_board_overview", new {}) })),
+            maxRounds: 3, onToolCall:(_,__)=>{}, ct: default);
+
+        Assert.True(result.MaxRoundsHit);
+        Assert.Single(result.UnsubmittedOutputs);
+        Assert.Equal("call_get_board_overview", result.UnsubmittedOutputs[0].CallId);
+    }
+
+    [Fact]
+    public async Task Loop_NormalFinalText_LeavesNoOpenCalls()
+    {
+        var rounds = new Queue<RoundResponse>(new[]
+        {
+            RoundResponse.Tools(new[]{ FC("get_board_overview", new {}) }),
+            RoundResponse.Final("done", new TokenUsage()),
+        });
+        var loop = new AgentToolLoop(new FakeExplorer());
+        var result = await loop.RunAsync((i,c)=>Task.FromResult(rounds.Dequeue()), 8, (_,__)=>{}, default);
+
+        Assert.Null(result.OpenControlCallId);
+        Assert.Empty(result.UnsubmittedOutputs);
+    }
 }

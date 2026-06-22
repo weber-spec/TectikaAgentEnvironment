@@ -31,6 +31,15 @@ public sealed class LoopResult
     public TokenUsage Usage { get; set; } = new();
     public int Rounds { get; set; }
     public bool MaxRoundsHit { get; set; }
+
+    /// <summary>Tool outputs that were executed but never submitted to the model because the loop
+    /// exited first (control pause or max-rounds). The runtime submits these to close the calls so
+    /// the reused conversation isn't left awaiting tool output. Empty on a normal final-text exit.</summary>
+    public IReadOnlyList<ToolOutput> UnsubmittedOutputs { get; set; } = Array.Empty<ToolOutput>();
+
+    /// <summary>When the loop paused on a control tool, the <c>call_id</c> of that control call —
+    /// which has no output yet and would otherwise dangle in the conversation. Null otherwise.</summary>
+    public string? OpenControlCallId { get; set; }
 }
 
 /// <summary>HTTP-free agentic loop. Drives rounds via a delegate; executes explore tools against a
@@ -92,11 +101,18 @@ public sealed class AgentToolLoop
             if (processed.Control is not null)
             {
                 result.Control = processed.Control;          // pause: orchestrator takes over
+                // This round's calls were executed but never submitted (we return before the next
+                // sendRound). Surface them — plus the control call, which RoundExecutor leaves
+                // outputless — so the runtime can close them and not poison the reused conversation.
+                result.UnsubmittedOutputs = processed.ToolOutputs;
+                result.OpenControlCallId = processed.OpenControlCallId;
                 return result;
             }
             pending = processed.ToolOutputs;
         }
         result.MaxRoundsHit = true;
+        // The final round's tool calls were executed into `pending` but never submitted.
+        result.UnsubmittedOutputs = pending;
         return result;
     }
 }
