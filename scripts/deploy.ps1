@@ -55,6 +55,7 @@ $FuncApp         = Get-Env 'TECTIKA_FUNC_APP'         'func-agentteam-workflows'
 
 $ApiImage        = Get-Env 'TECTIKA_API_IMAGE'        'agentteam-api'
 $WebImage        = Get-Env 'TECTIKA_WEB_IMAGE'        'agentteam-web'
+$PreviewImage    = Get-Env 'TECTIKA_PREVIEW_IMAGE'    'preview-runner'
 
 $ApiFqdn         = "https://$ApiApp.$AcaDomain"
 $WebFqdn         = "https://$WebApp.$AcaDomain"
@@ -219,6 +220,15 @@ function Deploy-Api {
   Invoke-Native az containerapp update -n $ApiApp -g $ResourceGroup `
     --image "$AcrLoginServer/$($ApiImage):$($script:Sha)"
   Write-Info "API image $($ApiImage):$($script:Sha) rolled out."
+
+  # The preview-runner image is pulled by per-preview ACI containers at runtime (via the API's
+  # Preview:AcrImage setting), not deployed as a container app, so it only needs to exist in ACR.
+  # Building it here keeps it in lockstep with the API that provisions it -- no containerapp update.
+  Write-Log "Building preview-runner image"
+  Invoke-Native az acr build -r $AcrName `
+    -t "$($PreviewImage):$($script:Sha)" -t "$($PreviewImage):latest" `
+    -f docker/preview-runner/Dockerfile docker/preview-runner/
+  Write-Info "preview-runner image $($PreviewImage):$($script:Sha) pushed."
 
   if ($Verify) {
     Wait-Revision $ApiApp

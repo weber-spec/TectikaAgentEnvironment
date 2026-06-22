@@ -31,6 +31,7 @@ FUNC_APP="${TECTIKA_FUNC_APP:-func-agentteam-workflows}"
 
 API_IMAGE="${TECTIKA_API_IMAGE:-agentteam-api}"
 WEB_IMAGE="${TECTIKA_WEB_IMAGE:-agentteam-web}"
+PREVIEW_IMAGE="${TECTIKA_PREVIEW_IMAGE:-preview-runner}"
 
 API_FQDN="https://${API_APP}.${ACA_DOMAIN}"
 WEB_FQDN="https://${WEB_APP}.${ACA_DOMAIN}"
@@ -206,6 +207,15 @@ deploy_api() {
   az containerapp update -n "$API_APP" -g "$RESOURCE_GROUP" \
     --image "${ACR_LOGIN_SERVER}/${API_IMAGE}:${SHA}" >/dev/null
   info "API image ${API_IMAGE}:${SHA} rolled out."
+
+  # The preview-runner image is pulled by per-preview ACI containers at runtime (via the API's
+  # Preview:AcrImage setting), not deployed as a container app, so it only needs to exist in ACR.
+  # Building it here keeps it in lockstep with the API that provisions it -- no containerapp update.
+  log "Building preview-runner image"
+  az acr build -r "$ACR_NAME" \
+    -t "${PREVIEW_IMAGE}:${SHA}" -t "${PREVIEW_IMAGE}:latest" \
+    -f docker/preview-runner/Dockerfile docker/preview-runner/
+  info "preview-runner image ${PREVIEW_IMAGE}:${SHA} pushed."
 
   if $VERIFY; then
     wait_for_revision "$API_APP"
