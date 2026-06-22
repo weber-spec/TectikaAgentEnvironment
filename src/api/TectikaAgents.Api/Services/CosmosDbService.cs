@@ -21,8 +21,6 @@ public class CosmosDbService : ICosmosDbService
     public const string AgentRolesContainer = "agentRoles";
     public const string WorkflowRunsContainer = "workflowRuns";
     public const string ArtifactsContainer = "artifacts";
-    public const string ApprovalsContainer = "approvals";
-    public const string AuditLogContainer = "auditLog";
     public const string HumanInteractionsContainer = "humanInteractions";
     public const string TaskEdgesContainer = "taskEdges";
     public const string RunEventsContainer = "runEvents";
@@ -42,8 +40,6 @@ public class CosmosDbService : ICosmosDbService
         (AgentRolesContainer,        "/tenantId"),
         (WorkflowRunsContainer,      "/taskId"),
         (ArtifactsContainer,         "/taskId"),
-        (ApprovalsContainer,         "/runId"),
-        (AuditLogContainer,          "/tenantId"),
         (HumanInteractionsContainer, "/runId"),
         (TaskEdgesContainer,         "/boardId"),
         (RunEventsContainer,         "/taskId"),
@@ -157,6 +153,43 @@ public class CosmosDbService : ICosmosDbService
         var res = await GetContainer(TasksContainer).ReplaceItemAsync(task, task.Id, new PartitionKey(task.BoardId), cancellationToken: ct);
         _logger.LogDebug("[CosmosWrite] update AgentTask id={Id} status={Status}", task.Id, task.Status);
         return res.Resource;
+    }
+
+    public async Task<AgentTask?> TryClaimTaskForRunAsync(string boardId, string taskId, string runId, string sessionId, CancellationToken ct = default)
+    {
+        var container = GetContainer(TasksContainer);
+        var pk = new PartitionKey(boardId);
+
+        AgentTask task;
+        string? etag;
+        try
+        {
+            var read = await container.ReadItemAsync<AgentTask>(taskId, pk, cancellationToken: ct);
+            task = read.Resource;
+            etag = read.ETag;
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
+
+        if (task.Status != AgentTaskStatus.Backlog) return null;   // already running / done / etc.
+
+        task.Status         = AgentTaskStatus.InProgress;
+        task.WorkflowRunId  = runId;
+        task.UsageSessionId ??= sessionId;
+        try
+        {
+            // IfMatchEtag makes this a compare-and-set: if any other writer touched the task since our
+            // read (e.g. a concurrent claim), the replace fails with 412 and we report the lost race
+            // instead of clobbering it / double-running.
+            var res = await container.ReplaceItemAsync(task, taskId, pk,
+                new ItemRequestOptions { IfMatchEtag = etag }, ct);
+            _logger.LogInformation("[CosmosWrite] claimed task {Id} for run {RunId}", taskId, runId);
+            return res.Resource;
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.PreconditionFailed)
+        {
+            _logger.LogInformation("[CosmosWrite] task {Id} claim lost the race (etag mismatch)", taskId);
+            return null;
+        }
     }
 
     public async Task DeleteTaskAsync(string boardId, string taskId, CancellationToken ct = default)
@@ -282,36 +315,6 @@ public class CosmosDbService : ICosmosDbService
         return await QueryAsync<Artifact>(ArtifactsContainer, query, taskId, ct);
     }
 
-    // ── Approvals ─────────────────────────────────────────────────────────────
-
-    public async Task<Approval> CreateApprovalAsync(Approval approval, CancellationToken ct = default)
-    {
-        var res = await GetContainer(ApprovalsContainer).CreateItemAsync(approval, new PartitionKey(approval.RunId), cancellationToken: ct);
-        return res.Resource;
-    }
-
-    public async Task<Approval?> GetApprovalAsync(string runId, string approvalId, CancellationToken ct = default)
-    {
-        try
-        {
-            var res = await GetContainer(ApprovalsContainer).ReadItemAsync<Approval>(approvalId, new PartitionKey(runId), cancellationToken: ct);
-            return res.Resource;
-        }
-        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
-    }
-
-    public async Task<Approval> UpdateApprovalAsync(Approval approval, CancellationToken ct = default)
-    {
-        var res = await GetContainer(ApprovalsContainer).ReplaceItemAsync(approval, approval.Id, new PartitionKey(approval.RunId), cancellationToken: ct);
-        return res.Resource;
-    }
-
-    public async Task<IEnumerable<Approval>> GetPendingApprovalsAsync(string tenantId, CancellationToken ct = default)
-    {
-        // Cross-partition query — acceptable for approval inbox (infrequent)
-        var query = new QueryDefinition("SELECT * FROM c WHERE c.tenantId = @tenantId AND c.status = 'Pending'").WithParameter("@tenantId", tenantId);
-        return await QueryAsync<Approval>(ApprovalsContainer, query, null, ct);
-    }
 
     // ── Human Interactions ─────────────────────────────────────────────────────
 
@@ -344,11 +347,6 @@ public class CosmosDbService : ICosmosDbService
             .WithParameter("@tenantId", tenantId);
         return await QueryAsync<HumanInteraction>(HumanInteractionsContainer, query, null, ct);
     }
-
-    // ── Audit Log ─────────────────────────────────────────────────────────────
-
-    public async Task AppendAuditAsync(AuditEntry entry, CancellationToken ct = default) =>
-        await GetContainer(AuditLogContainer).CreateItemAsync(entry, new PartitionKey(entry.TenantId), cancellationToken: ct);
 
     // ── Edges ─────────────────────────────────────────────────────────────────
 

@@ -99,31 +99,11 @@ public class InteractionsController : ControllerBase
 
         await _cosmos.UpdateInteractionAsync(interaction, ct);
 
-        // Build response payload for orchestrator
-        var selectedItem = interaction.Type == InteractionType.Selection && interaction.SelectedIndex.HasValue
-            ? interaction.Items?[interaction.SelectedIndex.Value]
-            : null;
-
-        var payload = new InteractionResponsePayload(
-            interactionId,
-            interaction.Type.ToString(),
-            interaction.SelectedIndex,
-            selectedItem?.Title,
-            selectedItem?.Price,
-            interaction.Answer,
-            interaction.Approved,
-            interaction.Notes);
-
-        // Wake up orchestrator. Steerable runs resume on a `user_message` string; the old pipeline
-        // resumes on the structured `interaction-{step}` event.
+        // Wake up the steerable orchestrator: it resumes on a `user_message` string carrying the
+        // human's decision, flattened by SteerableInteractionReply.
         var run = await _cosmos.GetRunAsync(interaction.TaskId, req.RunId, ct);
         if (run?.DurableFunctionInstanceId is not null)
-        {
-            if (interaction.Origin == InteractionOrigin.Steerable)
-                await RaiseUserMessageEventAsync(run.DurableFunctionInstanceId, SteerableInteractionReply.Render(interaction), ct);
-            else
-                await RaiseInteractionEventAsync(run.DurableFunctionInstanceId, interaction.StepIndex, payload, ct);
-        }
+            await RaiseUserMessageEventAsync(run.DurableFunctionInstanceId, SteerableInteractionReply.Render(interaction), ct);
         else
             _logger.LogWarning("[InteractionReply] no DurableFunctionInstanceId for run {RunId} — cannot wake orchestrator", req.RunId);
 
@@ -137,35 +117,6 @@ public class InteractionsController : ControllerBase
 
         _logger.LogInformation("[InteractionReply] interaction {InteractionId} type={Type} responded by {User}", interactionId, interaction.Type, UserId);
         return Ok(interaction);
-    }
-
-    private async Task RaiseInteractionEventAsync(
-        string instanceId, int stepIndex, InteractionResponsePayload payload, CancellationToken ct)
-    {
-        var baseUrl = _durableSettings.StartUrl;
-        var managementBase = baseUrl[..baseUrl.IndexOf("/api/", StringComparison.Ordinal)];
-        var eventName = $"interaction-{stepIndex}";
-        var url = $"{managementBase}/runtime/webhooks/durabletask/instances/{instanceId}/raiseEvent/{eventName}";
-        if (!string.IsNullOrEmpty(_durableSettings.ManagementKey))
-            url += $"?code={Uri.EscapeDataString(_durableSettings.ManagementKey)}";
-
-        var body = new StringContent(
-            JsonSerializer.Serialize(payload),
-            Encoding.UTF8,
-            "application/json");
-
-        var http = _httpFactory.CreateClient();
-        var response = await http.PostAsync(url, body, ct);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var err = await response.Content.ReadAsStringAsync(ct);
-            _logger.LogError("[InteractionEvent] failed to raise interaction event {Event}: {Status} {Error}", eventName, response.StatusCode, err);
-        }
-        else
-        {
-            _logger.LogInformation("[InteractionEvent] raised interaction event '{Event}' on instance {Instance}", eventName, instanceId);
-        }
     }
 
     private async Task RaiseUserMessageEventAsync(string instanceId, string text, CancellationToken ct)

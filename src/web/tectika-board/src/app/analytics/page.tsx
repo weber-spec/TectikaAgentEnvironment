@@ -91,7 +91,9 @@ function ScopedAnalytics({ scope }: { scope: string }) {
 function Body({ tasks, runs, roles, usage, series }: ScopedData) {
   const totalTokens = usage?.lifetime.tokens.total ?? runs.reduce((s, r) => s + r.totalTokens, 0);
   const totalCost = usage?.lifetime.costUsd ?? runs.reduce((s, r) => s + r.estimatedCostUsd, 0);
-  const avgDuration = runs.flatMap(r => r.steps).filter(s => s.durationMs).reduce((s, x, _, arr) => s + x.durationMs / arr.length, 0);
+  // Average wall-clock run duration (completed runs). Steerable runs track time at the run level, not per step.
+  const runDurations = runs.filter(r => r.completedAt).map(r => new Date(r.completedAt!).getTime() - new Date(r.startedAt).getTime()).filter(ms => ms > 0);
+  const avgDuration = runDurations.length ? runDurations.reduce((s, x) => s + x, 0) / runDurations.length : 0;
 
   // tokens per agent role (via tasks → roles)
   const tokensByRole = new Map<string, number>();
@@ -112,7 +114,7 @@ function Body({ tasks, runs, roles, usage, series }: ScopedData) {
         <Kpi icon={<Icon.bolt size={18} />} label="Total tokens" value={formatCompact(totalTokens)} color="#a25ddc" />
         <Kpi icon={<Icon.bolt size={18} />} label="Estimated cost" value={formatCurrency(totalCost)} color="#0073ea" />
         <Kpi icon={<Icon.refresh size={18} />} label="Agent runs" value={String(runs.length)} color="#00c875" />
-        <Kpi icon={<Icon.clock size={18} />} label="Avg step time" value={formatDuration(avgDuration) || '—'} color="#fdab3d" />
+        <Kpi icon={<Icon.clock size={18} />} label="Avg run time" value={formatDuration(avgDuration) || '—'} color="#fdab3d" />
       </div>
 
       <div className="grid grid-cols-2 gap-4">

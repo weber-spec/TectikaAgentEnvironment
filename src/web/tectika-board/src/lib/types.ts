@@ -3,7 +3,7 @@
 // (Enums are serialized as their string names by the API; see JsonStringEnumConverter.)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type AgentTaskStatus = 'Backlog' | 'InProgress' | 'AwaitingApproval' | 'AwaitingInteraction' | 'Blocked' | 'Review' | 'Done' | 'Failed';
+export type AgentTaskStatus = 'Backlog' | 'InProgress' | 'AwaitingInteraction' | 'Blocked' | 'Review' | 'Done' | 'Failed';
 export type TaskPriority = 'Critical' | 'High' | 'Medium' | 'Low';
 export type AssigneeType = 'Agent' | 'Human';
 export type ArtifactContentType = 'Code' | 'Markdown' | 'Json' | 'Data';
@@ -30,10 +30,8 @@ export interface Output {
   external?: ExternalRef;
 }
 
-export type RunStatus = 'Pending' | 'Running' | 'PausedApproval' | 'AwaitingInteraction' | 'NeedsRevision' | 'Completed' | 'Failed' | 'Cancelled';
+export type RunStatus = 'Pending' | 'Running' | 'AwaitingInteraction' | 'NeedsRevision' | 'Completed' | 'Failed' | 'Cancelled';
 export type TriggerSource = 'Manual' | 'Supervisor' | 'WebhookGitHub' | 'WebhookJira' | 'Schedule' | 'CliBridge';
-export type StepType = 'AgentExecution' | 'ApprovalGate' | 'CliBridge';
-export type ApprovalStatus = 'Pending' | 'Approved' | 'Rejected' | 'Expired';
 export type InteractionType = 'Approval' | 'Selection' | 'Question';
 export type InteractionStatus = 'Pending' | 'Responded' | 'Expired';
 
@@ -258,33 +256,12 @@ export interface PricingCatalog {
   prices: ModelPrice[];
 }
 
-export interface PipelineStep {
-  step: number;
-  type: StepType;
-  agentRoleId?: string;
-  action?: string;
-  approvers: string[];
-}
-
-export interface StepResult {
-  step: number;
-  status: RunStatus;
-  foundryRunId?: string;
-  artifactId?: string;
-  tokenUsage: TokenUsage;
-  durationMs: number;
-  completedAt?: string;
-  error?: string;
-}
-
 export interface WorkflowRun {
   id: string;
   tenantId: string;
   taskId: string;
-  pipelineDefinition: PipelineStep[];
   currentStep: number;
   status: RunStatus;
-  steps: StepResult[];
   durableFunctionInstanceId?: string;
   totalTokens: number;
   estimatedCostUsd: number;
@@ -343,22 +320,6 @@ export interface AgentEvent {
   timestamp: string;
 }
 
-export interface Approval {
-  id: string;
-  tenantId: string;
-  runId: string;
-  taskId: string;
-  stepIndex: number;
-  requestedAt: string;
-  expiresAt: string;
-  requestedFrom: string[];
-  status: ApprovalStatus;
-  approvedBy?: string;
-  approvedAt?: string;
-  notes?: string;
-  actionDescription: string;
-  identityToBeUsed?: string;
-}
 
 export interface SearchResultItem {
   title: string;

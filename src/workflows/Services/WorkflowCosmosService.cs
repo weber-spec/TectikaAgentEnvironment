@@ -347,15 +347,6 @@ public class WorkflowCosmosService
         await C("tasks").PatchItemAsync<AgentTask>(taskId, new PartitionKey(boardId), patchOps, cancellationToken: ct);
     }
 
-    // ── Approval ──────────────────────────────────────────────────────────────
-
-    public async Task<Approval> CreateApprovalAsync(Approval approval, CancellationToken ct = default)
-    {
-        var res = await C("approvals").CreateItemAsync(approval, new PartitionKey(approval.RunId), cancellationToken: ct);
-        _logger.LogDebug("[WorkflowCosmos] wrote Approval id={Id} run={RunId}", res.Resource.Id, approval.RunId);
-        return res.Resource;
-    }
-
     // ── HumanInteraction ──────────────────────────────────────────────────────
 
     /// <summary>Idempotent create-or-replace by stable id — used for steerable interactions so a
@@ -470,11 +461,6 @@ public class WorkflowCosmosService
         }
         catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
     }
-
-    // ── AuditLog ──────────────────────────────────────────────────────────────
-
-    public async Task AppendAuditAsync(AuditEntry entry, CancellationToken ct = default) =>
-        await C("auditLog").CreateItemAsync(entry, new PartitionKey(entry.TenantId), cancellationToken: ct);
 
     private record TaskEdgeSlim(
         [property: JsonPropertyName("sourceTaskId")] string SourceTaskId,

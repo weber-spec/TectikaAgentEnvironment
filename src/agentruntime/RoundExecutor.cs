@@ -41,6 +41,11 @@ public static class RoundExecutor
         foreach (var call in resp.ToolCalls)
         {
             onToolCall(call.Name, call.ArgumentsJson);
+            // Each tool call is isolated: a throw (malformed args JSON, Cosmos 429, sandbox 5xx, GitHub
+            // error) is turned into an error result for THIS call so the model can recover, instead of
+            // aborting the whole round and dropping every other call's output mid-flight.
+            try
+            {
             using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(call.ArgumentsJson) ? "{}" : call.ArgumentsJson);
             var args = doc.RootElement;
 
@@ -140,10 +145,37 @@ public static class RoundExecutor
                     outputs.Add(new(call.CallId, $"error: unknown tool '{call.Name}'"));
                     traced.Add(new(call.Name, "", "unknown tool")); break;
             }
+            }
+            catch (Exception ex)
+            {
+                // Don't leak an already-captured control call_id with no output, and don't double-add for
+                // control tools (which intentionally leave their call open). For every other tool, hand the
+                // model a structured error so it can retry or change course.
+                if (call.CallId != openControlCallId)
+                    outputs.Add(new(call.CallId, JsonSerializer.Serialize(new { error = $"Tool '{call.Name}' failed: {ex.Message}" })));
+                traced.Add(new(call.Name, call.ArgumentsJson, $"error: {ex.Message}"));
+            }
         }
 
-        return new RoundProcessResult(false, null, outputs, openControlCallId, control, intent, brief, traced, ops);
+        // Scrub credential-shaped strings and cap each output before it re-enters the model context:
+        // bounds token cost / context blow-up and keeps tokens (PAT, executor token) out of the model,
+        // logs, and any artifact derived from the conversation.
+        var safeOutputs = outputs
+            .Select(o => new ToolOutput(o.CallId, CapOutput(SecretScrubber.Scrub(o.Output))))
+            .ToList();
+
+        return new RoundProcessResult(false, null, safeOutputs, openControlCallId, control, intent, brief, traced, ops);
     }
+
+    /// <summary>Max characters of any single tool output submitted back to the model. Oversized output
+    /// (e.g. `cat huge.log`, a multi-MB artifact) is truncated with a marker rather than blowing the
+    /// context window or token budget.</summary>
+    private const int MaxToolOutputChars = 48_000;
+
+    private static string CapOutput(string s) =>
+        string.IsNullOrEmpty(s) || s.Length <= MaxToolOutputChars
+            ? s
+            : s[..MaxToolOutputChars] + $"\n\n[... truncated {s.Length - MaxToolOutputChars} characters; refine the call (offset/limit, a narrower path, or a more specific query) to see more]";
 
     private static async Task<string> Serialize<T>(Task<T> task) => JsonSerializer.Serialize(await task);
     private static string Summarize(string s) => s.Length <= 120 ? s : s[..120] + "…";

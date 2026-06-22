@@ -99,6 +99,12 @@ public class RunAgentRoundActivity
                 var upstream = await _cosmos.GetUpstreamArtifactsAsync(upstreamIds, ct);
                 var qa = await _cosmos.GetQaFeedbackArtifactsAsync(task.BoardId, input.TaskId, ct);
                 var context = await _contextManager.BuildUserContentAsync(role, task, board, upstream.Concat(qa).ToList(), ct);
+
+                // Validator (QA) awareness: a task with an outgoing QaFeedback edge gates an upstream task.
+                // Tell it to use request_revision, which automatically re-runs that upstream loop target.
+                if (await _cosmos.HasOutgoingQaFeedbackEdgeAsync(input.BoardId, input.TaskId, ct))
+                    context += ValidatorPrompt;
+
                 userInput = string.IsNullOrEmpty(input.UserInput)
                     ? context
                     : context + "\n\n## User message\n" + input.UserInput;
@@ -108,7 +114,7 @@ public class RunAgentRoundActivity
             // New threads always get it; existing threads get it only on button-triggered runs so the agent
             // is reminded to use the workspace even when task context is already in the thread history.
             if (string.IsNullOrEmpty(input.UserInput))
-                userInput += WorkspacePrompt(role.Permissions.CanUseWorkspace, board.GitHub is not null);
+                userInput += WorkspacePrompt(role.Permissions.CanUseWorkspace, board.GitHub is not null, role.Permissions.CanPushCode);
         }
 
         var explorer = new BoardProjectExplorer(_cosmos, input.BoardId, input.TenantId);
@@ -117,7 +123,7 @@ public class RunAgentRoundActivity
             {
                 BoardGitHub = board.GitHub,
                 Workspace = role.Permissions.CanUseWorkspace
-                    ? new RunWorkspaceProvider(_cosmos, _workspace, board, input.RunId, input.TaskId, _logger)
+                    ? new RunWorkspaceProvider(_cosmos, _workspace, board, input.RunId, input.TaskId, role.Permissions.CanPushCode, _logger)
                     : null,
             },
             explorer, ct);
@@ -140,7 +146,9 @@ public class RunAgentRoundActivity
         string? artifactId = null;
         if (outcome.Kind == RoundKind.Final && outcome.Error is null)
         {
-            if (board.GitHub is not null) await TryPushBranchAsync(input.RunId, ct);
+            // Only push for roles permitted to (CanPushCode); the sandbox's push remote is disabled
+            // otherwise, so an ungated push would just fail and log noise every run.
+            if (board.GitHub is not null && role.Permissions.CanPushCode) await TryPushBranchAsync(input.RunId, ct);
 
             var existing = await _cosmos.GetUpstreamArtifactsAsync([input.TaskId], ct);
             var nextVersion = (existing.MaxBy(a => a.Version)?.Version ?? 0) + 1;
@@ -165,6 +173,30 @@ public class RunAgentRoundActivity
             var saved = await _cosmos.CreateArtifactAsync(artifact, ct);
             artifactId = saved.Id;
             await _cosmos.UpdateTaskStatusAsync(input.BoardId, input.TaskId, AgentTaskStatus.Done, input.RunId, ct);
+        }
+        else if (outcome.Kind == RoundKind.NeedsRevision)
+        {
+            // Validator requested an upstream re-run. Persist its feedback as an artifact so the
+            // QaFeedback edge's loop target reads it on re-run. Task status is set by the orchestrator
+            // (NeedsRevision → Review → QA loop) — don't mark it Done/InProgress here.
+            var reason = outcome.Control?.Text ?? "Revision requested.";
+            var existing = await _cosmos.GetUpstreamArtifactsAsync([input.TaskId], ct);
+            var nextVersion = (existing.MaxBy(a => a.Version)?.Version ?? 0) + 1;
+            var artifact = new Artifact
+            {
+                TaskId = input.TaskId,
+                RunId = input.RunId,
+                TenantId = input.TenantId,
+                Version = nextVersion,
+                ContentType = ArtifactContentType.Markdown,
+                Content = reason,
+                Summary = reason,
+                Outputs = task.PendingOutputs.Where(o => o.IsValid()).ToList(),
+                Origin = ArtifactOrigin.Agent,
+                InternalLogs = [$"Agent: {role.DisplayName}", $"Round: {input.Round}", "Disposition: NeedsRevision", $"Completion: {outcome.CompletionId}"],
+            };
+            var saved = await _cosmos.CreateArtifactAsync(artifact, ct);
+            artifactId = saved.Id;
         }
         else
         {
@@ -240,14 +272,33 @@ public class RunAgentRoundActivity
 
     private static string Short(string s) => s[..Math.Min(6, s.Length)];
 
-    public static string WorkspacePrompt(bool canUseWorkspace, bool repoConnected)
+    /// <summary>Appended to a validator's round-0 context (task has an outgoing QaFeedback edge). Tells it
+    /// to use the request_revision tool, which auto-re-runs the upstream loop target.</summary>
+    public const string ValidatorPrompt =
+        "\n\n## You are a QA validator for this pipeline\n" +
+        "This task gates an upstream task. Review the upstream work against the requirements.\n" +
+        "- If it is acceptable, finish normally (your summary becomes the validation record).\n" +
+        "- If it needs rework, call the `request_revision` tool with a clear, specific reason. " +
+        "That AUTOMATICALLY re-runs the upstream task with your feedback — do not ask a human, and do not " +
+        "try to fix the upstream work yourself. State exactly what must change so the re-run can address it.";
+
+    public static string WorkspacePrompt(bool canUseWorkspace, bool repoConnected, bool canPushCode)
     {
         if (!canUseWorkspace)
             return "\n\n## Sandbox\nYou do not have sandbox (workspace) access. If the task requires running " +
                    "code or git operations, inform the user that your role does not have workspace permission " +
                    "and ask them to reassign the task to an agent that does.";
 
-        const string header =
+        // Step 5 reflects the role's push permission. Without CanPushCode the workspace's push remote is
+        // disabled (entrypoint), so instructing the agent to push would only produce confusing failures.
+        var commitStep = repoConnected && canPushCode
+            ? "5. Commit: `run_command git add -A && git commit -m \"...\"` then `run_command git push`\n\n"
+            : repoConnected
+                ? "5. Commit locally: `run_command git add -A && git commit -m \"...\"`. Do NOT push — your role " +
+                  "lacks push permission; a human will review your branch and push it.\n\n"
+                : "5. (No git repo connected — write and run code in `/workspace`.)\n\n";
+
+        var header =
             "\n\n## Sandbox — MANDATORY WORKFLOW\n\n" +
             "You have a live sandbox workspace at `/workspace` and **MUST** use it for all implementation work.\n\n" +
             "**REQUIRED steps — do not skip:**\n" +
@@ -255,7 +306,7 @@ public class RunAgentRoundActivity
             "2. Read files with `read_file` before editing them\n" +
             "3. Create/edit files using `write_file` / `edit_file` — **do NOT write code as text in your response**\n" +
             "4. Verify: `run_command dotnet build` / `run_command npm test` / `run_command python -m pytest`\n" +
-            "5. Commit: `run_command git add -A && git commit -m \"...\"` then `run_command git push`\n\n" +
+            commitStep +
             "**NEVER:**\n" +
             "- Write implementation code as text in your response or inside `declare_output`\n" +
             "- Ask \"how would you like me to proceed?\" — explore and implement directly\n" +
@@ -272,7 +323,9 @@ public class RunAgentRoundActivity
 
         return repoConnected
             ? header + "\nOn first `run_command` use, the connected GitHub repository is cloned to `/workspace` " +
-              "with git configured (you can `git commit`/`git push`)."
+              (canPushCode
+                  ? "with git configured (you can `git commit`/`git push`)."
+                  : "with git configured. You can `git commit` locally, but pushing is disabled for your role.")
             : header + "\nYour sandbox is `/workspace` — an empty directory with no git repo.";
     }
 
@@ -283,11 +336,12 @@ public class RunAgentRoundActivity
         private readonly Board _board;
         private readonly string _runId;
         private readonly string _taskId;
+        private readonly bool _canPush;
         private readonly ILogger _logger;
         private WorkspaceConnection? _cached;
 
-        public RunWorkspaceProvider(WorkflowCosmosService cosmos, IWorkspaceService workspace, Board board, string runId, string taskId, ILogger logger)
-        { _cosmos = cosmos; _workspace = workspace; _board = board; _runId = runId; _taskId = taskId; _logger = logger; }
+        public RunWorkspaceProvider(WorkflowCosmosService cosmos, IWorkspaceService workspace, Board board, string runId, string taskId, bool canPush, ILogger logger)
+        { _cosmos = cosmos; _workspace = workspace; _board = board; _runId = runId; _taskId = taskId; _canPush = canPush; _logger = logger; }
 
         public async Task<WorkspaceConnection?> EnsureAsync(CancellationToken ct = default)
         {
@@ -298,7 +352,7 @@ public class RunAgentRoundActivity
             try
             {
                 var branch = $"agent/{_runId[..Math.Min(8, _runId.Length)]}";
-                var info = await _workspace.ProvisionAsync(_board, branch, _runId, ct);
+                var info = await _workspace.ProvisionAsync(_board, branch, _runId, _canPush, ct);
                 if (info is null) return null;
                 await _cosmos.PatchRunWorkspaceAsync(_runId, _taskId, info.ContainerName, info.Endpoint, info.Token, ct);
                 return _cached = new WorkspaceConnection(info.Endpoint, info.Token);

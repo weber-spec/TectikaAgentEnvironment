@@ -56,7 +56,7 @@ export function NotificationPanel({ notifications, onMarkAllRead, onClose }: Pro
     if (n.boardId && n.taskId) {
       router.push(`/workspace/${n.boardId}/${n.taskId}`);
     } else if (n.type === 'approval') {
-      router.push('/approvals');
+      router.push('/interactions');
     }
     onClose();
   }

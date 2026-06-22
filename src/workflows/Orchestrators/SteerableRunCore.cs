@@ -2,7 +2,7 @@ using TectikaAgents.Core.Models;
 
 namespace TectikaAgents.Workflows.Orchestrators;
 
-public enum SteerableState { Running, AwaitingUser, Completed, Failed }
+public enum SteerableState { Running, AwaitingUser, Completed, Failed, NeedsRevision }
 
 /// <summary>Abstraction the steerable loop drives, so the loop logic is unit-testable without the
 /// Durable host. The real implementation (SteerableAgentOrchestrator) maps these onto activities +
@@ -11,12 +11,17 @@ public interface IRoundDriver
 {
     /// <summary>Run one round (submit pending outputs + optional user input) and return its outcome.</summary>
     Task<RoundOutcome> RunRoundAsync(int round, string? userInput, IReadOnlyList<PriorToolOutput> pending);
-    /// <summary>Block until the next user message arrives (used on AwaitUser).</summary>
-    Task<string> WaitForUserMessageAsync();
+    /// <summary>Block until the next user message arrives (used on AwaitUser). Returns null if the wait
+    /// times out before a human responds — the loop then finalizes the run rather than blocking forever.</summary>
+    Task<string?> WaitForUserMessageAsync();
     /// <summary>Return a queued steering message if one arrived since the last check, else null (non-blocking).</summary>
     string? TryDrainUserMessage();
     /// <summary>Hook for run-status updates / trace persistence at each transition.</summary>
     Task OnStateAsync(SteerableState state, RoundOutcome? last);
+    /// <summary>The run ended WITHOUT the agent finalizing (round cap hit, or no human reply before the
+    /// AwaitUser timeout). Persist any partial deliverables and mark the run terminally failed so work
+    /// isn't silently stranded with the task stuck InProgress.</summary>
+    Task OnExhaustedAsync(string reason, RoundOutcome? last);
 }
 
 /// <summary>The fine-grained Shape-B loop: the orchestrator drives one round at a time, folding any
@@ -27,10 +32,12 @@ public static class SteerableRunCore
     {
         string? userInput = seed;
         IReadOnlyList<PriorToolOutput> pending = Array.Empty<PriorToolOutput>();
+        RoundOutcome? last = null;
 
         for (var round = 0; round < maxRounds; round++)
         {
             var outcome = await driver.RunRoundAsync(round, userInput, pending);
+            last = outcome;
             if (outcome.Error is not null)
             {
                 await driver.OnStateAsync(SteerableState.Failed, outcome);
@@ -45,9 +52,22 @@ public static class SteerableRunCore
                     await driver.OnStateAsync(SteerableState.Completed, outcome);
                     return SteerableState.Completed;
 
+                case RoundKind.NeedsRevision:
+                    // Validator (QA) agent requested an upstream re-run. The run ends here; the status
+                    // flow maps NeedsRevision → task Review → the QA feedback loop re-runs the loop target.
+                    await driver.OnStateAsync(SteerableState.NeedsRevision, outcome);
+                    return SteerableState.NeedsRevision;
+
                 case RoundKind.AwaitUser:
                     await driver.OnStateAsync(SteerableState.AwaitingUser, outcome);
                     var reply = injected ?? await driver.WaitForUserMessageAsync();
+                    if (reply is null)
+                    {
+                        // No human responded before the timeout — finalize instead of blocking forever
+                        // (which would also keep the sandbox alive indefinitely).
+                        await driver.OnExhaustedAsync("no response received before the wait timeout", outcome);
+                        return SteerableState.Failed;
+                    }
                     // Resume: submit any explore outputs computed alongside the control tool, plus the
                     // human's reply as the control tool's function_call_output.
                     var resume = new List<PriorToolOutput>(outcome.NextToolOutputs)
@@ -66,7 +86,8 @@ public static class SteerableRunCore
             }
         }
 
-        await driver.OnStateAsync(SteerableState.Failed, null);   // ran out of rounds
+        // Ran out of rounds: persist partial work + mark terminal rather than failing empty-handed.
+        await driver.OnExhaustedAsync($"reached the maximum of {maxRounds} rounds without completing", last);
         return SteerableState.Failed;
     }
 }

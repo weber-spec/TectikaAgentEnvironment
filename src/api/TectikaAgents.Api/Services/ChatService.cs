@@ -55,7 +55,7 @@ public class ChatService : IChatService
         if (task is null) return null;
 
         var run = task.WorkflowRunId is null ? null : await _cosmos.GetRunAsync(taskId, task.WorkflowRunId, ct);
-        var active = run is { Status: RunStatus.Running or RunStatus.AwaitingInteraction or RunStatus.PausedApproval }
+        var active = run is { Status: RunStatus.Running or RunStatus.AwaitingInteraction }
                      && !string.IsNullOrEmpty(run.DurableFunctionInstanceId);
 
         if (active)
@@ -126,7 +126,7 @@ public class ChatService : IChatService
         {
             var pending = await _cosmos.GetPendingInteractionsAsync(tenantId, ct);
             var match = pending.FirstOrDefault(i =>
-                i.TaskId == taskId && i.Origin == InteractionOrigin.Steerable && i.Status == InteractionStatus.Pending);
+                i.TaskId == taskId && i.Status == InteractionStatus.Pending);
             if (match is null) return;
 
             match.Status = InteractionStatus.Responded;

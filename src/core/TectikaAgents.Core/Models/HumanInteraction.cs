@@ -73,11 +73,6 @@ public class HumanInteraction
     [JsonPropertyName("identityToBeUsed")]
     public string? IdentityToBeUsed { get; set; }
 
-    /// <summary>Which orchestration created this request, so the responder resumes it correctly:
-    /// Pipeline = old TaskPipelineOrchestrator (interaction-{step} event); Steerable = chat run
-    /// (user_message event). Defaults to Pipeline so all existing records keep their behavior.</summary>
-    [JsonPropertyName("origin")]
-    public InteractionOrigin Origin { get; set; } = InteractionOrigin.Pipeline;
 }
 
 public class SearchResultItem
@@ -104,37 +99,5 @@ public class SearchResultItem
     public Dictionary<string, string>? Metadata { get; set; }
 }
 
-// Embedded in StepResult to signal the orchestrator
-public class PendingInteractionRequest
-{
-    [JsonPropertyName("type")]
-    public InteractionType Type { get; set; }
-
-    [JsonPropertyName("actionDescription")]
-    public string ActionDescription { get; set; } = string.Empty;
-
-    [JsonPropertyName("items")]
-    public List<SearchResultItem>? Items { get; set; }
-
-    [JsonPropertyName("question")]
-    public string? Question { get; set; }
-
-    [JsonPropertyName("questionOptions")]
-    public List<string>? QuestionOptions { get; set; }
-}
-
-// Payload raised as Durable Functions external event
-public record InteractionResponsePayload(
-    [property: JsonPropertyName("interactionId")] string InteractionId,
-    [property: JsonPropertyName("interactionType")] string InteractionType,
-    [property: JsonPropertyName("selectedIndex")] int? SelectedIndex,
-    [property: JsonPropertyName("selectedTitle")] string? SelectedTitle,
-    [property: JsonPropertyName("selectedPrice")] string? SelectedPrice,
-    [property: JsonPropertyName("answer")] string? Answer,
-    [property: JsonPropertyName("approved")] bool? Approved,
-    [property: JsonPropertyName("notes")] string? Notes);
-
 public enum InteractionType { Approval, Selection, Question }
 public enum InteractionStatus { Pending, Responded, Expired }
-[JsonConverter(typeof(JsonStringEnumConverter))]
-public enum InteractionOrigin { Pipeline, Steerable }

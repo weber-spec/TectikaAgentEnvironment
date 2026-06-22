@@ -179,7 +179,7 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
                     new AgentRef(req.Role.FoundryAgentId!, "agent_reference"),
                     string.IsNullOrEmpty(req.ThreadId) ? null : req.ThreadId,
                     req.MaxCompletionTokens > 0 ? req.MaxCompletionTokens : null);
-                var resp = await http.PostAsJsonAsync($"{_base}/openai/v1/responses", body, Json, c).ConfigureAwait(false);
+                var resp = await PostResponsesWithHealAsync(http, body, req.ThreadId, c).ConfigureAwait(false);
                 await EnsureOkAsync(resp, c).ConfigureAwait(false);
                 var r = await resp.Content.ReadFromJsonAsync<ResponsesResult>(Json, c).ConfigureAwait(false)
                         ?? throw new Exception("Empty response from Foundry.");
@@ -203,6 +203,11 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
 
             var result = await loop.RunAsync(send, MaxToolRounds,
                 onToolCall: (name, _) => OnText?.Invoke($"\n[using tool: {name}]\n"), ct).ConfigureAwait(false);
+
+            // Prevention: if we paused on a control tool or hit max-rounds, the model's last reply has
+            // unanswered function calls. Close them now so this task's reused conversation isn't left
+            // awaiting tool output — otherwise the next turn 400s ("No tool output found for …").
+            await CloseOpenCallsAsync(http, req, result, ct).ConfigureAwait(false);
 
             if (!string.IsNullOrEmpty(result.FinalText)) OnText?.Invoke(result.FinalText);
 
@@ -242,7 +247,7 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
             var body = new ResponsesRequest(input, new AgentRef(req.Role.FoundryAgentId!, "agent_reference"),
                 string.IsNullOrEmpty(req.ThreadId) ? null : req.ThreadId,
                 req.MaxCompletionTokens > 0 ? req.MaxCompletionTokens : null);
-            var resp = await http.PostAsJsonAsync($"{_base}/openai/v1/responses", body, Json, ct).ConfigureAwait(false);
+            var resp = await PostResponsesWithHealAsync(http, body, req.ThreadId, ct).ConfigureAwait(false);
             await EnsureOkAsync(resp, ct).ConfigureAwait(false);
             var r = await resp.Content.ReadFromJsonAsync<ResponsesResult>(Json, ct).ConfigureAwait(false)
                     ?? throw new Exception("Empty response from Foundry.");
@@ -273,6 +278,10 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
                 if (!string.IsNullOrEmpty(p.FinalText)) OnText?.Invoke(p.FinalText);
                 return new RoundOutcome(RoundKind.Final, p.FinalText, [], null, null, p.RoundIntent, p.BriefUpdate, p.ToolCalls, usage, id, OutputOps: p.OutputOps);
             }
+            // A validator's request_revision ends the run and drives the QA feedback loop (auto re-run of
+            // the upstream loop target) — it must NOT pause for a human like the other control tools.
+            if (p.Control is { Kind: PendingControlKind.Revision })
+                return new RoundOutcome(RoundKind.NeedsRevision, null, next, p.OpenControlCallId, p.Control, p.RoundIntent, p.BriefUpdate, p.ToolCalls, usage, id, OutputOps: p.OutputOps);
             if (p.Control is not null)
                 return new RoundOutcome(RoundKind.AwaitUser, null, next, p.OpenControlCallId, p.Control, p.RoundIntent, p.BriefUpdate, p.ToolCalls, usage, id, OutputOps: p.OutputOps);
             return new RoundOutcome(RoundKind.Continue, null, next, null, null, p.RoundIntent, p.BriefUpdate, p.ToolCalls, usage, id, OutputOps: p.OutputOps);
@@ -292,6 +301,69 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         // Injected steering mid-tool-round — shape live-verified in Stage 3c chat smoke.
         if (!string.IsNullOrEmpty(userInput)) items.Add(new UserMessageItem("message", "user", userInput));
         return items.ToArray();
+    }
+
+    /// <summary>Max times we try to un-stick a conversation that was left awaiting tool output.</summary>
+    private const int MaxHealAttempts = 4;
+    private const string HealOutput = "[cancelled — superseded by a new turn]";
+    private const string ControlPausePlaceholder = "[Paused for human input; the user responds in a separate message.]";
+
+    /// <summary>
+    /// POSTs to /responses, healing a "stuck" conversation on the way: if Foundry returns
+    /// 400 "No tool output found for function call …", we submit a synthetic output for that call to
+    /// release the conversation, then retry the original request (bounded). Other failures pass
+    /// through untouched for <see cref="EnsureOkAsync"/> to surface. Preserves conversation history.
+    /// </summary>
+    private async Task<HttpResponseMessage> PostResponsesWithHealAsync(
+        HttpClient http, ResponsesRequest body, string? threadId, CancellationToken ct)
+    {
+        var resp = await http.PostAsJsonAsync($"{_base}/openai/v1/responses", body, Json, ct).ConfigureAwait(false);
+        for (var attempt = 0; attempt < MaxHealAttempts && resp.StatusCode == System.Net.HttpStatusCode.BadRequest; attempt++)
+        {
+            var errBody = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            var danglingId = FoundryConversationHeal.ParseMissingToolCallId(errBody);
+            if (danglingId is null) break; // not a dangling-tool-call error — let EnsureOkAsync handle it
+            _logger.LogWarning("[FoundryHeal] conversation {Thread} stuck on unanswered call {CallId}; submitting synthetic output and retrying (attempt {Attempt})",
+                threadId, danglingId, attempt + 1);
+
+            var healBody = new ResponsesRequest(
+                new object[] { new FunctionCallOutput("function_call_output", danglingId, HealOutput) },
+                body.AgentReference, threadId, null);
+            (await http.PostAsJsonAsync($"{_base}/openai/v1/responses", healBody, Json, ct).ConfigureAwait(false)).Dispose();
+
+            resp.Dispose();
+            resp = await http.PostAsJsonAsync($"{_base}/openai/v1/responses", body, Json, ct).ConfigureAwait(false);
+        }
+        return resp;
+    }
+
+    /// <summary>
+    /// After a legacy turn that paused on a control tool or hit max-rounds, the model's last reply
+    /// has function calls we never answered. Submit outputs for them so the reused per-task
+    /// conversation isn't left awaiting tool output (which 400s the next turn). Best-effort: if it
+    /// fails, <see cref="PostResponsesWithHealAsync"/> recovers on the next turn.
+    /// </summary>
+    private async Task CloseOpenCallsAsync(HttpClient http, AgentRunRequest req, LoopResult result, CancellationToken ct)
+    {
+        if (result.OpenControlCallId is null && result.UnsubmittedOutputs.Count == 0) return;
+        var outputs = new List<object>(result.UnsubmittedOutputs.Count + 1);
+        foreach (var o in result.UnsubmittedOutputs)
+            outputs.Add(new FunctionCallOutput("function_call_output", o.CallId, o.Output));
+        if (result.OpenControlCallId is not null)
+            outputs.Add(new FunctionCallOutput("function_call_output", result.OpenControlCallId, ControlPausePlaceholder));
+
+        try
+        {
+            var body = new ResponsesRequest(outputs.ToArray(), new AgentRef(req.Role.FoundryAgentId!, "agent_reference"),
+                string.IsNullOrEmpty(req.ThreadId) ? null : req.ThreadId, null);
+            (await http.PostAsJsonAsync($"{_base}/openai/v1/responses", body, Json, ct).ConfigureAwait(false)).Dispose();
+            _logger.LogInformation("[FoundryAgentInvoke] closed {Count} open tool call(s) on thread {Thread} after pause/budget exit",
+                outputs.Count, req.ThreadId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[FoundryAgentInvoke] could not close open tool calls on thread {Thread}; heal will recover next turn", req.ThreadId);
+        }
     }
 
     private async Task EnsureOkAsync(HttpResponseMessage resp, CancellationToken ct)

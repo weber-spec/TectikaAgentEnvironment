@@ -100,7 +100,7 @@ public class CanvasPosition
     public double Y { get; set; }
 }
 
-public enum AgentTaskStatus { Backlog, InProgress, AwaitingApproval, AwaitingInteraction, Blocked, Review, Done, Failed }
+public enum AgentTaskStatus { Backlog, InProgress, AwaitingInteraction, Blocked, Review, Done, Failed }
 public enum TaskPriority { Critical, High, Medium, Low }
 public enum AssigneeType { Agent, Human }
 public enum TriggerSource { Manual, Supervisor, WebhookGitHub, WebhookJira, Schedule, CliBridge }

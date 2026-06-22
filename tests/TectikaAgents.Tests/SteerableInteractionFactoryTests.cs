@@ -14,7 +14,6 @@ public class SteerableInteractionFactoryTests
 
         Assert.Equal("run1-r2-interaction", i.Id);
         Assert.Equal(InteractionType.Approval, i.Type);
-        Assert.Equal(InteractionOrigin.Steerable, i.Origin);
         Assert.Equal(InteractionStatus.Pending, i.Status);
         Assert.Equal("Deploy to prod?", i.ActionDescription);
         Assert.Equal(new List<string> { "auditor@x.com" }, i.RequestedFrom);

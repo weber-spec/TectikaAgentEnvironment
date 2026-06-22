@@ -17,12 +17,11 @@ import { runAutomations } from './automations';
 
 /**
  * Run statuses where the run is no longer actively executing — finished
- * (Completed/Failed/Cancelled) or paused awaiting a human (PausedApproval /
- * AwaitingInteraction / NeedsRevision). Used to stop the live run poll and to
- * detect Run Board batch completion.
+ * (Completed/Failed/Cancelled) or paused awaiting a human (AwaitingInteraction /
+ * NeedsRevision). Used to stop the live run poll and to detect Run Board batch completion.
  */
 export const TERMINAL_RUN_STATUSES: ReadonlySet<RunStatus> = new Set<RunStatus>([
-  'PausedApproval', 'AwaitingInteraction', 'NeedsRevision', 'Completed', 'Failed', 'Cancelled',
+  'AwaitingInteraction', 'NeedsRevision', 'Completed', 'Failed', 'Cancelled',
 ]);
 
 // ── Persisted per-board config ────────────────────────────────────────────────
@@ -775,7 +774,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
 
   // A task is "running" while its own status is InProgress ("Working on it").
   // Task status is the authoritative, live-synced signal the backend maps every
-  // run state onto (e.g. PausedApproval→AwaitingApproval, NeedsRevision→Review),
+  // run state onto (e.g. NeedsRevision→Review),
   // so the button clears the moment the agent stops working — unlike the run
   // document, whose paused/revision states aren't terminal.
   const isTaskRunning = useCallback((task: AgentTask) => task.status === 'InProgress', []);

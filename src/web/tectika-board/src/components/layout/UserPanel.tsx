@@ -13,7 +13,7 @@ import { toast } from '@/lib/toast';
 const QUICK_LINKS: Array<{ href: string; label: string; icon: IconName; badge?: 'approvals' }> = [
   { href: '/boards', label: 'Boards', icon: 'board' },
   { href: '/agents', label: 'Agents', icon: 'robot' },
-  { href: '/approvals', label: 'Approvals', icon: 'approvals', badge: 'approvals' },
+  { href: '/interactions', label: 'Interactions', icon: 'approvals', badge: 'approvals' },
   { href: '/dashboards', label: 'Dashboards', icon: 'chart' },
   { href: '/analytics', label: 'Analytics', icon: 'chart' },
   { href: '/settings', label: 'All settings', icon: 'settings' },
@@ -26,7 +26,7 @@ export function UserPanel({ open, onClose }: { open: boolean; onClose: () => voi
 
   useEffect(() => {
     if (!open) return;
-    api.approvals.pending().then(l => setPending(l.length)).catch(() => {});
+    api.interactions.pending().then(l => setPending(l.length)).catch(() => {});
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);

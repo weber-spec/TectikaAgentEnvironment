@@ -29,9 +29,6 @@ public class AgentEvent
     [JsonPropertyName("artifactId")]
     public string? ArtifactId { get; set; }
 
-    [JsonPropertyName("approvalId")]
-    public string? ApprovalId { get; set; }
-
     [JsonPropertyName("interactionId")]
     public string? InteractionId { get; set; }
 
@@ -93,7 +90,6 @@ public class AgentEvent
         public const string AgentThinking = "agent_thinking";
         public const string ToolCall = "tool_call";
         public const string ArtifactUpdated = "artifact_updated";
-        public const string ApprovalRequired = "approval_required";
         public const string InteractionRequired = "interaction_required";
         public const string StepCompleted = "step_completed";
         public const string RunCompleted = "run_completed";

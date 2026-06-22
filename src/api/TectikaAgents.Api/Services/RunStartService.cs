@@ -61,25 +61,30 @@ public class RunStartService : IRunStartService
             return null;
         }
 
-        // ── 4. Create WorkflowRun in Cosmos ───────────────────────────────────
+        // ── 4. Atomically claim the task (Backlog→InProgress) BEFORE persisting the run ──
+        // The status check at step 2 is only a fast-path; this compare-and-set is the authoritative
+        // guard. Two concurrent StartAsync calls (double-click, fan-in re-trigger, QA retry overlapping
+        // a manual run) both pass step 2, but only one wins the claim — the loser returns without
+        // creating a run, so the same task can't start two concurrent runs and we leave no orphan run.
         var run = new WorkflowRun
         {
             TenantId           = tenantId,
             TaskId             = taskId,
             Status             = RunStatus.Pending,
-            PreviousTaskStatus = task.Status
+            PreviousTaskStatus = AgentTaskStatus.Backlog   // claim only succeeds from Backlog
         };
+        var sessionId = task.UsageSessionId ?? Guid.NewGuid().ToString();
 
+        var claimed = await _cosmos.TryClaimTaskForRunAsync(boardId, taskId, run.Id, sessionId, ct);
+        if (claimed is null)
+        {
+            _logger.LogWarning("[RunStart] task {TaskId} was already claimed by another run — not starting a duplicate", taskId);
+            return null;
+        }
+
+        // ── 5. Persist the WorkflowRun now that we own the task ───────────────
         var savedRun = await _cosmos.CreateRunAsync(run, ct);
         _logger.LogInformation("[RunStart] created run {RunId} for task {TaskId}", savedRun.Id, taskId);
-
-        // ── 5. Update task: link run + mark InProgress ────────────────────────
-        task.WorkflowRunId = savedRun.Id;
-        task.Status        = AgentTaskStatus.InProgress;
-        // Stamp a session id on first run-start (only when absent — never re-bump).
-        if (task.UsageSessionId is null)
-            task.UsageSessionId = Guid.NewGuid().ToString();
-        await _cosmos.UpdateTaskAsync(task, ct);
 
         // ── 6. Trigger steerable orchestrator ────────────────────────────────
         var steerableUrl = BuildSteerableUrl(_settings.StartUrl, _settings.FunctionKey);

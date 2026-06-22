@@ -8,9 +8,10 @@ set -euo pipefail
 mkdir -p /workspace
 
 if [ -n "${REPO_URL:-}" ]; then
-    echo "[entrypoint] repo=$REPO_URL branch=${GIT_BRANCH:-}"
+    echo "[entrypoint] repo=$REPO_URL branch=${GIT_BRANCH:-} can_push=${GIT_CAN_PUSH:-false}"
     git config --global credential.helper store
     printf "https://x-access-token:%s@github.com\n" "${GIT_PAT:-}" > /root/.git-credentials
+    chmod 600 /root/.git-credentials
     git config --global user.email "agent@tectika.com"
     git config --global user.name "Tectika Agent"
     git clone "$REPO_URL" /workspace
@@ -20,10 +21,22 @@ if [ -n "${REPO_URL:-}" ]; then
     else
         git checkout -b "$GIT_BRANCH"
     fi
+    # Permission gate: roles without CanPushCode get a workspace that can read but not push. Point the
+    # push URL at a dead address so a casual `git push` fails fast (defense-in-depth; the finalization
+    # push is also gated server-side). Airtight read/write separation needs a read-only token (infra).
+    if [ "${GIT_CAN_PUSH:-false}" != "true" ]; then
+        git remote set-url --push origin "no-push://disabled" || true
+        echo "[entrypoint] push disabled for this role"
+    fi
     echo "[entrypoint] ready on branch $(git branch --show-current)"
 else
     cd /workspace
     echo "[entrypoint] standalone sandbox (no repo) at /workspace"
 fi
+
+# Keep the raw token out of the executor's environment (and therefore out of every run_command shell):
+# auth now lives only in /root/.git-credentials, which the credential helper uses for clone/push. This
+# prevents `env`/process-inspection from surfacing the PAT; combined with output scrubbing on the host.
+unset GIT_PAT
 
 exec python3 /executor.py

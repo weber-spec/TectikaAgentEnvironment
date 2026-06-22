@@ -13,9 +13,6 @@ public class WorkflowRun
     [JsonPropertyName("taskId")]
     public string TaskId { get; set; } = string.Empty;
 
-    [JsonPropertyName("pipelineDefinition")]
-    public List<PipelineStep> PipelineDefinition { get; set; } = [];
-
     [JsonPropertyName("currentStep")]
     public int CurrentStep { get; set; } = 0;
 
@@ -26,9 +23,6 @@ public class WorkflowRun
     /// (instead of forcing Backlog). Null for runs created before this field existed.</summary>
     [JsonPropertyName("previousTaskStatus")]
     public AgentTaskStatus? PreviousTaskStatus { get; set; }
-
-    [JsonPropertyName("steps")]
-    public List<StepResult> Steps { get; set; } = [];
 
     [JsonPropertyName("durableFunctionInstanceId")]
     public string? DurableFunctionInstanceId { get; set; }
@@ -63,57 +57,6 @@ public class WorkflowRun
     public int? PullRequestNumber { get; set; }
 }
 
-public class PipelineStep
-{
-    [JsonPropertyName("step")]
-    public int Step { get; set; }
-
-    [JsonPropertyName("type")]
-    public StepType Type { get; set; } = StepType.AgentExecution;
-
-    [JsonPropertyName("agentRoleId")]
-    public string? AgentRoleId { get; set; }
-
-    [JsonPropertyName("action")]
-    public string? Action { get; set; }
-
-    [JsonPropertyName("approvers")]
-    public List<string> Approvers { get; set; } = [];
-}
-
-public class StepResult
-{
-    [JsonPropertyName("step")]
-    public int Step { get; set; }
-
-    [JsonPropertyName("status")]
-    public RunStatus Status { get; set; }
-
-    [JsonPropertyName("foundryRunId")]
-    public string? FoundryRunId { get; set; }
-
-    [JsonPropertyName("artifactId")]
-    public string? ArtifactId { get; set; }
-
-    [JsonPropertyName("tokenUsage")]
-    public TokenUsage TokenUsage { get; set; } = new();
-
-    [JsonPropertyName("durationMs")]
-    public long DurationMs { get; set; }
-
-    [JsonPropertyName("completedAt")]
-    public DateTimeOffset? CompletedAt { get; set; }
-
-    [JsonPropertyName("error")]
-    public string? Error { get; set; }
-
-    [JsonPropertyName("pendingInteraction")]
-    public PendingInteractionRequest? PendingInteraction { get; set; }
-
-    [JsonPropertyName("revisionReason")]
-    public string? RevisionReason { get; set; }
-}
-
 public class TokenUsage
 {
     [JsonPropertyName("input")]
@@ -134,5 +77,4 @@ public class TokenUsage
     public int Total => Input + Output;
 }
 
-public enum RunStatus { Pending, Running, PausedApproval, AwaitingInteraction, Completed, Failed, Cancelled, NeedsRevision }
-public enum StepType { AgentExecution, ApprovalGate, CliBridge }
+public enum RunStatus { Pending, Running, AwaitingInteraction, Completed, Failed, Cancelled, NeedsRevision }

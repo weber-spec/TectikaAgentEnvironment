@@ -24,6 +24,7 @@ public sealed class FakeCosmosForRepo : ICosmosDbService
     public Task<AgentTask?> GetTaskAsync(string boardId, string taskId, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<IEnumerable<AgentTask>> GetTasksByBoardAsync(string boardId, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<AgentTask> UpdateTaskAsync(AgentTask task, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<AgentTask?> TryClaimTaskForRunAsync(string boardId, string taskId, string runId, string sessionId, CancellationToken ct = default) => throw new NotImplementedException();
     public Task DeleteTaskAsync(string boardId, string taskId, CancellationToken ct = default) => throw new NotImplementedException();
 
     // ── Agent Roles ────────────────────────────────────────────────────────
@@ -41,20 +42,11 @@ public sealed class FakeCosmosForRepo : ICosmosDbService
     public Task<Artifact> CreateArtifactAsync(Artifact artifact, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<IEnumerable<Artifact>> GetArtifactVersionsAsync(string taskId, CancellationToken ct = default) => throw new NotImplementedException();
 
-    // ── Approvals ──────────────────────────────────────────────────────────
-    public Task<Approval> CreateApprovalAsync(Approval approval, CancellationToken ct = default) => throw new NotImplementedException();
-    public Task<Approval?> GetApprovalAsync(string runId, string approvalId, CancellationToken ct = default) => throw new NotImplementedException();
-    public Task<Approval> UpdateApprovalAsync(Approval approval, CancellationToken ct = default) => throw new NotImplementedException();
-    public Task<IEnumerable<Approval>> GetPendingApprovalsAsync(string tenantId, CancellationToken ct = default) => throw new NotImplementedException();
-
     // ── Human Interactions ─────────────────────────────────────────────────
     public Task<HumanInteraction> CreateInteractionAsync(HumanInteraction interaction, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<HumanInteraction?> GetInteractionAsync(string runId, string interactionId, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<HumanInteraction> UpdateInteractionAsync(HumanInteraction interaction, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<IEnumerable<HumanInteraction>> GetPendingInteractionsAsync(string tenantId, CancellationToken ct = default) => throw new NotImplementedException();
-
-    // ── Audit Log ──────────────────────────────────────────────────────────
-    public Task AppendAuditAsync(AuditEntry entry, CancellationToken ct = default) => throw new NotImplementedException();
 
     // ── Edges ──────────────────────────────────────────────────────────────
     public Task<TaskEdge> CreateEdgeAsync(TaskEdge edge, CancellationToken ct = default) => throw new NotImplementedException();

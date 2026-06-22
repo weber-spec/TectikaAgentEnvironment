@@ -1,7 +1,9 @@
 namespace TectikaAgents.Core.Models;
 
-/// <summary>Disposition of one agent round in the steerable loop.</summary>
-public enum RoundKind { Continue, Final, AwaitUser }
+/// <summary>Disposition of one agent round in the steerable loop. <see cref="NeedsRevision"/> is a
+/// validator (QA) agent calling request_revision: the run ends and the QA feedback loop re-runs the
+/// upstream loop target — it does NOT pause for a human like <see cref="AwaitUser"/>.</summary>
+public enum RoundKind { Continue, Final, AwaitUser, NeedsRevision }
 
 /// <summary>Inputs for ONE model⇄tool round. ThreadId is the Foundry conversation (carries history),
 /// so only the new input + the previous round's tool outputs cross the boundary.</summary>

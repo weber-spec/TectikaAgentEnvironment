@@ -32,27 +32,25 @@ internal static class CosmosDataSeeder
         var roles = new ConcurrentDictionary<string, AgentRole>();
         var runs = new ConcurrentDictionary<string, WorkflowRun>();
         var artifacts = new ConcurrentDictionary<string, Artifact>();
-        var approvals = new ConcurrentDictionary<string, Approval>();
         var edges = new ConcurrentDictionary<string, TaskEdge>();
         var usageRollups = new ConcurrentDictionary<string, UsageRollup>();
         var usageEvents = new ConcurrentDictionary<string, UsageEvent>();
-        MockDataSeeder.Seed(boards, tasks, roles, runs, artifacts, approvals, edges, usageRollups, usageEvents);
+        MockDataSeeder.Seed(boards, tasks, roles, runs, artifacts, edges, usageRollups, usageEvents);
 
         // ── Write through the real service (no Cosmos FK enforcement, but seed in
-        //    dependency order for readability: boards → roles → tasks → runs → artifacts → approvals) ──
+        //    dependency order for readability: boards → roles → tasks → runs → artifacts) ──
         foreach (var b in boards.Values) await cosmos.CreateBoardAsync(b, ct);
         foreach (var r in roles.Values) await cosmos.UpsertAgentRoleAsync(r, ct);
         foreach (var t in tasks.Values) await cosmos.CreateTaskAsync(t, ct);
         foreach (var run in runs.Values) await cosmos.CreateRunAsync(run, ct);
         foreach (var a in artifacts.Values) await cosmos.CreateArtifactAsync(a, ct);
-        foreach (var ap in approvals.Values) await cosmos.CreateApprovalAsync(ap, ct);
         foreach (var e in edges.Values) await cosmos.CreateEdgeAsync(e, ct);
         foreach (var r in usageRollups.Values) await cosmos.UpsertUsageRollupAsync(r, ct);
         foreach (var e in usageEvents.Values) await cosmos.UpsertUsageEventAsync(e, ct);
 
         logger.LogInformation(
             "Cosmos seed complete — {Boards} boards, {Roles} roles, {Tasks} tasks, {Runs} runs, " +
-            "{Artifacts} artifacts, {Approvals} approvals, {Edges} edges, {Rollups} usage rollups, {Events} usage events written to Cosmos.",
-            boards.Count, roles.Count, tasks.Count, runs.Count, artifacts.Count, approvals.Count, edges.Count, usageRollups.Count, usageEvents.Count);
+            "{Artifacts} artifacts, {Edges} edges, {Rollups} usage rollups, {Events} usage events written to Cosmos.",
+            boards.Count, roles.Count, tasks.Count, runs.Count, artifacts.Count, edges.Count, usageRollups.Count, usageEvents.Count);
     }
 }

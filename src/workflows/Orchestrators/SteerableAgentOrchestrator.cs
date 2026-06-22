@@ -18,6 +18,10 @@ public class SteerableAgentOrchestrator
     /// <summary>Hard cap on rounds per run (bounds cost / runaway loops).</summary>
     private const int MaxRounds = 24;
 
+    /// <summary>How long to wait for a human reply on AwaitUser before finalizing the run. Bounds the
+    /// orchestration (and the provisioned sandbox) so an unanswered request can't hang forever.</summary>
+    private static readonly TimeSpan AwaitUserTimeout = TimeSpan.FromHours(48);
+
     [Function(nameof(SteerableAgentOrchestrator))]
     public async Task<SteerableRunResult> Run([OrchestrationTrigger] TaskOrchestrationContext context)
     {
@@ -70,8 +74,17 @@ public class SteerableAgentOrchestrator
             return result.Outcome;
         }
 
-        public async Task<string> WaitForUserMessageAsync()
+        public async Task<string?> WaitForUserMessageAsync()
         {
+            // Replay-safe bounded wait: race the pending event against a durable timer. Returning null on
+            // timeout lets the loop finalize the run instead of blocking the orchestration forever.
+            using var cts = new CancellationTokenSource();
+            var timer = _ctx.CreateTimer(_ctx.CurrentUtcDateTime.Add(AwaitUserTimeout), cts.Token);
+            var winner = await Task.WhenAny(_msgWait, timer);
+            if (winner != _msgWait)
+                return null;   // timed out — leave _msgWait armed; a later event simply won't be consumed
+
+            cts.Cancel();   // event arrived first — cancel the timer
             var msg = await _msgWait;
             _msgWait = _ctx.WaitForExternalEvent<string>(UserMessageEvent);   // re-arm
             return msg;
@@ -92,11 +105,23 @@ public class SteerableAgentOrchestrator
                 SteerableState.Completed => RunStatus.Completed,
                 SteerableState.Failed => RunStatus.Failed,
                 SteerableState.AwaitingUser => RunStatus.AwaitingInteraction,
+                SteerableState.NeedsRevision => RunStatus.NeedsRevision,
                 _ => RunStatus.Running,
             };
             await _ctx.CallActivityAsync(nameof(UpdateRunStatusActivity),
                 new UpdateRunStatusInput(_in.RunId, _in.TaskId, _in.BoardId, status, null,
                     ErrorMessage: last?.Error));
+        }
+
+        public async Task OnExhaustedAsync(string reason, RoundOutcome? last)
+        {
+            // Preserve partial deliverables as a terminal artifact + mark the task Failed...
+            await _ctx.CallActivityAsync(nameof(FinalizeExhaustedRunActivity),
+                new FinalizeExhaustedInput(_in.RunId, _in.TaskId, _in.BoardId, _in.TenantId, reason));
+            // ...then mark the run itself Failed (with the reason as the error message).
+            await _ctx.CallActivityAsync(nameof(UpdateRunStatusActivity),
+                new UpdateRunStatusInput(_in.RunId, _in.TaskId, _in.BoardId, RunStatus.Failed, null,
+                    ErrorMessage: reason));
         }
     }
 }

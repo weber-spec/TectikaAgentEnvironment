@@ -49,14 +49,6 @@ public class UpdateRunStatusActivity
         run.Status = input.Status;
         if (input.CurrentStep.HasValue) run.CurrentStep = input.CurrentStep.Value;
 
-        // Accumulate step results
-        if (input.StepResult is not null)
-        {
-            run.Steps.Add(input.StepResult);
-            run.TotalTokens += input.StepResult.TokenUsage.Total;
-            run.EstimatedCostUsd = run.TotalTokens * 0.00003m; // ~$0.03/1k tokens gpt-4o
-        }
-
         if (input.Status == RunStatus.Completed || input.Status == RunStatus.Failed)
             run.CompletedAt = DateTimeOffset.UtcNow;
 
@@ -66,7 +58,6 @@ public class UpdateRunStatusActivity
         var taskStatus = input.Status switch
         {
             RunStatus.Running            => AgentTaskStatus.InProgress,
-            RunStatus.PausedApproval     => AgentTaskStatus.AwaitingApproval,
             RunStatus.AwaitingInteraction => AgentTaskStatus.AwaitingInteraction,
             RunStatus.Completed          => AgentTaskStatus.Done,
             RunStatus.Failed             => AgentTaskStatus.Failed,
@@ -90,10 +81,10 @@ public class UpdateRunStatusActivity
             await TriggerDownstreamRunsAsync(input.BoardId, input.TaskId, ct);
         }
         else if (taskStatus == AgentTaskStatus.Review)
-            await TryTriggerQaLoopAsync(input.BoardId, input.TaskId, ct);
+            await TryTriggerQaLoopAsync(input.BoardId, input.TaskId, input.RunId, ct);
     }
 
-    private async Task TryTriggerQaLoopAsync(string boardId, string validatorTaskId, CancellationToken ct)
+    private async Task TryTriggerQaLoopAsync(string boardId, string validatorTaskId, string runId, CancellationToken ct)
     {
         List<TaskEdge> feedbackEdges;
         try { feedbackEdges = await _cosmos.GetOutgoingQaFeedbackEdgesAsync(boardId, validatorTaskId, ct); }
@@ -102,11 +93,11 @@ public class UpdateRunStatusActivity
         if (feedbackEdges.Count == 0) return;
 
         foreach (var edge in feedbackEdges)
-            await ProcessQaFeedbackEdgeAsync(boardId, validatorTaskId, edge, ct);
+            await ProcessQaFeedbackEdgeAsync(boardId, validatorTaskId, runId, edge, ct);
     }
 
     private async Task ProcessQaFeedbackEdgeAsync(
-        string boardId, string validatorTaskId, TaskEdge edge, CancellationToken ct)
+        string boardId, string validatorTaskId, string runId, TaskEdge edge, CancellationToken ct)
     {
         edge.CurrentIterations++;
         await _cosmos.UpdateEdgeAsync(edge, ct);
@@ -116,8 +107,13 @@ public class UpdateRunStatusActivity
 
         if (edge.CurrentIterations >= edge.MaxIterations)
         {
-            _logger.LogWarning("[QaLoop] exhausted on edge {EdgeId} after {N} iterations — no re-trigger",
-                edge.Id, edge.CurrentIterations);
+            // Exhausted: the QA loop did not converge. Don't strand the validator silently in Review —
+            // mark it Blocked (needs human attention) and surface a failure so the stalled loop is visible.
+            _logger.LogWarning("[QaLoop] exhausted on edge {EdgeId} after {N} iterations — marking {TaskId} Blocked",
+                edge.Id, edge.CurrentIterations, validatorTaskId);
+            await _cosmos.UpdateTaskStatusAsync(boardId, validatorTaskId, AgentTaskStatus.Blocked, runId, ct);
+            await _events.PublishRunFailedAsync(runId, validatorTaskId,
+                $"QA validation did not converge after {edge.MaxIterations} attempts — manual review required.", ct);
             return;
         }
 
@@ -138,8 +134,7 @@ public class UpdateRunStatusActivity
 
         try
         {
-            var body = System.Text.Json.JsonSerializer.Serialize(new
-                { boardId, taskId = loopTargetId, pipeline = (object?)null });
+            var body = System.Text.Json.JsonSerializer.Serialize(new { boardId, taskId = loopTargetId });
             var content = new System.Net.Http.StringContent(body, System.Text.Encoding.UTF8, "application/json");
             var http = _httpClientFactory.CreateClient();
             var response = await http.PostAsync($"{apiBaseUrl.TrimEnd('/')}/api/runs/start", content, ct);
@@ -231,7 +226,7 @@ public class UpdateRunStatusActivity
                 await Task.Delay(TimeSpan.FromSeconds(2), ct);
 
                 // All checks passed — trigger the downstream run
-                var body = JsonSerializer.Serialize(new { boardId, taskId = downstreamId, pipeline = (object?)null });
+                var body = JsonSerializer.Serialize(new { boardId, taskId = downstreamId });
                 var content = new StringContent(body, Encoding.UTF8, "application/json");
                 var http = _httpClientFactory.CreateClient();
                 var url = $"{apiBaseUrl.TrimEnd('/')}/api/runs/start";
@@ -256,5 +251,4 @@ public record UpdateRunStatusInput(
     string BoardId,
     RunStatus Status,
     int? CurrentStep,
-    StepResult? StepResult = null,
     string? ErrorMessage = null);
