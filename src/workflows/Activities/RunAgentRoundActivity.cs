@@ -98,11 +98,13 @@ public class RunAgentRoundActivity
                 userInput = string.IsNullOrEmpty(input.UserInput)
                     ? context
                     : context + "\n\n## User message\n" + input.UserInput;
-
-                userInput += WorkspacePrompt(role.Permissions.CanUseWorkspace, board.GitHub is not null);
             }
-            // else: continuing on an existing thread — send only the user's message (already in userInput).
-            // The model retains the full context from the thread's first run.
+            // Workspace prompt is always sent at round 0 when there is no user seed message
+            // (button-triggered run). For chat continuations (UserInput set) the user's message is enough.
+            // New threads always get it; existing threads get it only on button-triggered runs so the agent
+            // is reminded to use the workspace even when task context is already in the thread history.
+            if (string.IsNullOrEmpty(input.UserInput))
+                userInput += WorkspacePrompt(role.Permissions.CanUseWorkspace, board.GitHub is not null);
         }
 
         var explorer = new BoardProjectExplorer(_cosmos, input.BoardId, input.TenantId);
@@ -111,7 +113,7 @@ public class RunAgentRoundActivity
             {
                 BoardGitHub = board.GitHub,
                 Workspace = role.Permissions.CanUseWorkspace
-                    ? new RunWorkspaceProvider(_cosmos, _workspace, board, input.RunId, _logger)
+                    ? new RunWorkspaceProvider(_cosmos, _workspace, board, input.RunId, input.TaskId, _logger)
                     : null,
             },
             explorer, ct);
@@ -234,11 +236,12 @@ public class RunAgentRoundActivity
         private readonly IWorkspaceService _workspace;
         private readonly Board _board;
         private readonly string _runId;
+        private readonly string _taskId;
         private readonly ILogger _logger;
         private WorkspaceConnection? _cached;
 
-        public RunWorkspaceProvider(WorkflowCosmosService cosmos, IWorkspaceService workspace, Board board, string runId, ILogger logger)
-        { _cosmos = cosmos; _workspace = workspace; _board = board; _runId = runId; _logger = logger; }
+        public RunWorkspaceProvider(WorkflowCosmosService cosmos, IWorkspaceService workspace, Board board, string runId, string taskId, ILogger logger)
+        { _cosmos = cosmos; _workspace = workspace; _board = board; _runId = runId; _taskId = taskId; _logger = logger; }
 
         public async Task<WorkspaceConnection?> EnsureAsync(CancellationToken ct = default)
         {
@@ -251,7 +254,7 @@ public class RunAgentRoundActivity
                 var branch = $"agent/{_runId[..Math.Min(8, _runId.Length)]}";
                 var info = await _workspace.ProvisionAsync(_board, branch, _runId, ct);
                 if (info is null) return null;
-                await _cosmos.PatchRunWorkspaceAsync(_runId, info.ContainerName, info.Endpoint, info.Token, ct);
+                await _cosmos.PatchRunWorkspaceAsync(_runId, _taskId, info.ContainerName, info.Endpoint, info.Token, ct);
                 return _cached = new WorkspaceConnection(info.Endpoint, info.Token);
             }
             catch (Exception ex)

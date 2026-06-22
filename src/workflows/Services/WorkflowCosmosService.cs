@@ -193,15 +193,15 @@ public class WorkflowCosmosService
         await C("workflowRuns").ReplaceItemAsync(run, run.Id, new PartitionKey(run.TaskId), cancellationToken: ct);
     }
 
-    public async Task PatchRunWorkspaceAsync(string runId, string containerName, string? endpoint = null, string? token = null, CancellationToken ct = default)
+    public async Task PatchRunWorkspaceAsync(string runId, string taskId, string containerName, string? endpoint = null, string? token = null, CancellationToken ct = default)
     {
-        // WorkflowRun partition key is taskId — we need to find the run first to get it.
-        var q = new QueryDefinition("SELECT * FROM c WHERE c.id=@id").WithParameter("@id", runId);
-        var iter = C("workflowRuns").GetItemQueryIterator<WorkflowRun>(q);
-        WorkflowRun? run = null;
-        while (iter.HasMoreResults && run is null)
-            foreach (var r in await iter.ReadNextAsync(ct)) run = r;
-        if (run is null) return;
+        var res = await C("workflowRuns").ReadItemAsync<WorkflowRun>(runId, new PartitionKey(taskId), cancellationToken: ct);
+        var run = res.Resource;
+        if (run is null)
+        {
+            _logger.LogWarning("[WorkflowCosmos] PatchRunWorkspace: run {RunId} not found", runId);
+            return;
+        }
         run.WorkspaceContainerName = containerName;
         run.WorkspaceEndpoint = endpoint;
         run.WorkspaceToken = token;
