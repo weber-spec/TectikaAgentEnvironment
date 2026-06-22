@@ -208,6 +208,20 @@ public class WorkflowCosmosService
         await C("workflowRuns").ReplaceItemAsync(run, run.Id, new PartitionKey(run.TaskId), cancellationToken: ct);
     }
 
+    public async Task PatchRunBranchAsync(string runId, string branchName, int? pullRequestNumber, CancellationToken ct = default)
+    {
+        // WorkflowRun partition key is taskId — query first to find the run (same pattern as PatchRunWorkspaceAsync).
+        var q = new QueryDefinition("SELECT * FROM c WHERE c.id=@id").WithParameter("@id", runId);
+        var iter = C("workflowRuns").GetItemQueryIterator<WorkflowRun>(q);
+        WorkflowRun? run = null;
+        while (iter.HasMoreResults && run is null)
+            foreach (var r in await iter.ReadNextAsync(ct)) run = r;
+        if (run is null) return;
+        run.BranchName = branchName;
+        run.PullRequestNumber = pullRequestNumber;
+        await C("workflowRuns").ReplaceItemAsync(run, run.Id, new PartitionKey(run.TaskId), cancellationToken: ct);
+    }
+
     public async Task<WorkflowRun?> GetRunByIdAsync(string runId, CancellationToken ct = default)
     {
         var q = new QueryDefinition("SELECT * FROM c WHERE c.id=@id").WithParameter("@id", runId);

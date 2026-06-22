@@ -197,6 +197,27 @@ public class TaskPipelineOrchestrator
                 // so the outer loop's NeedsRevision / completion logic applies to the latest result.
                 stepResult = followUpResult;
             }
+
+            // ── QA Feedback Loop ─────────────────────────────────────────────
+            // A validator step signals NeedsRevision (parsed from "## REVISION_NEEDED") when it
+            // found issues. Persist that status — which routes the task to Review and lets
+            // UpdateRunStatusActivity.TryTriggerQaLoopAsync re-run the loop target — then stop the
+            // pipeline. Continuing would mark the run Completed and silently swallow the request.
+            // StepResult is omitted here because it was already accumulated by the persist above.
+            if (stepResult.Status == RunStatus.NeedsRevision)
+            {
+                logger.LogInformation("[Pipeline] stage={Stage} task={TaskId} step={Step} reason={Reason}",
+                    "NeedsRevision", input.TaskId, step.Step, stepResult.RevisionReason);
+
+                await context.CallActivityAsync(nameof(UpdateRunStatusActivity),
+                    new UpdateRunStatusInput(input.RunId, input.TaskId, input.BoardId, RunStatus.NeedsRevision, step.Step));
+
+                await context.CallActivityAsync(nameof(WriteAuditActivity),
+                    new WriteAuditInput(input.TenantId, input.RunId, input.TaskId,
+                        step.AgentRoleId, $"step.{step.Step}.needs-revision", AuditOutcome.Success));
+
+                return new OrchestrationResult(input.RunId, RunStatus.NeedsRevision, completedSteps, stepResult.RevisionReason);
+            }
         }
 
         // All steps done

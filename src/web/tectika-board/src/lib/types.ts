@@ -198,6 +198,8 @@ export interface UsageBucket {
 export interface SessionBucket extends UsageBucket {
   sessionId: string;
   since: string;
+  /** Per-model breakdown for the current session only, keyed by "provider/model". */
+  perModel: Record<string, UsageBucket>;
 }
 
 export type UsageScope = 'Project' | 'Board' | 'Task';
@@ -232,6 +234,12 @@ export interface UsageEvent {
 export interface UsageEventsPage {
   items: UsageEvent[];
   continuationToken?: string | null;
+}
+
+export interface UsageTimePoint {
+  date: string;     // "yyyy-MM-dd"
+  tokens: number;
+  costUsd: number;
 }
 
 export interface ModelPrice {
@@ -559,3 +567,5 @@ export interface TreeEntry { name: string; path: string; type: 'file' | 'dir'; s
 export interface FileContent { path: string; sha: string; size: number; isBinary: boolean; text: string | null; }
 export interface CommitInfo { sha: string; message: string; author: string; date: string; url: string; }
 export interface PullRequestInfo { number: number; title: string; state: string; author: string; head: string; base: string; url: string; createdAt: string; }
+export interface DiffFile { path: string; status: string; additions: number; deletions: number; isBinary: boolean; patch: string | null; }
+export interface CompareResult { headSha: string; filesChanged: number; additions: number; deletions: number; files: DiffFile[]; }

@@ -159,5 +159,8 @@ public sealed class UsageBackfill
         if (r.CurrentSession is null || r.CurrentSession.SessionId != sessionId)
             r.CurrentSession = new SessionBucket { SessionId = sessionId, Since = DateTimeOffset.UtcNow };
         r.CurrentSession.Add(usage, costUsd);
+        var key = UsageRollup.ModelKey(provider, model);
+        if (!r.CurrentSession.PerModel.TryGetValue(key, out var sessionBucket)) { sessionBucket = new UsageBucket(); r.CurrentSession.PerModel[key] = sessionBucket; }
+        sessionBucket.Add(usage, costUsd);
     }
 }

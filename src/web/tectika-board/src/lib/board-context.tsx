@@ -99,6 +99,7 @@ interface BoardContextValue {
   tasks: AgentTask[];
   roles: AgentRole[];
   runsById: Record<string, WorkflowRun>;
+  usageByTaskId: Record<string, UsageRollup>;
   peopleById: Record<string, Person>;
   people: Person[];
   cellContext: CellContext;
@@ -144,6 +145,7 @@ interface BoardContextValue {
   // mutations
   updateTask: (id: string, patch: TaskPatch, opts?: { silent?: boolean }) => Promise<void>;
   refreshTask: (id: string) => Promise<void>;
+  refreshUsage: (id: string) => Promise<void>;
   setStatus: (id: string, status: AgentTaskStatus) => Promise<void>;
   setCustomCell: (taskId: string, colId: string, value: string) => void;
   addTask: (partial: Partial<AgentTask> & { title: string }, groupValue?: { colId: string; key: string }) => Promise<AgentTask | null>;
@@ -167,6 +169,8 @@ interface BoardContextValue {
   runPhase: BoardRunPhase;
   /** How many tasks a board run would launch right now (0 ⇒ nothing to run). */
   boardRunnableCount: number;
+  /** Of {@link boardRunnableCount}, how many are Failed tasks the run would reset and retry. */
+  boardRetryCount: number;
   /** Trigger the agent for a single task. No-op unless the task is Agent-owned and idle. */
   runTask: (taskId: string) => Promise<void>;
   /** Reset a finished/non-Backlog task to Backlog and start a fresh run. */
@@ -184,6 +188,9 @@ interface BoardContextValue {
   // item panel
   openTaskId?: string;
   openTask: (id: string | undefined) => void;
+  repoChangesTarget?: string;            // head branch to open in the Repo "Changes" tab
+  openRepoChanges: (head: string) => void;
+  clearRepoChangesTarget: () => void;
 
   // live sync
   liveEnabled: boolean;
@@ -225,6 +232,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [openTaskId, setOpenTaskId] = useState<string>();
+  const [repoChangesTarget, setRepoChangesTarget] = useState<string | undefined>();
   const lastSelected = useRef<string | null>(null);
   const hydrated = useRef(false);
 
@@ -389,6 +397,8 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
       if ((ev.type || '').toLowerCase().includes('status') && ev.content) {
         setTasks(prev => prev.map(t => t.id === ev.taskId ? { ...t, status: ev.content as AgentTaskStatus } : t));
       }
+      // Any run event for a task may carry new usage — refresh its rollup so token/cost stay live.
+      void refreshUsage(ev.taskId);
     }));
 
     const tick = async () => {
@@ -424,6 +434,20 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
             return added.length ? [...updated, ...added] : updated;
           });
           if (freshEdges) setEdges(freshEdges);
+        }
+        // Reconcile usage for tasks that have a run (their tokens/cost can change as runs
+        // progress or after a /clear). Resilient: a per-task failure is skipped.
+        const usagePairs = await Promise.all(
+          fresh.filter(x => x.workflowRunId).map(x =>
+            api.usage.task(x.id).then(u => [x.id, u] as const).catch(() => null)),
+        );
+        if (!cancelled) {
+          const usageUpdates = usagePairs.filter((p): p is readonly [string, UsageRollup] => !!p);
+          if (usageUpdates.length) setUsageByTaskId(prev => {
+            const next = { ...prev };
+            usageUpdates.forEach(([id, u]) => { next[id] = u; });
+            return next;
+          });
         }
       } catch { if (!cancelled) setLiveState('reconnecting'); }
       if (!cancelled) timer = setTimeout(tick, 7000);
@@ -576,10 +600,17 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   }, [boardId, logActivity]);
 
   // Re-fetch a task from the server (e.g. after a slash-command mutates it out-of-band).
+  // Refetch one task's usage rollup so token/cost (table column + panel) reflect runs and /clear.
+  const refreshUsage = useCallback(async (id: string) => {
+    try { const u = await api.usage.task(id); setUsageByTaskId(prev => ({ ...prev, [id]: u })); }
+    catch { /* ignore — keep current */ }
+  }, []);
+
   const refreshTask = useCallback(async (id: string) => {
     try { const t = await api.tasks.get(boardId, id); setTasks(prev => prev.map(x => x.id === id ? t : x)); }
     catch { /* ignore — keep current */ }
-  }, [boardId]);
+    void refreshUsage(id);   // e.g. after /clear (which resets the session bucket)
+  }, [boardId, refreshUsage]);
 
   const setStatus = useCallback(async (id: string, status: AgentTaskStatus) => {
     await updateTask(id, { status });
@@ -672,17 +703,23 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     try { await api.edges.update(boardId, edgeId, patch); } catch { toast('Could not update edge', 'error'); }
   }, [boardId]);
 
-  // Tasks eligible for a board run: agent-owned roots (no upstream Dependency edge)
-  // sitting in Backlog. Downstream tasks are triggered by the backend's dependency
-  // cascade as their inputs complete, so the board run only kicks off the roots.
-  const runnableTaskIds = useMemo(
-    () => tasks
-      .filter(t =>
-        t.assignee?.type === 'Agent' &&
-        t.status === 'Backlog' &&
-        !edges.some(e => e.targetTaskId === t.id && e.kind === 'Dependency'))
-      .map(t => t.id),
+  // Tasks eligible for a board run: agent-owned roots that are ready to make progress —
+  // Backlog tasks (start fresh) and Failed tasks (reset to Backlog, then retry), mirroring
+  // the per-task button, which offers Run on Backlog and Reset on a failed task. Tasks with
+  // an upstream Dependency edge are excluded; the backend's dependency cascade kicks them off
+  // as their inputs complete, so a board run only launches the roots.
+  const runnable = useMemo(
+    () => tasks.filter(t =>
+      t.assignee?.type === 'Agent' &&
+      (t.status === 'Backlog' || t.status === 'Failed') &&
+      !edges.some(e => e.targetTaskId === t.id && e.kind === 'Dependency')),
     [tasks, edges],
+  );
+  const runnableTaskIds = useMemo(() => runnable.map(t => t.id), [runnable]);
+  // The subset that needs a reset-to-Backlog before starting (drives the confirm dialog).
+  const retryTaskIds = useMemo(
+    () => runnable.filter(t => t.status === 'Failed').map(t => t.id),
+    [runnable],
   );
 
   const runBoard = useCallback(async () => {
@@ -692,18 +729,32 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
       toast('Nothing to run — all agent tasks are already running or complete.', 'info');
       return;
     }
+    const retry = new Set(retryTaskIds);
+    const batch = new Set(ids);
     setRunPhase({ kind: 'running', taskIds: ids });
-    const results = await Promise.allSettled(ids.map(id => api.runs.start(boardId, id)));
-    // Record each started run on its task (mirroring the backend, which flips the
-    // task to InProgress on start) so the spinner reflects the run immediately and
-    // completion detection can follow each run to a terminal state.
+    // Optimistically flip the whole batch to InProgress *before* awaiting the starts
+    // (mirroring the backend, which flips on start). Without this, completion-detection
+    // runs on the not-yet-started snapshot — sees no live tasks and no runs — and
+    // immediately resolves the phase back to idle. Runs that fail to start are reverted below.
+    setTasks(prev => prev.map(t => batch.has(t.id) ? { ...t, status: 'InProgress' } : t));
+    // Failed tasks must be reset to Backlog before a fresh run (same as resetAndRun);
+    // Backlog tasks start directly. Per-task failures are isolated by allSettled.
+    const results = await Promise.allSettled(ids.map(async id => {
+      if (retry.has(id)) await api.tasks.updateStatus(boardId, id, 'Backlog');
+      return api.runs.start(boardId, id);
+    }));
+    // Record each started run on its task so the spinner reflects the run immediately
+    // and completion detection can follow each run to a terminal state.
     const started = new Map<string, string>();
     results.forEach((res, i) => { if (res.status === 'fulfilled') started.set(ids[i], res.value.runId); });
     if (started.size > 0) {
       setTasks(prev => prev.map(t => started.has(t.id)
-        ? { ...t, workflowRunId: started.get(t.id)!, status: 'InProgress' } : t));
+        ? { ...t, workflowRunId: started.get(t.id)! } : t));
     }
     if (started.size < ids.length) {
+      // Revert the optimistic InProgress on tasks that never started, back to server truth.
+      const failed = ids.filter(id => !started.has(id));
+      await Promise.allSettled(failed.map(id => refreshTask(id)));
       toast(
         started.size === 0
           ? 'Could not start the board run.'
@@ -712,7 +763,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
       );
       if (started.size === 0) setRunPhase({ kind: 'idle' }); // nothing launched — don't strand the spinner
     }
-  }, [boardId, runnableTaskIds, runPhase.kind]);
+  }, [boardId, runnableTaskIds, retryTaskIds, runPhase.kind, refreshTask]);
 
   const stopBoard = useCallback(async () => {
     if (runPhase.kind !== 'running') return;
@@ -747,12 +798,18 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     if (!task || task.assignee?.type !== 'Agent') return;
     try {
       await api.tasks.updateStatus(boardId, taskId, 'Backlog');
+      // "Reset" is a deliberate fresh start → begin a new usage session (current-session
+      // tokens reset to zero; lifetime/board/project cost persist). Refresh usage right away
+      // so the reset shows even if the run fails to start.
+      await api.tasks.resetUsage(boardId, taskId).catch(() => {});
+      void refreshUsage(taskId);
       const res = await api.runs.start(boardId, taskId);
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, workflowRunId: res.runId, status: 'InProgress' } : t));
+      void refreshUsage(taskId);
     } catch {
       toast('Could not reset and run', 'error');
     }
-  }, [boardId, tasks]);
+  }, [boardId, tasks, refreshUsage]);
 
   const stopTask = useCallback(async (taskId: string) => {
     try {
@@ -774,7 +831,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   }, []);
 
   const value: BoardContextValue = {
-    loading, error, board, tasks, roles, runsById, peopleById, people, cellContext,
+    loading, error, board, tasks, roles, runsById, usageByTaskId, peopleById, people, cellContext,
     views: cfg.views, activeView, columns: cfg.columns, visibleColumns,
     setActiveView, createView, updateActiveView, renameView, deleteView,
     setColumns, toggleColumnHidden, resizeColumn, addColumn, removeColumn, setAggregation,
@@ -782,12 +839,15 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     groups, visibleTasks,
     collapsedGroups: cfg.collapsedGroups, toggleGroup,
     selectedIds, toggleSelect, selectAll, clearSelection,
-    updateTask, refreshTask, setStatus, setCustomCell, addTask, deleteTasks, moveCanvas,
+    updateTask, refreshTask, refreshUsage, setStatus, setCustomCell, addTask, deleteTasks, moveCanvas,
     edges, upstreamIds, downstreamIds, connectEdge, disconnectEdge, updateEdge,
-    runBoard, stopBoard, runPhase, boardRunnableCount: runnableTaskIds.length, runTask, resetAndRun, stopTask, isTaskRunning,
+    runBoard, stopBoard, runPhase, boardRunnableCount: runnableTaskIds.length, boardRetryCount: retryTaskIds.length, runTask, resetAndRun, stopTask, isTaskRunning,
     saveRole, chatThreads: cfg.chatThreads, pushChatTurns,
     liveEnabled, liveState, toggleLive,
     openTaskId, openTask: setOpenTaskId,
+    repoChangesTarget,
+    openRepoChanges: setRepoChangesTarget,
+    clearRepoChangesTarget: () => setRepoChangesTarget(undefined),
     activity: cfg.activity, logActivity,
     automations: cfg.automations, saveAutomation, deleteAutomation, toggleAutomation,
   };

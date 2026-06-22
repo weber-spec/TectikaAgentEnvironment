@@ -472,6 +472,34 @@ public class CosmosDbService : ICosmosDbService
         return page;
     }
 
+    public async Task<List<UsageTimePoint>> GetUsageTimeSeriesAsync(string scope, string scopeId, int days, CancellationToken ct = default)
+    {
+        days = Math.Clamp(days, 1, 90);
+        var today = DateTimeOffset.UtcNow.Date;
+        var since = today.AddDays(-(days - 1));
+        var field = scope == "board" ? "boardId" : "tenantId";   // events carry both
+        var q = new QueryDefinition($"SELECT * FROM c WHERE c.{field} = @id AND c.timestamp >= @since")
+            .WithParameter("@id", scopeId)
+            .WithParameter("@since", new DateTimeOffset(since, TimeSpan.Zero));
+        // Cross-partition (events are partitioned by /taskId); bounded by the time window.
+        var events = await QueryAsync<UsageEvent>(UsageEventsContainer, q, partitionKey: null, ct);
+
+        var byDay = new Dictionary<string, UsageTimePoint>();
+        for (var i = 0; i < days; i++)
+        {
+            var key = since.AddDays(i).ToString("yyyy-MM-dd");
+            byDay[key] = new UsageTimePoint { Date = key };
+        }
+        foreach (var e in events)
+        {
+            var key = e.Timestamp.UtcDateTime.ToString("yyyy-MM-dd");
+            if (!byDay.TryGetValue(key, out var pt)) continue;   // outside window (defensive)
+            pt.Tokens += e.Usage.Total;
+            pt.CostUsd += e.CostUsd;
+        }
+        return byDay.Values.OrderBy(p => p.Date).ToList();
+    }
+
     // ── Generic query helper ──────────────────────────────────────────────────
 
     private async Task<IEnumerable<T>> QueryAsync<T>(string containerName, QueryDefinition query, string? partitionKey, CancellationToken ct)

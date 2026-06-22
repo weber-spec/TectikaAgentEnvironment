@@ -2,6 +2,7 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TectikaAgents.AgentRuntime;
+using TectikaAgents.AgentRuntime.GitHub;
 using TectikaAgents.Core.Configuration;
 using TectikaAgents.Core.Interfaces;
 using TectikaAgents.Core.Models;
@@ -23,6 +24,7 @@ public class RunAgentRoundActivity
     private readonly ContextManager _contextManager;
     private readonly WorkflowEventPublisher _events;
     private readonly IWorkspaceService _workspace;
+    private readonly IGitHubReadService _ghRead;
     private readonly UsageRecorder _usage;
     private readonly int _maxCompletionTokens;
     private readonly string _defaultModel;
@@ -36,6 +38,7 @@ public class RunAgentRoundActivity
         ContextManager contextManager,
         WorkflowEventPublisher events,
         IWorkspaceService workspace,
+        IGitHubReadService ghRead,
         UsageRecorder usage,
         IOptions<FoundrySettings> foundry,
         ILogger<RunAgentRoundActivity> logger)
@@ -46,6 +49,7 @@ public class RunAgentRoundActivity
         _contextManager = contextManager;
         _events = events;
         _workspace = workspace;
+        _ghRead = ghRead;
         _usage = usage;
         _maxCompletionTokens = foundry.Value.MaxCompletionTokens;
         _defaultModel = foundry.Value.DefaultModel;
@@ -136,8 +140,15 @@ public class RunAgentRoundActivity
         string? artifactId = null;
         if (outcome.Kind == RoundKind.Final && outcome.Error is null)
         {
+            if (board.GitHub is not null) await TryPushBranchAsync(input.RunId, ct);
+
             var existing = await _cosmos.GetUpstreamArtifactsAsync([input.TaskId], ct);
             var nextVersion = (existing.MaxBy(a => a.Version)?.Version ?? 0) + 1;
+
+            var outputs = task.PendingOutputs.Where(o => o.IsValid()).ToList();  // deliberately declared deliverables
+            var codeOutput = await TryBuildCodeOutputAsync(board, input.RunId, ct);  // automatic code deliverable
+            if (codeOutput is not null) outputs.Add(codeOutput);
+
             var artifact = new Artifact
             {
                 TaskId = input.TaskId,
@@ -147,7 +158,7 @@ public class RunAgentRoundActivity
                 ContentType = ArtifactContentType.Markdown,
                 Content = outcome.FinalText ?? "",        // back-compat: Content == summary; existing readers + EnsureHandoffShape still work
                 Summary = outcome.FinalText ?? "",         // the agent's final message is the handoff summary
-                Outputs = task.PendingOutputs.Where(o => o.IsValid()).ToList(),  // deliberately declared deliverables
+                Outputs = outputs,
                 Origin = ArtifactOrigin.Agent,
                 InternalLogs = [$"Agent: {role.DisplayName}", $"Round: {input.Round}", $"Completion: {outcome.CompletionId}"],
             };
@@ -190,6 +201,41 @@ public class RunAgentRoundActivity
         }
 
         return new RoundActivityResult(outcome, artifactId);
+    }
+
+    // Best-effort: push the run branch to origin so its commits are durable + enrichable.
+    private async Task TryPushBranchAsync(string runId, CancellationToken ct)
+    {
+        try
+        {
+            var run = await _cosmos.GetRunByIdAsync(runId, ct);
+            if (run?.WorkspaceEndpoint is null || run.WorkspaceToken is null) return; // no workspace was used
+            var res = await _workspace.RunCommandAsync(run.WorkspaceEndpoint, run.WorkspaceToken,
+                "cd /workspace && git push origin HEAD", 120, ct);
+            if (res.ExitCode == 0)
+                _logger.LogInformation("[RunAgentRound] finalization push run={RunId} ok", runId);
+            else
+                _logger.LogWarning("[RunAgentRound] finalization push run={RunId} non-zero exit={Exit} stderr={Stderr}", runId, res.ExitCode, res.Stderr);
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "[RunAgentRound] finalization push failed run={RunId}", runId); }
+    }
+
+    // Best-effort: build the Code output for this run's branch (null if no repo / no changes / error).
+    private async Task<Output?> TryBuildCodeOutputAsync(Board board, string runId, CancellationToken ct)
+    {
+        if (board.GitHub is null) return null;
+        var head = $"agent/{runId[..Math.Min(8, runId.Length)]}";
+        try
+        {
+            var meta = await _ghRead.GetRepoMetadataAsync(board.GitHub, ct);
+            var cmp = await _ghRead.CompareAsync(board.GitHub, meta.DefaultBranch, head, ct);
+            if (cmp.FilesChanged == 0) return null;
+            var prs = await _ghRead.ListPullRequestsAsync(board.GitHub, "all", ct);
+            var pr = prs.FirstOrDefault(p => p.Head == head);
+            await _cosmos.PatchRunBranchAsync(runId, head, pr?.Number, ct);
+            return CodeOutputBuilder.Build(board.GitHub, meta.DefaultBranch, head, cmp, pr);
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "[RunAgentRound] code-output enrichment failed run={RunId}", runId); return null; }
     }
 
     private static string Short(string s) => s[..Math.Min(6, s.Length)];

@@ -45,4 +45,7 @@ public sealed class CachedGitHubReadService : IGitHubReadService
 
     public Task<PullRequestInfo?> GetPullRequestAsync(GitHubRepoConnection repo, int number, CancellationToken ct) =>
         Cached(K(repo, "pull", number.ToString()), () => _inner.GetPullRequestAsync(repo, number, ct));
+
+    public Task<CompareResult> CompareAsync(GitHubRepoConnection repo, string @base, string head, CancellationToken ct) =>
+        Cached(K(repo, "compare", @base, head), () => _inner.CompareAsync(repo, @base, head, ct));
 }

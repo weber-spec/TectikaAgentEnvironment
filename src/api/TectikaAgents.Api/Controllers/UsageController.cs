@@ -81,6 +81,16 @@ public class UsageController : ControllerBase
         return Ok(await _cosmos.GetUsageEventsForTaskAsync(TenantId, taskId, clamped, cursor, ct));
     }
 
+    /// <summary>GET /api/usage/project/timeseries?days=14 — daily token/cost series for the tenant.</summary>
+    [HttpGet("project/timeseries")]
+    public async Task<IActionResult> GetProjectTimeSeries([FromQuery] int days = 14, CancellationToken ct = default) =>
+        Ok(await _cosmos.GetUsageTimeSeriesAsync("project", TenantId, days, ct));
+
+    /// <summary>GET /api/usage/board/{boardId}/timeseries?days=14 — daily token/cost series for one board.</summary>
+    [HttpGet("board/{boardId}/timeseries")]
+    public async Task<IActionResult> GetBoardTimeSeries(string boardId, [FromQuery] int days = 14, CancellationToken ct = default) =>
+        Ok(await _cosmos.GetUsageTimeSeriesAsync("board", boardId, days, ct));
+
     /// <summary>GET /api/usage/pricing — current pricing catalog version and prices.</summary>
     [HttpGet("pricing")]
     public IActionResult GetPricing() =>

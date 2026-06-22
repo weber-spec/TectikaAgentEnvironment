@@ -9,7 +9,7 @@ import { Icon } from '@/components/ui/icons';
 import { FilterBuilder } from './FilterBuilder';
 
 export function Toolbar() {
-  const { activeView, addTask, groups, runBoard, stopBoard, runPhase, boardRunnableCount } = useBoard();
+  const { activeView, addTask, groups, runBoard, stopBoard, runPhase, boardRunnableCount, boardRetryCount } = useBoard();
   const showGrouping = activeView.kind === 'table' || activeView.kind === 'kanban';
   const showColumns = activeView.kind === 'table';
 
@@ -31,7 +31,7 @@ export function Toolbar() {
       {showGrouping && <GroupControl />}
       {showColumns && <ColumnsControl />}
       <div className="flex-1" />
-      <RunBoardButton runBoard={runBoard} stopBoard={stopBoard} runPhase={runPhase} runnableCount={boardRunnableCount} />
+      <RunBoardButton runBoard={runBoard} stopBoard={stopBoard} runPhase={runPhase} runnableCount={boardRunnableCount} retryCount={boardRetryCount} />
     </div>
   );
 }
@@ -184,14 +184,16 @@ const RUN_STATUS_COLORS: Record<string, string> = {
   Completed: '#00c875',
 };
 
-function RunBoardButton({ runBoard, stopBoard, runPhase, runnableCount }: {
+function RunBoardButton({ runBoard, stopBoard, runPhase, runnableCount, retryCount }: {
   runBoard: () => Promise<void>;
   stopBoard: () => Promise<void>;
   runPhase: BoardRunPhase;
   runnableCount: number;
+  retryCount: number;
 }) {
   const btnRef = useRef<HTMLButtonElement>(null);
   const [stopOpen, setStopOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // While running, the button is a live control: click to open a Stop confirmation.
   if (runPhase.kind === 'running') {
@@ -224,26 +226,49 @@ function RunBoardButton({ runBoard, stopBoard, runPhase, runnableCount }: {
 
   const isDone = runPhase.kind === 'done';
   const nothingToRun = runnableCount === 0;
+  const hasRetries = retryCount > 0;
+  const title = nothingToRun
+    ? 'No agent tasks are ready to run'
+    : hasRetries
+      ? `Run ${runnableCount} ready — ${retryCount} failed task${retryCount === 1 ? '' : 's'} will be reset & retried`
+      : `Run ${runnableCount} ready agent task${runnableCount === 1 ? '' : 's'}`;
   return (
-    <button
-      onClick={runBoard}
-      disabled={nothingToRun}
-      title={nothingToRun
-        ? 'No agent tasks are ready to run'
-        : `Run ${runnableCount} ready agent task${runnableCount === 1 ? '' : 's'}`}
-      className={`inline-flex items-center gap-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap px-2.5 py-1.5 text-white shadow-sm ${
-        nothingToRun ? 'bg-green-600 opacity-50 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
-      }`}
-    >
-      {isDone ? (
-        <div
-          className="rounded-full flex-shrink-0"
-          style={{ width: 11, height: 11, background: RUN_STATUS_COLORS[(runPhase as Extract<BoardRunPhase, { kind: 'done' }>).status] }}
-        />
-      ) : (
-        <Icon.play aria-hidden="true" size={15} />
+    <>
+      <button
+        ref={btnRef}
+        // With retries, starting is destructive (it discards failed runs) — confirm first.
+        onClick={() => { if (hasRetries) setConfirmOpen(o => !o); else void runBoard(); }}
+        disabled={nothingToRun}
+        title={title}
+        aria-label={title}
+        className={`inline-flex items-center gap-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap px-2.5 py-1.5 text-white shadow-sm ${
+          nothingToRun ? 'bg-green-600 opacity-50 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
+        }`}
+      >
+        {isDone ? (
+          <div
+            className="rounded-full flex-shrink-0"
+            style={{ width: 11, height: 11, background: RUN_STATUS_COLORS[(runPhase as Extract<BoardRunPhase, { kind: 'done' }>).status] }}
+          />
+        ) : (
+          <Icon.play aria-hidden="true" size={15} />
+        )}
+        Run Board
+      </button>
+      {hasRetries && (
+        <Popover anchorRef={btnRef} open={confirmOpen} onClose={() => setConfirmOpen(false)} align="end" width={260}>
+          <div className="p-3">
+            <p className="text-sm font-semibold text-[var(--foreground)]">Run {runnableCount} agent task{runnableCount === 1 ? '' : 's'}?</p>
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              {retryCount} failed task{retryCount === 1 ? '' : 's'} will be reset to Backlog and retried from scratch, discarding {retryCount === 1 ? 'its' : 'their'} previous run.
+            </p>
+            <div className="mt-3 flex justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setConfirmOpen(false)}>Cancel</Button>
+              <Button size="sm" variant="primary" onClick={() => { setConfirmOpen(false); void runBoard(); }}>Run {runnableCount}</Button>
+            </div>
+          </div>
+        </Popover>
       )}
-      Run Board
-    </button>
+    </>
   );
 }
