@@ -19,11 +19,10 @@ import { UsagePanel } from './UsagePanel';
 import { LiveEdge } from './LiveEdge';
 import { contextFromEvents, sumTokens } from '@/lib/thinking-phrases';
 import { InteractionCard } from '@/components/InteractionCard';
+import { ModelSelect } from '@/components/ModelSelect';
 
 type Tab = 'chat' | 'activity' | 'details' | 'bridge';
 
-// Models offered in the in-panel agent configuration dropdown.
-const MODELS = ['default', 'gpt-4o', 'o3', 'claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5'];
 const TOOL_LIBRARY = ['search', 'read_repo', 'write_code', 'run_tests', 'deploy', 'browser', 'sql', 'http'];
 
 export function ItemPanel() {
@@ -325,7 +324,7 @@ function AgentConfigEditor({ role }: { role: AgentRole }) {
   const lastId = useRef(role.id);
   if (lastId.current !== role.id) { lastId.current = role.id; if (prompt !== role.systemPrompt) setPrompt(role.systemPrompt); }
 
-  const setModel = (m: string) => saveRole({ ...role, modelOverride: m === 'default' ? undefined : m });
+  const setModel = (m: string) => saveRole({ ...role, modelOverride: m || undefined });
   const toggleTool = (t: string) => saveRole({ ...role, tools: role.tools.includes(t) ? role.tools.filter(x => x !== t) : [...role.tools, t] });
   const available = TOOL_LIBRARY.filter(t => !role.tools.includes(t));
 
@@ -334,13 +333,13 @@ function AgentConfigEditor({ role }: { role: AgentRole }) {
       <div className="flex items-center gap-2"><Icon.robot size={16} className="text-[var(--primary)]" /><span className="font-semibold text-[var(--foreground)]">Agent configuration</span><span className="text-[10px] text-[var(--muted)] ml-auto">{role.displayName}</span></div>
 
       <Field label="Model">
-        <div className="relative">
-          <select value={role.modelOverride ?? 'default'} onChange={e => setModel(e.target.value)}
-            className="w-full appearance-none bg-[var(--surface)] rounded-lg pl-2.5 pr-8 py-2 text-[13px] text-[var(--foreground)] border border-[var(--border)] outline-none focus:border-[var(--primary)] cursor-pointer">
-            {MODELS.map(m => <option key={m} value={m}>{m === 'default' ? 'Default (workspace model)' : m}</option>)}
-          </select>
-          <Icon.chevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--muted)] pointer-events-none" />
-        </div>
+        <ModelSelect
+          value={role.modelOverride}
+          onChange={setModel}
+          defaultLabel="Default (workspace model)"
+          chevron
+          selectClassName="w-full appearance-none bg-[var(--surface)] rounded-lg pl-2.5 pr-8 py-2 text-[13px] text-[var(--foreground)] border border-[var(--border)] outline-none focus:border-[var(--primary)] cursor-pointer"
+        />
       </Field>
 
       <Field label="System prompt">
