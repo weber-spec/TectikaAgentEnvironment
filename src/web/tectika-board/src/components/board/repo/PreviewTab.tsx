@@ -10,6 +10,10 @@ export function PreviewTab({ boardId, branch }: { boardId: string; branch: strin
 
   useEffect(() => {
     let live = true;
+    // Reset session state on board change so a previous board's preview never
+    // shows (or heart-beats) under a new board until the async get resolves.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset on boardId change
+    setSession(null); setBusy(false);
     api.preview.get(boardId).then(s => { if (live) setSession(s); }).catch(() => { if (live) setSession(null); });
     return () => { live = false; };
   }, [boardId]);
@@ -81,7 +85,7 @@ export function PreviewTab({ boardId, branch }: { boardId: string; branch: strin
         <span className="font-medium text-[#22c55e]">● live · {session.branch}</span>
         <a href={session.url} target="_blank" rel="noreferrer"
           className="text-[var(--primary)] hover:underline font-medium">Open ↗</a>
-        <button onClick={() => navigator.clipboard.writeText(session.url ?? '')}
+        <button onClick={() => navigator.clipboard?.writeText(session.url ?? '')}
           className="text-[var(--muted)] hover:text-[var(--foreground)] font-medium">Copy link</button>
         <span className="text-[11px] text-[var(--muted)]">The app may need a few more seconds to finish booting.</span>
         <div className="flex-1" />
