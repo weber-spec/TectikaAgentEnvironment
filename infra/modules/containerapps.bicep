@@ -31,6 +31,10 @@ param workflowsManagementKeySecretUri string
 param tenantId string
 param apiClientId string
 param platformClientId string
+@description('Resource group the API provisions live-preview ACI into (Preview__ResourceGroup).')
+param previewResourceGroup string
+@description('User-assigned MI resource id the preview ACI uses to pull from ACR (same MI the agent workspaces use).')
+param previewMiResourceId string
 
 var apiAudience = empty(apiClientId) ? '' : 'api://${apiClientId}'
 var sfx = empty(nameSuffix) ? '' : '-${nameSuffix}'
@@ -114,6 +118,14 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'AzureAd__ClientId', value: apiClientId }
             { name: 'AzureAd__Audience', value: apiAudience }
             { name: 'AzureAd__PlatformClientId', value: platformClientId }
+            // ── Live Preview (API provisions/destroys preview ACI) ──────────
+            { name: 'Preview__ResourceGroup', value: previewResourceGroup }
+            { name: 'Preview__Region', value: location }
+            { name: 'Preview__AcrImage', value: '${acrLoginServer}/preview-runner:latest' }
+            { name: 'Preview__AcrLoginServer', value: acrLoginServer }
+            { name: 'Preview__MiResourceId', value: previewMiResourceId }
+            { name: 'Preview__IdleMinutes', value: '15' }
+            { name: 'Preview__CapMinutes', value: '45' }
           ]
         }
       ]

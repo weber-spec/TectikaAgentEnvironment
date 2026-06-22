@@ -49,6 +49,7 @@ var containers = [
   { name: 'userSettings', pk: '/userId' }
   { name: 'usageEvents', pk: '/taskId' }
   { name: 'usageRollups', pk: '/tenantId' }
+  { name: 'previewSessions', pk: '/boardId' }
 ]
 
 resource cosmosContainers 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-11-15' = [

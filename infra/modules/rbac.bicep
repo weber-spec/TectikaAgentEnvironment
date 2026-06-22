@@ -138,6 +138,18 @@ resource aciContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
+// ── Contributor on RG: api (for live-preview ACI create/delete) ──────────────
+// The API process provisions/destroys preview Container Instances; mirrors the
+// workflows grant above (RG-scoped Contributor) so re-deploy is idempotent.
+resource apiAciContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(resourceGroup().id, apiMiPrincipalId, roles.contributor)
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.contributor)
+    principalId: apiMiPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 // ── Cosmos DB data-plane (SQL role assignment, NOT ARM RBAC): api, workflows ─
 resource cosmosData 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2024-11-15' = [
   for p in aiPrincipals: {

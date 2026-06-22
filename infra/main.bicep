@@ -156,6 +156,9 @@ module containerApps 'modules/containerapps.bicep' = {
     tenantId: tenantId
     apiClientId: apiClientId
     platformClientId: platformClientId
+    previewResourceGroup: resourceGroupName
+    // Preview ACI pulls the preview-runner image with the same UAMI the agent workspaces use.
+    previewMiResourceId: identities.outputs.workflowsMiId
   }
 }
 
