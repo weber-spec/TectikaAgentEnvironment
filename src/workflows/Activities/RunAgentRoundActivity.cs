@@ -31,6 +31,10 @@ public class RunAgentRoundActivity
     private readonly string _provider;
     private readonly ILogger<RunAgentRoundActivity> _logger;
 
+    /// <summary>Max times one task may pause for request_human_input before the run stops pausing and
+    /// continues autonomously (QA S1 §2.2). Two genuine product questions are allowed; the 3rd+ converts.</summary>
+    private const int MaxHumanAsksPerTask = 2;
+
     public RunAgentRoundActivity(
         WorkflowCosmosService cosmos,
         IAgentRuntime runtime,
@@ -115,6 +119,11 @@ public class RunAgentRoundActivity
             // is reminded to use the workspace even when task context is already in the thread history.
             if (string.IsNullOrEmpty(input.UserInput))
                 userInput += WorkspacePrompt(role.Permissions.CanUseWorkspace, board.GitHub is not null, role.Permissions.CanPushCode);
+
+            // Continuation run (new run reusing the task's existing Foundry thread): its files were restored
+            // via the per-task branch, so tell the agent to build on them instead of assuming a blank sandbox.
+            if (hadThread && role.Permissions.CanUseWorkspace && board.GitHub is not null)
+                userInput += ContinuationNote(BranchForTask(input.TaskId));
         }
 
         var explorer = new BoardProjectExplorer(_cosmos, input.BoardId, input.TenantId);
@@ -143,6 +152,26 @@ public class RunAgentRoundActivity
         if (input.Round == 0 || outcome.OutputOps is { Count: > 0 })
             await _cosmos.PatchTaskPendingOutputsAsync(input.BoardId, input.TaskId, task.PendingOutputs, ct);
 
+        // Repeat-ask guard (QA S1 §2.2): the task prompt grants full autonomy, yet the agent can stall a run by
+        // asking the human the same thing repeatedly. Count request_human_input pauses per task; past the cap,
+        // convert the ask into autonomous continuation (feed a firm nudge as the control tool's output) instead
+        // of pausing again. Only request_human_input is guarded — request_approval/request_revision still pause.
+        if (outcome.Kind == RoundKind.AwaitUser && outcome.Control?.Kind == PendingControlKind.HumanInput)
+        {
+            outcome = RepeatAskGuard.Apply(outcome, task.HumanAskCount, MaxHumanAsksPerTask, out var guardFired);
+            if (guardFired)
+                _logger.LogInformation("[RunAgentRound] repeat-ask guard fired task={Task} priorAsks={Asks} — auto-continuing without pausing", input.TaskId, task.HumanAskCount);
+            else
+            {
+                task.HumanAskCount += 1;
+                await _cosmos.PatchTaskHumanAskCountAsync(input.BoardId, input.TaskId, task.HumanAskCount, ct);
+            }
+        }
+
+        // Workspace state is persisted once per run, at the run boundary, by PersistWorkspaceActivity (called
+        // in the orchestrator's finally before teardown) — not per round. See the design doc:
+        // docs/superpowers/specs/2026-06-23-workspace-state-persistence-design.md.
+
         string? artifactId = null;
         if (outcome.Error is not null)
         {
@@ -153,15 +182,11 @@ public class RunAgentRoundActivity
         }
         else if (outcome.Kind == RoundKind.Final)
         {
-            // Only push for roles permitted to (CanPushCode); the sandbox's push remote is disabled
-            // otherwise, so an ungated push would just fail and log noise every run.
-            if (board.GitHub is not null && role.Permissions.CanPushCode) await TryPushBranchAsync(input.RunId, ct);
-
             var existing = await _cosmos.GetUpstreamArtifactsAsync([input.TaskId], ct);
             var nextVersion = (existing.MaxBy(a => a.Version)?.Version ?? 0) + 1;
 
             var outputs = task.PendingOutputs.Where(o => o.IsValid()).ToList();  // deliberately declared deliverables
-            var codeOutput = await TryBuildCodeOutputAsync(board, input.RunId, ct);  // automatic code deliverable
+            var codeOutput = await TryBuildCodeOutputAsync(board, input.TaskId, input.RunId, ct);  // automatic code deliverable
             if (codeOutput is not null) outputs.Add(codeOutput);
 
             var artifact = new Artifact
@@ -242,28 +267,11 @@ public class RunAgentRoundActivity
         return new RoundActivityResult(outcome, artifactId);
     }
 
-    // Best-effort: push the run branch to origin so its commits are durable + enrichable.
-    private async Task TryPushBranchAsync(string runId, CancellationToken ct)
-    {
-        try
-        {
-            var run = await _cosmos.GetRunByIdAsync(runId, ct);
-            if (run?.WorkspaceEndpoint is null || run.WorkspaceToken is null) return; // no workspace was used
-            var res = await _workspace.RunCommandAsync(run.WorkspaceEndpoint, run.WorkspaceToken,
-                "cd /workspace && git push origin HEAD", 120, ct);
-            if (res.ExitCode == 0)
-                _logger.LogInformation("[RunAgentRound] finalization push run={RunId} ok", runId);
-            else
-                _logger.LogWarning("[RunAgentRound] finalization push run={RunId} non-zero exit={Exit} stderr={Stderr}", runId, res.ExitCode, res.Stderr);
-        }
-        catch (Exception ex) { _logger.LogWarning(ex, "[RunAgentRound] finalization push failed run={RunId}", runId); }
-    }
-
-    // Best-effort: build the Code output for this run's branch (null if no repo / no changes / error).
-    private async Task<Output?> TryBuildCodeOutputAsync(Board board, string runId, CancellationToken ct)
+    // Best-effort: build the Code output for this task's branch (null if no repo / no changes / error).
+    private async Task<Output?> TryBuildCodeOutputAsync(Board board, string taskId, string runId, CancellationToken ct)
     {
         if (board.GitHub is null) return null;
-        var head = $"agent/{runId[..Math.Min(8, runId.Length)]}";
+        var head = BranchForTask(taskId);
         try
         {
             var meta = await _ghRead.GetRepoMetadataAsync(board.GitHub, ct);
@@ -308,6 +316,12 @@ public class RunAgentRoundActivity
         var header =
             "\n\n## Sandbox — MANDATORY WORKFLOW\n\n" +
             "You have a live sandbox workspace at `/workspace` and **MUST** use it for all implementation work.\n\n" +
+            "**The sandbox is NON-INTERACTIVE.** There is no TTY, keyboard, or terminal — programs run " +
+            "unattended and any read from stdin returns EOF immediately. Do NOT design around live keypresses " +
+            "or terminal prompts, and do NOT choose interactive console-UI / TUI libraries (anything that draws " +
+            "to the terminal or waits for `ReadKey`/`readline`-style input) for code you must build and verify " +
+            "here. If a program needs input, make it argument/flag-driven, or feed input non-interactively " +
+            "(e.g. `run_command printf 'a\\nb\\n' | dotnet run`). Verify by running the program unattended.\n\n" +
             "**REQUIRED steps — do not skip:**\n" +
             "1. Call `list_dir` or `run_command git log --oneline -5` to see the current workspace state\n" +
             "2. Read files with `read_file` before editing them\n" +
@@ -317,6 +331,9 @@ public class RunAgentRoundActivity
             "**NEVER:**\n" +
             "- Write implementation code as text in your response or inside `declare_output`\n" +
             "- Ask \"how would you like me to proceed?\" — explore and implement directly\n" +
+            "- Ask the human to decide implementation details, or to approve fixing your own build/runtime " +
+            "errors. You have full autonomy: pick the most reasonable approach and proceed. If an approach " +
+            "keeps failing, CHANGE the approach (e.g. a different library or design) rather than asking again\n" +
             "- Mark the task done without having run at least one `run_command` or `write_file`\n\n" +
             "**`declare_output` is for documents only** (specs, ADRs, READMEs, reports).\n" +
             "Code belongs in workspace files, not in tool call arguments.\n\n" +
@@ -335,6 +352,20 @@ public class RunAgentRoundActivity
                   : "with git configured. You can `git commit` locally, but pushing is disabled for your role.")
             : header + "\nYour sandbox is `/workspace` — an empty directory with no git repo.";
     }
+
+    /// <summary>The per-TASK git branch that every run of a task shares. Work committed in run N is
+    /// restored by run N+1's fresh clone (the entrypoint re-checks-out this branch). Previously the
+    /// branch was per-RUN (`agent/&lt;run8&gt;`), so each run started on its own branch and silently lost
+    /// the prior run's files — the QA S1 root cause.</summary>
+    public static string BranchForTask(string taskId) => $"agent/task-{taskId}";
+
+    /// <summary>Appended at round 0 of a continuation run so the agent knows its earlier files were
+    /// restored (via the per-task branch) instead of assuming a blank workspace.</summary>
+    public static string ContinuationNote(string branch) =>
+        "\n\n## Continuing earlier work on this task\n" +
+        "This task already has earlier runs. Your previous files ARE restored in `/workspace` (committed to " +
+        $"branch `{branch}`, re-checked-out on clone). Begin by running `run_command git log --oneline -10` " +
+        "and `list_dir` to see what already exists — build on it, do NOT recreate files from scratch.";
 
     private sealed class RunWorkspaceProvider : IWorkspaceProvider
     {
@@ -361,7 +392,7 @@ public class RunAgentRoundActivity
             if (run is { WorkspaceEndpoint: not null, WorkspaceToken: not null })
                 return _cached = new WorkspaceConnection(run.WorkspaceEndpoint, run.WorkspaceToken);
 
-            var branch = $"agent/{_runId[..Math.Min(8, _runId.Length)]}";
+            var branch = BranchForTask(_taskId);
             // One retry for a transient infra blip (ARM throttling, a flaky create). A health TimeoutException
             // means the container started but never became healthy (e.g. a broken image) — retrying just burns
             // another full poll window, so we don't retry that case; we fail fast and let the run stop cleanly.

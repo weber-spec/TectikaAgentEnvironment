@@ -34,4 +34,13 @@ public class TectikaToolSchemaTests
         Assert.False(string.IsNullOrWhiteSpace(TectikaToolSchema.Version));
         Assert.Equal(TectikaToolSchema.Version, TectikaToolSchema.Version);
     }
+
+    // QA S1 §2.2 — request_human_input must steer the agent toward autonomy, not "ask whenever stuck".
+    [Fact]
+    public void RequestHumanInput_Description_DiscouragesSelfBugAsking()
+    {
+        var def = TectikaToolSchema.Definitions.Single(d => d.Name == "request_human_input");
+        Assert.Contains("autonomy", def.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Only when you genuinely cannot proceed", def.Description);
+    }
 }

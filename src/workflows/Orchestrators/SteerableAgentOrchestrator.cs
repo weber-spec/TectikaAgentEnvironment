@@ -38,6 +38,18 @@ public class SteerableAgentOrchestrator
         }
         finally
         {
+            // Persist the run's workspace changes (commit+push to the task branch) BEFORE teardown, so the
+            // next run's fresh clone restores them. Its own try/catch so a persist failure never blocks the
+            // destroy below — leaking a billing ACI is worse than losing a best-effort commit.
+            try
+            {
+                await context.CallActivityAsync(nameof(PersistWorkspaceActivity), input.RunId);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning("[Steerable] workspace persist failed (non-fatal): {Msg}", ex.Message);
+            }
+
             // Destroy the sandbox if RunAgentRoundActivity lazily provisioned one (no-op otherwise).
             try
             {

@@ -8,7 +8,7 @@ namespace TectikaAgents.AgentRuntime;
 /// whenever the toolset changes so AgentInstructionsHash republishes agent versions.</summary>
 public static class TectikaToolSchema
 {
-    public const string Version = "tools-v6";
+    public const string Version = "tools-v7";
 
     public sealed record ToolProp(string Type, string? Description = null, string[]? Enum = null);
     public sealed record ToolDef(
@@ -33,7 +33,7 @@ public static class TectikaToolSchema
             new Dictionary<string, ToolProp> { ["text"] = new("string", "One-line intent, e.g. 'Gathering data about the project'.") }, ["text"]),
         new("update_brief", "Append a one-line note to this task's running brief (history visible to downstream tasks).",
             new Dictionary<string, ToolProp> { ["text"] = new("string", "One-line brief update.") }, ["text"]),
-        new("request_human_input", "Pause and ask the human a question (free-text, or multiple-choice if options given). Only when you genuinely cannot proceed.",
+        new("request_human_input", "Pause the run to ask the human a PRODUCT or SCOPE question you genuinely cannot answer yourself — an ambiguous requirement, or a choice only the user can make. This is NOT for deciding implementation details, asking permission to fix your own build/runtime errors, or checking whether to keep going: you have full autonomy, so prefer trying a reasonable approach and proceeding. Do not ask repeatedly about the same issue — if an approach keeps failing, change the approach instead. (free-text, or multiple-choice if options given.)",
             new Dictionary<string, ToolProp> {
                 ["question"] = new("string", "The question to ask."),
                 ["options"] = new("array", "Optional choices the user picks from.") }, ["question"]),

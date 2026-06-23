@@ -29,4 +29,33 @@ public class WorkspacePromptTests
         Assert.Contains("Do NOT push", p);
         Assert.Contains("pushing is disabled", p);
     }
+
+    // QA S1 §2.2 — sandbox non-interactivity must be stated so the agent never designs around a TTY.
+    [Fact] public void Repo_prompt_states_sandbox_is_non_interactive()
+    {
+        var p = RunAgentRoundActivity.WorkspacePrompt(canUseWorkspace: true, repoConnected: true, canPushCode: true);
+        Assert.Contains("NON-INTERACTIVE", p);
+        Assert.Contains("stdin", p);
+    }
+
+    [Fact] public void Prompt_grants_autonomy_over_asking_to_fix_own_bugs()
+    {
+        var p = RunAgentRoundActivity.WorkspacePrompt(canUseWorkspace: true, repoConnected: true, canPushCode: true);
+        Assert.Contains("full autonomy", p);
+    }
+
+    // QA S1 §2.1 — per-task branch + continuation awareness.
+    [Fact] public void BranchForTask_is_per_task_and_stable()
+    {
+        Assert.Equal("agent/task-T1", RunAgentRoundActivity.BranchForTask("T1"));
+        Assert.Equal(RunAgentRoundActivity.BranchForTask("T1"), RunAgentRoundActivity.BranchForTask("T1"));
+        Assert.NotEqual(RunAgentRoundActivity.BranchForTask("T1"), RunAgentRoundActivity.BranchForTask("T2"));
+    }
+
+    [Fact] public void ContinuationNote_names_the_branch_and_says_files_restored()
+    {
+        var note = RunAgentRoundActivity.ContinuationNote("agent/task-abc");
+        Assert.Contains("agent/task-abc", note);
+        Assert.Contains("restored", note);
+    }
 }

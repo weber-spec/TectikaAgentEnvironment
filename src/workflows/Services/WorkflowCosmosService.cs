@@ -322,6 +322,13 @@ public class WorkflowCosmosService
         await C("tasks").PatchItemAsync<AgentTask>(taskId, new PartitionKey(boardId), patchOps, cancellationToken: ct);
     }
 
+    /// <summary>Persist the running count of request_human_input pauses for a task (repeat-ask guard, QA S1 §2.2).</summary>
+    public async Task PatchTaskHumanAskCountAsync(string boardId, string taskId, int count, CancellationToken ct = default)
+    {
+        var patchOps = new List<PatchOperation> { PatchOperation.Set("/humanAskCount", count) };
+        await C("tasks").PatchItemAsync<AgentTask>(taskId, new PartitionKey(boardId), patchOps, cancellationToken: ct);
+    }
+
     /// <summary>/compact + /clear effect: set the brief (the summary, or "" for a plain clear), null the
     /// Foundry thread (fresh conversation next run), and set the ChatClearedAt transcript boundary.</summary>
     public async Task ResetTaskContextAsync(string boardId, string taskId, string brief, CancellationToken ct = default)
