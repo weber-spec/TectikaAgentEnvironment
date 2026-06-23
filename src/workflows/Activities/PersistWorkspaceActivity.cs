@@ -45,12 +45,16 @@ public class PersistWorkspaceActivity
             }
 
             var msg = $"agent: task {Short(run.TaskId)} run {Short(runId)}";
-            // Stage all; commit only if something is staged; then push (no-op when up to date, and flushes a
-            // commit a prior step left unpushed). Push is disabled in the entrypoint for non-push roles, so an
-            // ungated attempt simply fails here and is logged — state just won't carry for those roles.
+            var branch = RunAgentRoundActivity.BranchForTask(run.TaskId);
+            // Stage all; commit only if something is staged; then push HEAD explicitly to the per-task branch
+            // BY NAME — never `git push origin HEAD` (the current branch). A workspace that's on the wrong
+            // branch (e.g. a stale image that ignored GIT_BRANCH and is sitting on main) must NEVER be able to
+            // push to main. Plain push (no force): a divergence is rejected + logged rather than clobbering
+            // prior runs' work. Push is disabled in the entrypoint for non-push roles, so an ungated attempt
+            // simply fails here and is logged — state just won't carry for those roles.
             var cmd = "cd /workspace && git add -A && " +
                       $"(git diff --cached --quiet || git commit -m \"{msg}\") && " +
-                      "git push origin HEAD";
+                      $"git push origin HEAD:refs/heads/{branch}";
             var res = await _workspace.RunCommandAsync(run.WorkspaceEndpoint, run.WorkspaceToken, cmd, 120, ct);
             if (res.ExitCode == 0)
                 _logger.LogInformation("[PersistWorkspace] commit+push run={RunId} ok", runId);
