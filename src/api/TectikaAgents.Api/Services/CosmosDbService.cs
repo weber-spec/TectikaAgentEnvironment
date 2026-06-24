@@ -526,9 +526,17 @@ public class CosmosDbService : ICosmosDbService
     public async Task<IReadOnlyList<PreviewSession>> ListActivePreviewsAsync(CancellationToken ct = default)
     {
         var q = new QueryDefinition("SELECT * FROM c WHERE c.status IN ('Provisioning','Running')");
-        using var it = GetContainer(PreviewSessionsContainer).GetItemQueryIterator<PreviewSession>(q);
         var list = new List<PreviewSession>();
-        while (it.HasMoreResults) list.AddRange(await it.ReadNextAsync(ct));
+        try
+        {
+            using var it = GetContainer(PreviewSessionsContainer).GetItemQueryIterator<PreviewSession>(q);
+            while (it.HasMoreResults) list.AddRange(await it.ReadNextAsync(ct));
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            // Container not provisioned in this tenant (EnsureInfrastructure can swallow create failures) —
+            // treat as "no active previews" instead of throwing a 404 on every 60s reaper sweep (QA S2 §3.4).
+        }
         return list;
     }
 

@@ -54,7 +54,8 @@ public class FinalizeExhaustedRunActivity
             Origin      = ArtifactOrigin.Agent,
             InternalLogs = [$"Run finalized incomplete: {input.Reason}"],
         };
-        await _cosmos.CreateArtifactAsync(artifact, ct);
+        var saved = await _cosmos.CreateArtifactAsync(artifact, ct);
+        await _cosmos.PatchTaskCurrentArtifactIdAsync(input.BoardId, input.TaskId, saved.Id, ct);  // QA S2 §3.2
         await _cosmos.UpdateTaskStatusAsync(input.BoardId, input.TaskId, AgentTaskStatus.Failed, input.RunId, ct);
     }
 }

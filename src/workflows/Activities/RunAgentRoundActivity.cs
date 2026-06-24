@@ -239,6 +239,11 @@ public class RunAgentRoundActivity
             await _cosmos.UpdateTaskStatusAsync(input.BoardId, input.TaskId, AgentTaskStatus.InProgress, input.RunId, ct);
         }
 
+        // QA S2 §3.2: point the task at its newest artifact (Final or NeedsRevision both set artifactId) so the
+        // UI can find the latest deliverable without scanning the artifacts container.
+        if (artifactId is not null)
+            await _cosmos.PatchTaskCurrentArtifactIdAsync(input.BoardId, input.TaskId, artifactId, ct);
+
         // Persist the round trace (hierarchical) and mirror each event over SSE — live and stored share one shape.
         foreach (var ev in RunEventFactory.BuildRoundEvents(input.RunId, input.TaskId, input.Round, outcome, artifactId))
         {

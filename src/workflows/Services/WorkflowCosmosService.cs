@@ -329,6 +329,13 @@ public class WorkflowCosmosService
         await C("tasks").PatchItemAsync<AgentTask>(taskId, new PartitionKey(boardId), patchOps, cancellationToken: ct);
     }
 
+    /// <summary>Point the task at its newest artifact so the UI can cheaply find the latest deliverable (QA S2 §3.2).</summary>
+    public async Task PatchTaskCurrentArtifactIdAsync(string boardId, string taskId, string artifactId, CancellationToken ct = default)
+    {
+        var patchOps = new List<PatchOperation> { PatchOperation.Set("/currentArtifactId", artifactId) };
+        await C("tasks").PatchItemAsync<AgentTask>(taskId, new PartitionKey(boardId), patchOps, cancellationToken: ct);
+    }
+
     /// <summary>/compact + /clear effect: set the brief (the summary, or "" for a plain clear), null the
     /// Foundry thread (fresh conversation next run), and set the ChatClearedAt transcript boundary.</summary>
     public async Task ResetTaskContextAsync(string boardId, string taskId, string brief, CancellationToken ct = default)
