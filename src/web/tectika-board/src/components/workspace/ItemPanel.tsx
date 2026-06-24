@@ -126,14 +126,29 @@ function HeaderPriority({ task, onPick }: { task: AgentTask; onPick: (p: AgentTa
     </Popover></div>;
 }
 
+// A persisted event can be re-fetched with mutated content (e.g. a control tool's result is patched
+// from "awaiting human" to the human's answer once they respond). Treat those mutable fields as the
+// signal that an existing event changed and must re-render.
+function eventChanged(a: RunEvent, b: RunEvent): boolean {
+  return a.resultSummary !== b.resultSummary
+    || a.title !== b.title
+    || a.detail !== b.detail
+    || a.toolArgsSummary !== b.toolArgsSummary;
+}
+
 // Union two event lists by id (incoming wins on collision). Returns the previous array unchanged when
-// `incoming` introduces no new ids, so a poll that finds nothing new triggers no re-render.
+// `incoming` adds no new ids AND mutates no existing event, so a poll that finds nothing new triggers
+// no re-render — but a content update (patched result) still propagates.
 function mergeById(prev: RunEvent[], incoming: RunEvent[]): RunEvent[] {
   if (incoming.length === 0) return prev;
   const map = new Map(prev.map(e => [e.id, e]));
-  let hasNew = false;
-  for (const e of incoming) { if (!map.has(e.id)) hasNew = true; map.set(e.id, e); }
-  if (!hasNew && map.size === prev.length) return prev;
+  let changed = false;
+  for (const e of incoming) {
+    const existing = map.get(e.id);
+    if (!existing || eventChanged(existing, e)) changed = true;
+    map.set(e.id, e);
+  }
+  if (!changed && map.size === prev.length) return prev;
   return Array.from(map.values());
 }
 
@@ -171,7 +186,14 @@ function useRunEvents(task: AgentTask, activeRunId?: string): RunEvent[] {
         toolName: e.toolName, toolArgsSummary: e.toolArgsSummary, resultSummary: e.resultSummary,
         tokenUsage: e.tokenUsage, timestamp: e.timestamp,
       };
-      setEvents(prev => prev.some(x => x.id === re.id) ? prev : [...prev, re]);
+      setEvents(prev => {
+        const i = prev.findIndex(x => x.id === re.id);
+        if (i === -1) return [...prev, re];
+        if (!eventChanged(prev[i], re)) return prev;
+        const next = prev.slice();
+        next[i] = re;
+        return next;
+      });
     });
     return stop;
   }, [activeRunId, task.workflowRunId, task.id]);
@@ -443,7 +465,7 @@ function AgentChat({ task, role }: { task: AgentTask; role?: AgentRole }) {
 
   // ── Chronological stream: user/agent bubbles + tool/artifact history steps ──
   type StreamItem =
-    | { kind: 'user' | 'agent'; id: string; text: string; at: string }
+    | { kind: 'user' | 'agent' | 'revision'; id: string; text: string; at: string }
     | { kind: 'step'; id: string; ev: RunEvent; at: string };
 
   const stream = useMemo<StreamItem[]>(() => {
@@ -451,6 +473,7 @@ function AgentChat({ task, role }: { task: AgentTask; role?: AgentRole }) {
     for (const e of events) {
       if (e.kind === 'UserMessage') items.push({ kind: 'user', id: e.id, text: e.detail || e.title || '', at: e.timestamp });
       else if (e.kind === 'AgentMessage') items.push({ kind: 'agent', id: e.id, text: e.detail || e.title || '', at: e.timestamp });
+      else if (e.kind === 'RevisionRequested') items.push({ kind: 'revision', id: e.id, text: e.detail || e.title || '', at: e.timestamp });
       else if (e.kind === 'ToolCall' || e.kind === 'ArtifactWritten') items.push({ kind: 'step', id: e.id, ev: e, at: e.timestamp });
     }
     // optimistic human turns not yet present as a persisted UserMessage
@@ -526,7 +549,7 @@ function AgentChat({ task, role }: { task: AgentTask; role?: AgentRole }) {
         <span>{role ? role.displayName : 'Agent'} · {role?.modelOverride ?? 'default model'}</span>
         <span className="ml-auto text-[var(--muted-2)]">messages steer the run live</span>
       </div>
-      <div className="flex-1 overflow-auto p-3 flex flex-col gap-2.5">
+      <div className="flex-1 min-h-0 overflow-auto p-3 flex flex-col gap-2.5">
         {stream.length === 0 && !working && (
           <div className="text-center text-sm text-[var(--muted)] mt-8">
             <Icon.robot size={36} className="mx-auto mb-2 text-[var(--muted-2)]" />
@@ -534,9 +557,14 @@ function AgentChat({ task, role }: { task: AgentTask; role?: AgentRole }) {
             <span className="text-xs">Message it to kick off a run, or steer one that&apos;s already working.</span>
           </div>
         )}
-        {stream.map(it => it.kind === 'step'
-          ? <HistoryStep key={it.id} ev={it.ev} />
-          : <ChatBubble key={it.id} bubble={{ id: it.id, author: it.kind === 'user' ? 'human' : 'agent', text: it.text, at: it.at }} />)}
+        {stream.map(it => {
+          if (it.kind === 'step') {
+            if (controlStepHidden(it.ev, pendingInteraction)) return null;
+            return <HistoryStep key={it.id} ev={it.ev} />;
+          }
+          if (it.kind === 'revision') return <RevisionMessage key={it.id} text={it.text} />;
+          return <ChatBubble key={it.id} bubble={{ id: it.id, author: it.kind === 'user' ? 'human' : 'agent', text: it.text, at: it.at }} />;
+        })}
         {pendingInteraction && (
           <InteractionCard
             interaction={pendingInteraction}
@@ -592,6 +620,31 @@ function ChatBubble({ bubble }: { bubble: Bubble }) {
       </div>
     </div>
   );
+}
+
+// A validator agent's request_revision, surfaced as a first-class message (not a buried tool line) so
+// the user reads WHY the work bounced back without expanding anything.
+function RevisionMessage({ text }: { text: string }) {
+  return (
+    <div className="rounded-xl p-3 flex flex-col gap-1.5"
+      style={{ background: '#ff642e0f', border: '1px solid #ff642e44', borderLeft: '4px solid #ff642e' }}>
+      <div className="flex items-center gap-1.5 text-[12px] font-semibold" style={{ color: '#ff642e' }}>
+        <Icon.warning size={13} /> Revision requested
+      </div>
+      <div className="text-[13px] leading-relaxed text-[var(--foreground)] whitespace-pre-wrap">{text}</div>
+    </div>
+  );
+}
+
+// Control tools double up with a richer surface, so their collapsed step is redundant: request_revision
+// is shown as a RevisionMessage; request_approval / request_human_input are shown as an InteractionCard
+// while their modal is open. Hide the step in those cases. Once an approval/input is answered (its modal
+// closes), the step returns to the transcript — now carrying the human's answer in its patched result.
+function controlStepHidden(ev: RunEvent, pending: HumanInteraction | null): boolean {
+  if (ev.toolName === 'request_revision') return true;
+  if (ev.toolName === 'request_approval' || ev.toolName === 'request_human_input')
+    return !!pending && pending.runId === ev.runId && pending.stepIndex === ev.round;
+  return false;
 }
 
 // Friendly labels for the board-exploration tools the agent calls.

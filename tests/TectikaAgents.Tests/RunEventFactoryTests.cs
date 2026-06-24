@@ -47,4 +47,23 @@ public class RunEventFactoryTests
         Assert.Equal("A | B", interaction.Detail);
         Assert.DoesNotContain(events, e => e.Kind == RunEventKind.ArtifactWritten);
     }
+
+    [Fact]
+    public void NeedsRevision_AddsRevisionMessage_WithReason()
+    {
+        var reason = "The build is failing because MainMenu.cs references a missing type.";
+        var outcome = new RoundOutcome(RoundKind.NeedsRevision, null, Array.Empty<PriorToolOutput>(),
+            "call_rev", new PendingControl(PendingControlKind.Revision, reason),
+            "Reviewing the build", null,
+            new[] { new RoundToolCall("request_revision", reason, "revision requested") },
+            new TokenUsage(), "c3");
+
+        var events = RunEventFactory.BuildRoundEvents("run-1", "task-1", 1, outcome, artifactId: "art-7");
+
+        var msg = Assert.Single(events.Where(e => e.Kind == RunEventKind.RevisionRequested));
+        Assert.Equal(reason, msg.Detail);                 // full reason carried for the chat
+        Assert.Equal(reason, msg.Title);                  // short enough not to be truncated
+        var parent = Assert.Single(events.Where(e => e.Kind == RunEventKind.RoundStarted));
+        Assert.Equal(parent.Id, msg.ParentId);            // nested under the round, like AgentMessage
+    }
 }

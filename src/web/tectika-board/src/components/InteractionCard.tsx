@@ -15,20 +15,31 @@ interface InteractionCardProps {
 
 // ── Shared card chrome ────────────────────────────────────────────────────────
 
+// The card has a TITLE (what kind of input the agent needs) and a DESCRIPTION (the agent's actual
+// ask). The title is a concise, type-derived label so it never just repeats the description below it.
+function interactionTitle(type: HumanInteraction['type']): string {
+  switch (type) {
+    case 'Approval': return 'Approval needed';
+    case 'Selection': return 'Choose an option';
+    case 'Question': return 'Agent has a question';
+    default: return 'Action needed';
+  }
+}
+
 function CardShell({ interaction, children }: { interaction: HumanInteraction; children: React.ReactNode }) {
   return (
     <div
       className="bg-[var(--background)] rounded-xl border border-[var(--border)] p-4 flex flex-col gap-3"
       style={{ borderLeft: '4px solid var(--primary)' }}
     >
-      {/* Header */}
+      {/* Header — title (type label) + meta */}
       <div className="flex items-start gap-3">
         <span className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
           style={{ background: 'color-mix(in srgb, var(--primary) 15%, transparent)', color: 'var(--primary)' }}>
           <Icon.warning size={18} />
         </span>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-[var(--foreground)]">{interaction.actionDescription}</p>
+          <p className="text-sm font-semibold text-[var(--foreground)]">{interactionTitle(interaction.type)}</p>
           <div className="flex items-center gap-3 mt-1.5 text-[11px] text-[var(--muted)] flex-wrap">
             <span className="inline-flex items-center gap-1">
               <Icon.clock size={12} /> requested {relativeTime(interaction.requestedAt)}
@@ -39,6 +50,13 @@ function CardShell({ interaction, children }: { interaction: HumanInteraction; c
           </div>
         </div>
       </div>
+
+      {/* Description — the agent's actual ask (shown once, here) */}
+      {interaction.actionDescription && (
+        <p className="text-[13px] leading-relaxed text-[var(--foreground)] whitespace-pre-wrap">
+          {interaction.actionDescription}
+        </p>
+      )}
 
       {/* Variant-specific content */}
       {children}
@@ -209,8 +227,9 @@ function QuestionVariant({ interaction, onResponded }: InteractionCardProps) {
 
   return (
     <CardShell interaction={interaction}>
-      {/* Question text */}
-      {interaction.question && (
+      {/* Question text — only when it adds something beyond the description (CardShell already shows
+          actionDescription, which the steerable factory sets equal to the question). */}
+      {interaction.question && interaction.question !== interaction.actionDescription && (
         <p className="text-sm font-medium text-[var(--foreground)] bg-[var(--surface)] rounded-lg px-3 py-2.5 border border-[var(--border)]">
           {interaction.question}
         </p>

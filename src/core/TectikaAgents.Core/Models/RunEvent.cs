@@ -65,6 +65,7 @@ public enum RunEventKind
     AgentMessage,
     InteractionRequired,
     ApprovalRequired,
+    RevisionRequested,
     RoundCompleted,
     RunCompleted,
     RunFailed

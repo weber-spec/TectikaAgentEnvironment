@@ -414,6 +414,12 @@ public class CosmosDbService : ICosmosDbService
         return res.Resource;
     }
 
+    public async Task<RunEvent> UpdateRunEventAsync(RunEvent e, CancellationToken ct = default)
+    {
+        var res = await GetContainer(RunEventsContainer).UpsertItemAsync(e, new PartitionKey(e.TaskId), cancellationToken: ct);
+        return res.Resource;
+    }
+
     // ── Usage ─────────────────────────────────────────────────────────────────
 
     public async Task ResetTaskUsageSessionAsync(string tenantId, string taskId, string newSessionId, CancellationToken ct = default)

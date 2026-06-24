@@ -99,6 +99,12 @@ public class InteractionsController : ControllerBase
 
         await _cosmos.UpdateInteractionAsync(interaction, ct);
 
+        // Annotate the agent's control-tool line with the human's answer. The interaction card is the live
+        // surface (shown while awaiting); the collapsed tool line is the lasting record — once the card
+        // closes the line returns to the transcript and should read "Approved." / the answer, not the
+        // stale "awaiting human". Best-effort: never fail the resume over a cosmetic transcript update.
+        await PatchControlToolResultAsync(interaction, ct);
+
         // Wake up the steerable orchestrator: it resumes on a `user_message` string carrying the
         // human's decision, flattened by SteerableInteractionReply.
         var run = await _cosmos.GetRunAsync(interaction.TaskId, req.RunId, ct);
@@ -117,6 +123,37 @@ public class InteractionsController : ControllerBase
 
         _logger.LogInformation("[InteractionReply] interaction {InteractionId} type={Type} responded by {User}", interactionId, interaction.Type, UserId);
         return Ok(interaction);
+    }
+
+    // The steerable control tool whose collapsed transcript line should carry this answer. Selection is
+    // pipeline-origin (no steerable control tool call), so it has no line to annotate.
+    private static string? ControlToolName(InteractionType type) => type switch
+    {
+        InteractionType.Approval => "request_approval",
+        InteractionType.Question => "request_human_input",
+        _ => null,
+    };
+
+    private async Task PatchControlToolResultAsync(HumanInteraction interaction, CancellationToken ct)
+    {
+        var toolName = ControlToolName(interaction.Type);
+        if (toolName is null) return;
+        try
+        {
+            var events = await _cosmos.GetRunEventsAsync(interaction.TaskId, interaction.StepIndex, ct);
+            var step = events.FirstOrDefault(e =>
+                e.Kind == RunEventKind.ToolCall
+                && e.RunId == interaction.RunId
+                && e.Round == interaction.StepIndex
+                && e.ToolName == toolName);
+            if (step is null) return;
+            step.ResultSummary = SteerableInteractionReply.Render(interaction);
+            await _cosmos.UpdateRunEventAsync(step, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[InteractionReply] could not annotate control tool result for interaction {InteractionId}", interaction.Id);
+        }
     }
 
     private async Task RaiseUserMessageEventAsync(string instanceId, string text, CancellationToken ct)

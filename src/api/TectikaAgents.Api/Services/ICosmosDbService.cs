@@ -75,6 +75,9 @@ public interface ICosmosDbService
     /// <summary>Steerable run trace for a task (Activity tab replay), ordered oldest-first.</summary>
     Task<IReadOnlyList<RunEvent>> GetRunEventsAsync(string taskId, int? sinceRound = null, CancellationToken ct = default);
     Task<RunEvent> CreateRunEventAsync(RunEvent e, CancellationToken ct = default);
+    /// <summary>Upsert an existing run event (same id) — e.g. patch a control tool's result with the
+    /// human's answer once they respond, so the transcript line reflects what was decided.</summary>
+    Task<RunEvent> UpdateRunEventAsync(RunEvent e, CancellationToken ct = default);
     Task DeleteEdgesForTaskAsync(string boardId, string taskId, CancellationToken ct = default);
 
     // ── Preview Sessions ─────────────────────────────────────────────────────────

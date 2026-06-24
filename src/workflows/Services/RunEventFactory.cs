@@ -56,6 +56,24 @@ public static class RunEventFactory
             });
         }
 
+        // A validator (QA) agent called request_revision: the run ends and kicks the work back upstream.
+        // Surface the reason as a first-class chat message so the user sees WHY without expanding the
+        // collapsed request_revision tool line.
+        if (outcome.Kind == RoundKind.NeedsRevision && outcome.Control is not null)
+        {
+            var reason = string.IsNullOrWhiteSpace(outcome.Control.Text) ? "Revision requested." : outcome.Control.Text;
+            events.Add(new RunEvent
+            {
+                TaskId = taskId,
+                RunId = runId,
+                Round = round,
+                ParentId = parent.Id,
+                Kind = RunEventKind.RevisionRequested,
+                Title = Truncate(reason, 280),
+                Detail = reason,
+            });
+        }
+
         if (outcome.Kind == RoundKind.Final)
         {
             if (artifactId is not null)

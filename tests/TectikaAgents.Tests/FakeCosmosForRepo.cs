@@ -58,6 +58,7 @@ public sealed class FakeCosmosForRepo : ICosmosDbService
     // ── Run trace ──────────────────────────────────────────────────────────
     public Task<IReadOnlyList<RunEvent>> GetRunEventsAsync(string taskId, int? sinceRound = null, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<RunEvent> CreateRunEventAsync(RunEvent e, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<RunEvent> UpdateRunEventAsync(RunEvent e, CancellationToken ct = default) => throw new NotImplementedException();
     public Task DeleteEdgesForTaskAsync(string boardId, string taskId, CancellationToken ct = default) => throw new NotImplementedException();
 
     // ── Usage tracking (added on main) ───────────────────────────────────────

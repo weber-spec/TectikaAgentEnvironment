@@ -102,7 +102,7 @@ export interface AgentTask {
 export type RunEventKind =
   | 'Thinking' | 'RoundStarted' | 'ToolCall' | 'ToolResult' | 'ArtifactWritten'
   | 'UserMessage' | 'AgentMessage' | 'InteractionRequired' | 'ApprovalRequired'
-  | 'RoundCompleted' | 'RunCompleted' | 'RunFailed';
+  | 'RevisionRequested' | 'RoundCompleted' | 'RunCompleted' | 'RunFailed';
 
 export interface RunEvent {
   id: string;
