@@ -1,3 +1,4 @@
+using Microsoft.Azure.Cosmos;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -24,17 +25,13 @@ public class RunAgentRoundActivity
     private readonly ContextManager _contextManager;
     private readonly WorkflowEventPublisher _events;
     private readonly IWorkspaceService _workspace;
+    private readonly ISecretProvider _secrets;
     private readonly IGitHubReadService _ghRead;
     private readonly UsageRecorder _usage;
     private readonly int _maxCompletionTokens;
     private readonly string _defaultModel;
     private readonly string _provider;
     private readonly ILogger<RunAgentRoundActivity> _logger;
-
-    /// <summary>Max times one task may pause for the human — request_human_input OR request_approval, counted
-    /// together — before the run stops pausing and continues autonomously (QA S1 §2.2). Two genuine asks are
-    /// allowed; the 3rd+ (of either tool) converts to autonomous continuation.</summary>
-    private const int MaxHumanAsksPerTask = 2;
 
     public RunAgentRoundActivity(
         WorkflowCosmosService cosmos,
@@ -43,6 +40,7 @@ public class RunAgentRoundActivity
         ContextManager contextManager,
         WorkflowEventPublisher events,
         IWorkspaceService workspace,
+        ISecretProvider secrets,
         IGitHubReadService ghRead,
         UsageRecorder usage,
         IOptions<FoundrySettings> foundry,
@@ -54,6 +52,7 @@ public class RunAgentRoundActivity
         _contextManager = contextManager;
         _events = events;
         _workspace = workspace;
+        _secrets = secrets;
         _ghRead = ghRead;
         _usage = usage;
         _maxCompletionTokens = foundry.Value.MaxCompletionTokens;
@@ -121,11 +120,6 @@ public class RunAgentRoundActivity
             if (string.IsNullOrEmpty(input.UserInput))
                 userInput += WorkspacePrompt(role.Permissions.CanUseWorkspace, board.GitHub is not null, role.Permissions.CanPushCode,
                     $"agent/{input.RunId[..Math.Min(8, input.RunId.Length)]}");
-
-            // Continuation run (new run reusing the task's existing Foundry thread): its files were restored
-            // via the per-task branch, so tell the agent to build on them instead of assuming a blank sandbox.
-            if (hadThread && role.Permissions.CanUseWorkspace && board.GitHub is not null)
-                userInput += ContinuationNote(BranchForTask(input.TaskId));
         }
 
         var explorer = new BoardProjectExplorer(_cosmos, input.BoardId, input.TenantId);
@@ -134,7 +128,7 @@ public class RunAgentRoundActivity
             {
                 BoardGitHub = board.GitHub,
                 Workspace = role.Permissions.CanUseWorkspace
-                    ? new RunWorkspaceProvider(_cosmos, _workspace, board, input.RunId, input.TaskId, role.Permissions.CanPushCode, _logger)
+                    ? new RunWorkspaceProvider(_cosmos, _workspace, _secrets, board, input.RunId, input.TaskId, role.Permissions.CanPushCode, _logger)
                     : null,
             },
             explorer, ct);
@@ -154,29 +148,6 @@ public class RunAgentRoundActivity
         if (input.Round == 0 || outcome.OutputOps is { Count: > 0 })
             await _cosmos.PatchTaskPendingOutputsAsync(input.BoardId, input.TaskId, task.PendingOutputs, ct);
 
-        // Repeat-ask guard (QA S1 §2.2): the task prompt grants full autonomy, yet the agent can stall a run by
-        // repeatedly asking the human — and it will route around a single hardened tool (re-QA caught it switch
-        // from request_human_input to request_approval). So count BOTH human-pause tools toward one per-task
-        // budget; past the cap, convert the ask into autonomous continuation (feed a firm nudge as the control
-        // tool's output) instead of pausing again. request_revision is excluded — it's a validator handoff, not an ask.
-        if (outcome.Kind == RoundKind.AwaitUser
-            && outcome.Control?.Kind is PendingControlKind.HumanInput or PendingControlKind.Approval)
-        {
-            var askKind = outcome.Control!.Kind;
-            outcome = RepeatAskGuard.Apply(outcome, task.HumanAskCount, MaxHumanAsksPerTask, out var guardFired);
-            if (guardFired)
-                _logger.LogInformation("[RunAgentRound] repeat-ask guard fired task={Task} priorAsks={Asks} kind={Kind} — auto-continuing without pausing", input.TaskId, task.HumanAskCount, askKind);
-            else
-            {
-                task.HumanAskCount += 1;
-                await _cosmos.PatchTaskHumanAskCountAsync(input.BoardId, input.TaskId, task.HumanAskCount, ct);
-            }
-        }
-
-        // Workspace state is persisted once per run, at the run boundary, by PersistWorkspaceActivity (called
-        // in the orchestrator's finally before teardown) — not per round. See the design doc:
-        // docs/superpowers/specs/2026-06-23-workspace-state-persistence-design.md.
-
         string? artifactId = null;
         if (outcome.Error is not null)
         {
@@ -187,11 +158,15 @@ public class RunAgentRoundActivity
         }
         else if (outcome.Kind == RoundKind.Final)
         {
+            // Only push for roles permitted to (CanPushCode); the sandbox's push remote is disabled
+            // otherwise, so an ungated push would just fail and log noise every run.
+            if (board.GitHub is not null && role.Permissions.CanPushCode) await TryPushBranchAsync(input.RunId, ct);
+
             var existing = await _cosmos.GetUpstreamArtifactsAsync([input.TaskId], ct);
             var nextVersion = (existing.MaxBy(a => a.Version)?.Version ?? 0) + 1;
 
             var outputs = task.PendingOutputs.Where(o => o.IsValid()).ToList();  // deliberately declared deliverables
-            var codeOutput = await TryBuildCodeOutputAsync(board, input.TaskId, input.RunId, ct);  // automatic code deliverable
+            var codeOutput = await TryBuildCodeOutputAsync(board, input.RunId, ct);  // automatic code deliverable
             if (codeOutput is not null) outputs.Add(codeOutput);
 
             var artifact = new Artifact
@@ -240,11 +215,6 @@ public class RunAgentRoundActivity
             await _cosmos.UpdateTaskStatusAsync(input.BoardId, input.TaskId, AgentTaskStatus.InProgress, input.RunId, ct);
         }
 
-        // QA S2 §3.2: point the task at its newest artifact (Final or NeedsRevision both set artifactId) so the
-        // UI can find the latest deliverable without scanning the artifacts container.
-        if (artifactId is not null)
-            await _cosmos.PatchTaskCurrentArtifactIdAsync(input.BoardId, input.TaskId, artifactId, ct);
-
         // Persist the round trace (hierarchical) and mirror each event over SSE — live and stored share one shape.
         foreach (var ev in RunEventFactory.BuildRoundEvents(input.RunId, input.TaskId, input.Round, outcome, artifactId))
         {
@@ -277,10 +247,6 @@ public class RunAgentRoundActivity
         return new RoundActivityResult(outcome, artifactId);
     }
 
-<<<<<<< HEAD
-    // Best-effort: build the Code output for this task's branch (null if no repo / no changes / error).
-    private async Task<Output?> TryBuildCodeOutputAsync(Board board, string taskId, string runId, CancellationToken ct)
-=======
     // Best-effort: push the run branch to origin so its commits are durable + enrichable.
     private async Task TryPushBranchAsync(string runId, CancellationToken ct)
     {
@@ -289,8 +255,9 @@ public class RunAgentRoundActivity
             var run = await _cosmos.GetRunByIdAsync(runId, ct);
             if (run?.WorkspaceEndpoint is null || run.WorkspaceToken is null) return; // no workspace was used
             var branchName = $"agent/{runId[..Math.Min(8, runId.Length)]}";
+            var runIdShort = runId[..Math.Min(8, runId.Length)];
             var res = await _workspace.RunCommandAsync(run.WorkspaceEndpoint, run.WorkspaceToken,
-                $"cd /workspace && git push origin {branchName}", 120, ct);
+                $"cd /workspace/runs/{runIdShort} && git push origin {branchName}", 120, ct);
             if (res.ExitCode == 0)
                 _logger.LogInformation("[RunAgentRound] finalization push run={RunId} ok", runId);
             else
@@ -301,10 +268,9 @@ public class RunAgentRoundActivity
 
     // Best-effort: build the Code output for this run's branch (null if no repo / no changes / error).
     private async Task<Output?> TryBuildCodeOutputAsync(Board board, string runId, CancellationToken ct)
->>>>>>> 971d018 (fix/sandbox)
     {
         if (board.GitHub is null) return null;
-        var head = BranchForTask(taskId);
+        var head = $"agent/{runId[..Math.Min(8, runId.Length)]}";
         try
         {
             var meta = await _ghRead.GetRepoMetadataAsync(board.GitHub, ct);
@@ -337,24 +303,18 @@ public class RunAgentRoundActivity
                    "code or git operations, inform the user that your role does not have workspace permission " +
                    "and ask them to reassign the task to an agent that does.";
 
-        // Step 5 reflects the role's push permission. Without CanPushCode the workspace's push remote is
-        // disabled (entrypoint), so instructing the agent to push would only produce confusing failures.
         var branch = branchName ?? "agent/your-branch";
+
+        // Step 5 reflects the role's push permission. The branch is already created — no checkout needed.
         var commitStep = repoConnected && canPushCode
-            ? $"5. Commit & push: `run_command git checkout -b {branch}` (first time only) → `run_command git add -A && git commit -m \"...\" && git push -u origin {branch}`\n\n"
+            ? $"5. Commit & push: `git add -A && git commit -m \"...\" && git push -u origin {branch}`\n\n"
             : repoConnected
-                ? $"5. Commit locally: `run_command git checkout -b {branch}` (first time only) → `run_command git add -A && git commit -m \"...\"`. Do NOT push — your role lacks push permission.\n\n"
-                : "5. (No git repo connected — write and run code in `/workspace`.)\n\n";
+                ? $"5. Commit locally: `git add -A && git commit -m \"...\"`. Do NOT push — your role lacks push permission.\n\n"
+                : "5. (No git repo connected — write and run code in the sandbox.)\n\n";
 
         var header =
             "\n\n## Sandbox — MANDATORY WORKFLOW\n\n" +
-            "You have a live sandbox workspace at `/workspace` and **MUST** use it for all implementation work.\n\n" +
-            "**The sandbox is NON-INTERACTIVE.** There is no TTY, keyboard, or terminal — programs run " +
-            "unattended and any read from stdin returns EOF immediately. Do NOT design around live keypresses " +
-            "or terminal prompts, and do NOT choose interactive console-UI / TUI libraries (anything that draws " +
-            "to the terminal or waits for `ReadKey`/`readline`-style input) for code you must build and verify " +
-            "here. If a program needs input, make it argument/flag-driven, or feed input non-interactively " +
-            "(e.g. `run_command printf 'a\\nb\\n' | dotnet run`). Verify by running the program unattended.\n\n" +
+            $"You have a live sandbox workspace at `/workspace/runs/{branch}` and **MUST** use it for all implementation work.\n\n" +
             "**REQUIRED steps — do not skip:**\n" +
             "1. Call `list_dir` or `run_command git log --oneline -5` to see the current workspace state\n" +
             "2. Read files with `read_file` before editing them\n" +
@@ -364,11 +324,8 @@ public class RunAgentRoundActivity
             "**NEVER:**\n" +
             "- Write implementation code as text in your response or inside `declare_output`\n" +
             "- Ask \"how would you like me to proceed?\" — explore and implement directly\n" +
-            "- Ask the human (via request_human_input OR request_approval) to decide implementation details, to " +
-            "approve fixing your own build/runtime errors, or whether to retry/finalize. You have full autonomy: " +
-            "pick the most reasonable approach and proceed. If an approach keeps failing, CHANGE the approach " +
-            "(e.g. a different library or design) rather than asking\n" +
-            "- Mark the task done without having run at least one `run_command` or `write_file`\n\n" +
+            "- Mark the task done without having run at least one `run_command` or `write_file`\n" +
+            "- Run `git init`, `git checkout`, `git branch`, or create new branches — the branch is already set up\n\n" +
             "**`declare_output` is for documents only** (specs, ADRs, READMEs, reports).\n" +
             "Code belongs in workspace files, not in tool call arguments.\n\n" +
             "| File task      | Use          | NOT               |\n" +
@@ -380,94 +337,169 @@ public class RunAgentRoundActivity
             "| Search code    | `search_code`| `run_command grep`|\n";
 
         return repoConnected
-            ? header + $"\nThe connected GitHub repository is cloned to `/workspace` on the default branch. " +
-              $"**Before making any changes, create your working branch:** `run_command git checkout -b {branch}`\n" +
-              (canPushCode ? "Git is configured — you can `git commit` and `git push`." : "Git is configured — you can `git commit` locally. Pushing is disabled for your role.")
-            : header + "\nYour sandbox is `/workspace` — an empty directory with no git repo.";
+            ? header +
+              $"\nThe repository is ready. **Your working directory is `/workspace/runs/{branch}` and you are already on branch `{branch}`.** " +
+              "Do NOT run `git init`, `git checkout`, `git branch`, or create new branches — the branch is already set up.\n" +
+              (canPushCode
+                  ? "Git is configured — you can `git commit` and `git push`."
+                  : "Git is configured — you can `git commit` locally, but pushing is disabled for your role.")
+            : header + $"\nYour sandbox is `/workspace/runs/{branch}` — an isolated directory with no git repo.";
     }
-
-    /// <summary>The per-TASK git branch that every run of a task shares. Work committed in run N is
-    /// restored by run N+1's fresh clone (the entrypoint re-checks-out this branch). Previously the
-    /// branch was per-RUN (`agent/&lt;run8&gt;`), so each run started on its own branch and silently lost
-    /// the prior run's files — the QA S1 root cause.</summary>
-    public static string BranchForTask(string taskId) => $"agent/task-{taskId}";
-
-    /// <summary>Appended at round 0 of a continuation run so the agent knows its earlier files were
-    /// restored (via the per-task branch) instead of assuming a blank workspace.</summary>
-    public static string ContinuationNote(string branch) =>
-        "\n\n## Continuing earlier work on this task\n" +
-        "This task already has earlier runs. Your previous files ARE restored in `/workspace` (committed to " +
-        $"branch `{branch}`, re-checked-out on clone). Begin by running `run_command git log --oneline -10` " +
-        "and `list_dir` to see what already exists — build on it, do NOT recreate files from scratch.";
 
     private sealed class RunWorkspaceProvider : IWorkspaceProvider
     {
+        private const int PollIntervalMs   = 3_000;
+        private const int PollMaxAttempts  = 40;   // 40 × 3s = 2 minutes
+
         private readonly WorkflowCosmosService _cosmos;
         private readonly IWorkspaceService _workspace;
-        private readonly Board _board;
+        private readonly ISecretProvider _secrets;
+        private Board _board;
         private readonly string _runId;
         private readonly string _taskId;
         private readonly bool _canPush;
         private readonly ILogger _logger;
         private WorkspaceConnection? _cached;
-        private bool _failed;   // sticky: once provisioning fails, don't re-attempt (a retry would burn another full health-poll window)
+        private bool _failed;
 
-        public RunWorkspaceProvider(WorkflowCosmosService cosmos, IWorkspaceService workspace, Board board, string runId, string taskId, bool canPush, ILogger logger)
-        { _cosmos = cosmos; _workspace = workspace; _board = board; _runId = runId; _taskId = taskId; _canPush = canPush; _logger = logger; }
+        public RunWorkspaceProvider(WorkflowCosmosService cosmos, IWorkspaceService workspace,
+            ISecretProvider secrets, Board board, string runId, string taskId, bool canPush, ILogger logger)
+        {
+            _cosmos = cosmos; _workspace = workspace; _secrets = secrets;
+            _board = board; _runId = runId; _taskId = taskId; _canPush = canPush; _logger = logger;
+        }
 
         public async Task<WorkspaceConnection?> EnsureAsync(CancellationToken ct = default)
         {
             if (_cached is not null) return _cached;
-            // Sticky failure: a sandbox that couldn't start won't start on a later tool call either, and
-            // re-provisioning would hang the run for another health-poll window each time. Fail fast.
             if (_failed) return null;
+
+            // Resume: if a previous round already provisioned the workspace for this run, reuse it.
             var run = await _cosmos.GetRunByIdAsync(_runId, ct);
             if (run is { WorkspaceEndpoint: not null, WorkspaceToken: not null })
-                return _cached = new WorkspaceConnection(run.WorkspaceEndpoint, run.WorkspaceToken);
-
-            var branch = BranchForTask(_taskId);
-            // One retry for a transient infra blip (ARM throttling, a flaky create). A health TimeoutException
-            // means the container started but never became healthy (e.g. a broken image) — retrying just burns
-            // another full poll window, so we don't retry that case; we fail fast and let the run stop cleanly.
-            for (var attempt = 1; attempt <= 2; attempt++)
             {
-<<<<<<< HEAD
-                try
-                {
-                    var info = await _workspace.ProvisionAsync(_board, branch, _runId, _canPush, ct);
-                    if (info is null) break;
-                    await _cosmos.PatchRunWorkspaceAsync(_runId, _taskId, info.ContainerName, info.Endpoint, info.Token, ct);
-                    return _cached = new WorkspaceConnection(info.Endpoint, info.Token);
-                }
-                catch (TimeoutException ex)
-                {
-                    _logger.LogError(ex, "[RunAgentRound] sandbox never became healthy for run {RunId} — failing the run", _runId);
-                    break;
-                }
-                catch (Exception ex) when (attempt < 2)
-                {
-                    _logger.LogWarning(ex, "[RunAgentRound] sandbox provisioning hit a transient error for run {RunId}; retrying once", _runId);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "[RunAgentRound] sandbox provisioning failed for run {RunId}", _runId);
-                    break;
-                }
-=======
-                var info = await _workspace.ProvisionAsync(_board, _runId, _canPush, ct);
-                if (info is null) return null;
-                await _cosmos.PatchRunWorkspaceAsync(_runId, _taskId, info.ContainerName, info.Endpoint, info.Token, ct);
-                return _cached = new WorkspaceConnection(info.Endpoint, info.Token);
+                var branchResume = $"agent/{_runId[..Math.Min(8, _runId.Length)]}";
+                // Ensure the worktree exists (idempotent) in case the container was recycled.
+                try { await _workspace.CreateWorktreeAsync(run.WorkspaceEndpoint, run.WorkspaceToken, _runId[..Math.Min(8, _runId.Length)], branchResume, _canPush, ct); }
+                catch (Exception ex) { _logger.LogWarning(ex, "[RunWorkspace] worktree idempotent-create failed run={RunId}", _runId); }
+                return _cached = new WorkspaceConnection(run.WorkspaceEndpoint, run.WorkspaceToken);
+            }
+
+            try
+            {
+                return _cached = await ProvisionWithCasAsync(ct);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[RunAgentRound] sandbox provisioning failed for run {RunId}", _runId);
+                _logger.LogError(ex, "[RunWorkspace] workspace provisioning failed run={RunId}", _runId);
+                _failed = true;
                 return null;
->>>>>>> 971d018 (fix/sandbox)
             }
-            _failed = true;
+        }
+
+        private async Task<WorkspaceConnection?> ProvisionWithCasAsync(CancellationToken ct)
+        {
+            var runIdShort = _runId[..Math.Min(8, _runId.Length)];
+            var branch = $"agent/{runIdShort}";
+            var tokenKey = $"workspace-token-board-{_board.Id}";
+
+            for (var attempt = 0; attempt < 3; attempt++)
+            {
+                var (freshBoard, etag) = await _cosmos.GetBoardWithEtagAsync(_board.Id, _board.TenantId, ct);
+                _board = freshBoard;
+
+                switch (freshBoard.WorkspaceStatus)
+                {
+                    case BoardWorkspaceStatus.Ready:
+                        return await AttachToReadyContainerAsync(freshBoard, runIdShort, branch, tokenKey, ct);
+
+                    case BoardWorkspaceStatus.Provisioning:
+                        var readyBoard = await PollForReadyAsync(ct);
+                        if (readyBoard is null) throw new TimeoutException("Board workspace did not become Ready within 2 minutes.");
+                        return await AttachToReadyContainerAsync(readyBoard, runIdShort, branch, tokenKey, ct);
+
+                    case BoardWorkspaceStatus.None:
+                        // CAS: atomically flip None → Provisioning; first writer wins.
+                        var claimed = await TryClaimProvisioningAsync(freshBoard, etag, ct);
+                        if (!claimed)
+                        {
+                            // Lost the race — another run is provisioning; wait for it.
+                            var raceBoard = await PollForReadyAsync(ct);
+                            if (raceBoard is null) throw new TimeoutException("Board workspace did not become Ready within 2 minutes.");
+                            return await AttachToReadyContainerAsync(raceBoard, runIdShort, branch, tokenKey, ct);
+                        }
+
+                        // We won — provision the container.
+                        try
+                        {
+                            var token = GenerateContainerToken();
+                            await _secrets.SetSecretAsync(tokenKey, token, ct);
+                            var info = await _workspace.EnsureBoardContainerAsync(_board, ct);
+                            if (info is null) throw new InvalidOperationException("EnsureBoardContainerAsync returned null.");
+
+                            // Store the token in the returned WorkspaceInfo (override with our token).
+                            // The container was started with a generated token; we save the same token to Key Vault.
+                            await _cosmos.PatchBoardWorkspaceAsync(_board.Id, _board.TenantId,
+                                info.ContainerName, info.Endpoint, BoardWorkspaceStatus.Ready, ct);
+
+                            await _workspace.CreateWorktreeAsync(info.Endpoint, info.Token, runIdShort, branch, _canPush, ct);
+                            await _cosmos.PatchRunWorkspaceAsync(_runId, _taskId, info.ContainerName, info.Endpoint, info.Token, ct);
+                            await _cosmos.PatchBoardWorkspaceLastUsedAsync(_board.Id, _board.TenantId, ct);
+
+                            return new WorkspaceConnection(info.Endpoint, info.Token);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "[RunWorkspace] container provision failed board={BoardId}", _board.Id);
+                            try { await _cosmos.PatchBoardWorkspaceStatusAsync(_board.Id, _board.TenantId, BoardWorkspaceStatus.None, ct); }
+                            catch { /* best-effort reset */ }
+                            throw;
+                        }
+                }
+            }
+            throw new InvalidOperationException("Failed to provision workspace after 3 attempts.");
+        }
+
+        private async Task<WorkspaceConnection> AttachToReadyContainerAsync(
+            Board board, string runIdShort, string branch, string tokenKey, CancellationToken ct)
+        {
+            var token = await _secrets.GetSecretAsync(tokenKey, ct)
+                        ?? throw new InvalidOperationException($"Workspace token secret '{tokenKey}' not found.");
+            await _workspace.CreateWorktreeAsync(board.WorkspaceEndpoint!, token, runIdShort, branch, _canPush, ct);
+            await _cosmos.PatchRunWorkspaceAsync(_runId, _taskId, board.WorkspaceContainerName!, board.WorkspaceEndpoint!, token, ct);
+            await _cosmos.PatchBoardWorkspaceLastUsedAsync(board.Id, board.TenantId, ct);
+            return new WorkspaceConnection(board.WorkspaceEndpoint!, token);
+        }
+
+        private async Task<bool> TryClaimProvisioningAsync(Board board, string etag, CancellationToken ct)
+        {
+            try
+            {
+                board.WorkspaceStatus = BoardWorkspaceStatus.Provisioning;
+                await _cosmos.ReplaceBoardAsync(board, etag, ct);
+                return true;
+            }
+            catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.PreconditionFailed)
+            {
+                return false;
+            }
+        }
+
+        private async Task<Board?> PollForReadyAsync(CancellationToken ct)
+        {
+            for (var i = 0; i < PollMaxAttempts; i++)
+            {
+                await Task.Delay(PollIntervalMs, ct);
+                var b = await _cosmos.GetBoardAsync(_board.Id, _board.TenantId, ct);
+                if (b?.WorkspaceStatus == BoardWorkspaceStatus.Ready) return b;
+                if (b?.WorkspaceStatus == BoardWorkspaceStatus.None) return null; // provisioning failed
+            }
             return null;
         }
+
+        private static string GenerateContainerToken() =>
+            Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24))
+                   .Replace("+", "-").Replace("/", "_").TrimEnd('=');
     }
 }
 

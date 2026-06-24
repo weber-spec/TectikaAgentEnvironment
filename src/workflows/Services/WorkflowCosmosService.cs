@@ -476,6 +476,72 @@ public class WorkflowCosmosService
         catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
     }
 
+    // ── Board workspace (worktree architecture) ───────────────────────────────
+
+    /// <summary>Reads a board and returns it together with its current ETag for CAS operations.</summary>
+    public async Task<(Board board, string etag)> GetBoardWithEtagAsync(string boardId, string tenantId, CancellationToken ct = default)
+    {
+        var res = await C("boards").ReadItemAsync<Board>(boardId, new PartitionKey(tenantId), cancellationToken: ct);
+        return (res.Resource, res.ETag);
+    }
+
+    /// <summary>Replaces a board using optimistic concurrency. Throws CosmosException(412) on ETag mismatch.</summary>
+    public async Task ReplaceBoardAsync(Board board, string etag, CancellationToken ct = default)
+    {
+        await C("boards").ReplaceItemAsync(board, board.Id, new PartitionKey(board.TenantId),
+            new ItemRequestOptions { IfMatchEtag = etag }, ct);
+    }
+
+    public async Task PatchBoardWorkspaceAsync(string boardId, string tenantId,
+        string containerName, string endpoint, BoardWorkspaceStatus status, CancellationToken ct = default)
+    {
+        var ops = new List<PatchOperation>
+        {
+            PatchOperation.Set("/workspaceContainerName", containerName),
+            PatchOperation.Set("/workspaceEndpoint",      endpoint),
+            PatchOperation.Set("/workspaceStatus",        status.ToString()),
+            PatchOperation.Set("/workspaceLastUsedAt",    DateTimeOffset.UtcNow),
+        };
+        await C("boards").PatchItemAsync<Board>(boardId, new PartitionKey(tenantId), ops, cancellationToken: ct);
+    }
+
+    public async Task PatchBoardWorkspaceStatusAsync(string boardId, string tenantId,
+        BoardWorkspaceStatus status, CancellationToken ct = default)
+    {
+        var ops = new List<PatchOperation> { PatchOperation.Set("/workspaceStatus", status.ToString()) };
+        await C("boards").PatchItemAsync<Board>(boardId, new PartitionKey(tenantId), ops, cancellationToken: ct);
+    }
+
+    public async Task PatchBoardWorkspaceLastUsedAsync(string boardId, string tenantId, CancellationToken ct = default)
+    {
+        var ops = new List<PatchOperation> { PatchOperation.Set("/workspaceLastUsedAt", DateTimeOffset.UtcNow) };
+        await C("boards").PatchItemAsync<Board>(boardId, new PartitionKey(tenantId), ops, cancellationToken: ct);
+    }
+
+    /// <summary>Cross-partition query — returns all boards with workspaceStatus = 'Ready'.</summary>
+    public async Task<List<Board>> GetBoardsWithActiveWorkspaceAsync(CancellationToken ct = default)
+    {
+        var q = new QueryDefinition("SELECT * FROM c WHERE c.workspaceStatus = 'Ready'");
+        var iter = C("boards").GetItemQueryIterator<Board>(q);
+        var results = new List<Board>();
+        while (iter.HasMoreResults)
+            results.AddRange(await iter.ReadNextAsync(ct));
+        return results;
+    }
+
+    /// <summary>Returns true if any task on this board has status InProgress, AwaitingInteraction, or Blocked.</summary>
+    public async Task<bool> HasActiveRunsForBoardAsync(string boardId, CancellationToken ct = default)
+    {
+        var q = new QueryDefinition(
+            "SELECT VALUE COUNT(1) FROM c WHERE c.boardId = @boardId AND c.status IN ('InProgress','AwaitingInteraction','Blocked')")
+            .WithParameter("@boardId", boardId);
+        var iter = C("tasks").GetItemQueryIterator<int>(q, requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(boardId) });
+        while (iter.HasMoreResults)
+            foreach (var count in await iter.ReadNextAsync(ct))
+                return count > 0;
+        return false;
+    }
+
     private record TaskEdgeSlim(
         [property: JsonPropertyName("sourceTaskId")] string SourceTaskId,
         [property: JsonPropertyName("targetTaskId")] string TargetTaskId);

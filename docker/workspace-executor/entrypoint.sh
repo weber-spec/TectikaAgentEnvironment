@@ -1,11 +1,12 @@
 #!/bin/bash
-# Workspace container entrypoint.
-#  - With REPO_URL set: configure git with the PAT, clone, check out GIT_BRANCH.
-#  - Without REPO_URL: a bare, git-isolated /workspace (no clone, no git init).
+# Workspace container entrypoint (board-level, worktree architecture).
+#  - With REPO_URL set: configure git with the PAT, clone to /workspace/main.
+#    Individual runs get isolated git worktrees at /workspace/runs/{run_id} via POST /worktree/add.
+#  - Without REPO_URL: a bare /workspace/main (no clone, no git init).
 # Then start the HTTP executor.
 set -euo pipefail
 
-mkdir -p /workspace
+mkdir -p /workspace/main /workspace/runs
 
 if [ -n "${REPO_URL:-}" ]; then
     echo "[entrypoint] repo=$REPO_URL can_push=${GIT_CAN_PUSH:-false}"
@@ -14,17 +15,17 @@ if [ -n "${REPO_URL:-}" ]; then
     chmod 600 /root/.git-credentials
     git config --global user.email "agent@tectika.com"
     git config --global user.name "Tectika Agent"
-    git clone "$REPO_URL" /workspace
-    cd /workspace
+    # Clone to /workspace/main — no branch checkout; worktrees are created per-run by the backend.
+    git clone --depth=1 "$REPO_URL" /workspace/main
+    cd /workspace/main
     # Permission gate: roles without CanPushCode get a workspace that can read but not push.
     if [ "${GIT_CAN_PUSH:-false}" != "true" ]; then
         git remote set-url --push origin "no-push://disabled" || true
         echo "[entrypoint] push disabled for this role"
     fi
-    echo "[entrypoint] ready on $(git branch --show-current)"
+    echo "[entrypoint] ready on $(git branch --show-current) at /workspace/main"
 else
-    cd /workspace
-    echo "[entrypoint] standalone sandbox (no repo) at /workspace"
+    echo "[entrypoint] standalone sandbox (no repo) at /workspace/main"
 fi
 
 # Keep the raw token out of the executor's environment (and therefore out of every run_command shell):

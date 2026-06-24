@@ -15,18 +15,18 @@ using TectikaAgents.Core.Models;
 namespace TectikaAgents.Workflows.Services;
 
 /// <summary>
-/// Manages ephemeral ACI workspaces for agent runs.
+/// Manages ACI workspaces — one container per board, one git worktree per run.
 ///
-/// Each workspace is one ACI container group:
-///   - Image: agent-workspace (from ACR, pulled via managed identity)
-///   - Entrypoint: clones the GitHub repo + starts executor.py on :8080
-///   - Lifetime: provisioned at the start of a steerable run, destroyed in finally
+/// Container lifecycle:
+///   - Created on first run that needs a workspace on the board
+///   - Shared by all concurrent runs on the same board
+///   - Destroyed after 10 minutes idle (no active runs) by IdleWorkspaceCleanupTrigger
+///   - Destroyed immediately when the board is deleted
 ///
 /// Config keys (appsettings / env vars):
 ///   Workspace:ResourceGroup  (default: rg-agentteam-dev-001)
 ///   Workspace:Image          (default: tacragentteam.azurecr.io/agent-workspace:latest)
 ///   Workspace:MiResourceId   — full ARM resource id of the workflows user-assigned MI
-///                              e.g. /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/mi-agentteam-workflows
 /// </summary>
 public class WorkspaceService : IWorkspaceService
 {
@@ -56,15 +56,12 @@ public class WorkspaceService : IWorkspaceService
         _logger = logger;
     }
 
-    /// <summary>Deterministic ACI container-group name for a run. ACI names must be ≤63 chars,
-    /// alphanumeric + hyphens, and start with a letter. Centralised so provisioning and teardown
-    /// always derive the same name from a runId — a mismatch here silently leaks crash-looping groups.</summary>
-    public static string ContainerNameFor(string runId) =>
-        $"tws-{runId[..Math.Min(8, runId.Length)].ToLowerInvariant()}";
+    /// <summary>Deterministic ACI container-group name for a board. ACI names must be ≤63 chars,
+    /// alphanumeric + hyphens, and start with a letter.</summary>
+    public static string ContainerNameFor(string boardId) =>
+        $"tws-{boardId[..Math.Min(8, boardId.Length)].ToLowerInvariant()}";
 
-    /// <summary>Env vars for the workspace container. Repo vars (REPO_URL/GIT_BRANCH/GIT_PAT) are
-    /// included only when a repo is connected — the entrypoint provisions a bare, git-free /workspace
-    /// otherwise.</summary>
+    /// <summary>Env vars for the workspace container.</summary>
     public static List<ContainerEnvironmentVariable> BuildEnv(
         GitHubRepoConnection? github, string token, string? pat, bool canPush = false)
     {
@@ -76,25 +73,27 @@ public class WorkspaceService : IWorkspaceService
         {
             env.Add(new("REPO_URL")     { Value = github.RepoUrl });
             env.Add(new("GIT_PAT")      { SecureValue = pat });
-            // Push permission gate consumed by the entrypoint (disables the push remote when false).
             env.Add(new("GIT_CAN_PUSH") { Value = canPush ? "true" : "false" });
         }
         return env;
     }
 
-    public async Task<WorkspaceInfo?> ProvisionAsync(
-        Board board, string runId, bool canPush, CancellationToken ct = default)
+    public async Task<WorkspaceInfo?> EnsureBoardContainerAsync(
+        Board board, CancellationToken ct = default)
     {
         var pat = board.GitHub is null ? null : await _secrets.GetSecretAsync(board.GitHub.PatSecretName, ct);
         var token = GenerateToken();
-        var containerName = ContainerNameFor(runId);
+        var containerName = ContainerNameFor(board.Id);
 
-        _logger.LogInformation("[Workspace] provisioning ACI {Name} run={RunId}", containerName, runId);
+        _logger.LogInformation("[Workspace] provisioning ACI {Name} board={BoardId}", containerName, board.Id);
 
         var arm = new ArmClient(new DefaultAzureCredential());
         var subscription = await arm.GetDefaultSubscriptionAsync(ct);
         var rg = (await subscription.GetResourceGroupAsync(_resourceGroup, ct)).Value;
 
+        // canPush=true here because worktrees for individual runs may control push permission
+        // per-run via /worktree/add; the container-level clone uses a read-only push guard only
+        // when the board as a whole has no push-capable agents.
         var workspaceContainer = new ContainerInstanceContainer(
             name: "workspace",
             image: _acrImage,
@@ -103,10 +102,10 @@ public class WorkspaceService : IWorkspaceService
         {
             Ports = { new ContainerPort(ExecutorPort) },
         };
-        foreach (var e in BuildEnv(board.GitHub, token, pat, canPush))
+        foreach (var e in BuildEnv(board.GitHub, token, pat, canPush: true))
             workspaceContainer.EnvironmentVariables.Add(e);
 
-        var dnsLabel = containerName; // unique per run, ACI enforces global uniqueness in the region
+        var dnsLabel = containerName;
         var groupData = new ContainerGroupData(
             new Azure.Core.AzureLocation(AciLocation),
             [workspaceContainer],
@@ -120,15 +119,12 @@ public class WorkspaceService : IWorkspaceService
             },
         };
 
-        // Use the workflows managed identity so ACI can pull from ACR without admin creds.
         if (!string.IsNullOrEmpty(_miResourceId))
         {
             groupData.Identity = new Azure.ResourceManager.Models.ManagedServiceIdentity(
                 Azure.ResourceManager.Models.ManagedServiceIdentityType.UserAssigned);
             groupData.Identity.UserAssignedIdentities[new Azure.Core.ResourceIdentifier(_miResourceId)] =
                 new Azure.ResourceManager.Models.UserAssignedIdentity();
-
-            // Tell ACI to use the MI for image registry auth.
             groupData.ImageRegistryCredentials.Add(
                 new ContainerGroupImageRegistryCredential("tacragentteam.azurecr.io")
                 {
@@ -151,18 +147,54 @@ public class WorkspaceService : IWorkspaceService
         }
         catch (Exception ex)
         {
-            // The group was created but never became healthy (most often the image crash-loops, e.g. a
-            // CRLF entrypoint). ProvisionAsync throws before returning a handle, so the caller never records
-            // it and the orchestrator's DestroyWorkspace would leave a billing, crash-looping orphan behind.
-            // Tear it down here — at the source — before rethrowing. CancellationToken.None so the cleanup
-            // still runs when the failure is a cancelled run. DestroyAsync is itself best-effort.
-            _logger.LogWarning(ex, "[Workspace] ACI {Name} never became healthy within {Timeout}s — destroying to avoid an orphan", containerName, HealthPollTimeoutSec);
-            await DestroyAsync(containerName, CancellationToken.None);
+            _logger.LogWarning(ex, "[Workspace] ACI {Name} never became healthy within {Timeout}s — destroying orphan", containerName, HealthPollTimeoutSec);
+            await DestroyBoardContainerAsync(containerName, CancellationToken.None);
             throw;
         }
         _logger.LogInformation("[Workspace] ACI {Name} healthy", containerName);
 
         return new WorkspaceInfo(containerName, endpoint, token);
+    }
+
+    public async Task CreateWorktreeAsync(
+        string endpoint, string token, string runId, string branch, bool canPush,
+        CancellationToken ct = default)
+    {
+        _logger.LogInformation("[Workspace] creating worktree run={RunId} branch={Branch}", runId, branch);
+        await InvokeAsync(endpoint, token, "/worktree/add",
+            new { run_id = runId, branch, can_push = canPush }, ct);
+    }
+
+    public async Task RemoveWorktreeAsync(
+        string endpoint, string token, string runId,
+        CancellationToken ct = default)
+    {
+        _logger.LogInformation("[Workspace] removing worktree run={RunId}", runId);
+        try
+        {
+            await InvokeAsync(endpoint, token, "/worktree/remove", new { run_id = runId }, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Workspace] remove worktree run={RunId} failed (non-fatal)", runId);
+        }
+    }
+
+    public async Task DestroyBoardContainerAsync(string containerName, CancellationToken ct = default)
+    {
+        _logger.LogInformation("[Workspace] destroying ACI {Name}", containerName);
+        try
+        {
+            var arm = new ArmClient(new DefaultAzureCredential());
+            var subscription = await arm.GetDefaultSubscriptionAsync(ct);
+            var rg = (await subscription.GetResourceGroupAsync(_resourceGroup, ct)).Value;
+            var group = (await rg.GetContainerGroupAsync(containerName, ct)).Value;
+            await group.DeleteAsync(Azure.WaitUntil.Started, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Workspace] destroy {Name} failed (non-fatal)", containerName);
+        }
     }
 
     public async Task<CommandResult> RunCommandAsync(
@@ -204,23 +236,6 @@ public class WorkspaceService : IWorkspaceService
         var resp = await http.SendAsync(req, ct);
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadAsStringAsync(ct);
-    }
-
-    public async Task DestroyAsync(string containerName, CancellationToken ct = default)
-    {
-        _logger.LogInformation("[Workspace] destroying ACI {Name}", containerName);
-        try
-        {
-            var arm = new ArmClient(new DefaultAzureCredential());
-            var subscription = await arm.GetDefaultSubscriptionAsync(ct);
-            var rg = (await subscription.GetResourceGroupAsync(_resourceGroup, ct)).Value;
-            var group = (await rg.GetContainerGroupAsync(containerName, ct)).Value;
-            await group.DeleteAsync(Azure.WaitUntil.Started, ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[Workspace] destroy {Name} failed (non-fatal)", containerName);
-        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

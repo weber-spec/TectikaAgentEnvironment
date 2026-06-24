@@ -13,6 +13,9 @@ public class WorkflowRun
     [JsonPropertyName("taskId")]
     public string TaskId { get; set; } = string.Empty;
 
+    [JsonPropertyName("boardId")]
+    public string BoardId { get; set; } = string.Empty;
+
     [JsonPropertyName("currentStep")]
     public int CurrentStep { get; set; } = 0;
 

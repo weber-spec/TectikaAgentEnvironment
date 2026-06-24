@@ -2,22 +2,27 @@
 """
 HTTP executor running inside the ACI workspace container.
 
-POST /run     {"cmd": "...", "timeout": 60}
-              -> {"stdout":"...","stderr":"...","exit_code":0}
-POST /read    {"path": "src/main.cs", "offset": 0, "limit": 200}
-              -> {"content":"1\t...\n2\t...","total_lines":N,"from_line":1,"to_line":N}
-POST /write   {"path": "src/foo.cs", "content": "..."}
-              -> {"written": true, "path": "src/foo.cs"}
-POST /patch   {"path": "src/foo.cs", "old_string": "...", "new_string": "...", "replace_all": false}
-              -> {"applied": true, "path": "src/foo.cs"} | {"error": "old_string not found in 'src/foo.cs'"}
-POST /list    {"path": "src/"}
-              -> {"entries": [{"name":"foo.cs","type":"file","size":1234},...], "path":"src/"}
-POST /search  {"pattern": "class Auth", "path": "src/", "glob": "*.cs"}
-              -> {"matches": [{"file":"src/Auth.cs","line":12,"text":"class AuthService"},...]}
-GET  /health                               -> 200 "ok"
+POST /run             {"cmd": "...", "timeout": 60, "run_id": "..."}  (run_id optional)
+                      -> {"stdout":"...","stderr":"...","exit_code":0}
+POST /read            {"path": "src/main.cs", "offset": 0, "limit": 200, "run_id": "..."}
+                      -> {"content":"1\t...\n2\t...","total_lines":N,"from_line":1,"to_line":N}
+POST /write           {"path": "src/foo.cs", "content": "...", "run_id": "..."}
+                      -> {"written": true, "path": "src/foo.cs"}
+POST /patch           {"path": "src/foo.cs", "old_string": "...", "new_string": "...", "replace_all": false, "run_id": "..."}
+                      -> {"applied": true, "path": "src/foo.cs"} | {"error": "old_string not found in 'src/foo.cs'"}
+POST /list            {"path": "src/", "run_id": "..."}
+                      -> {"entries": [{"name":"foo.cs","type":"file","size":1234},...], "path":"src/"}
+POST /search          {"pattern": "class Auth", "path": "src/", "glob": "*.cs", "run_id": "..."}
+                      -> {"matches": [{"file":"src/Auth.cs","line":12,"text":"class AuthService"},...]}
+POST /worktree/add    {"run_id": "abc12345", "branch": "agent/abc12345", "can_push": true}
+                      -> {"created": true, "path": "/workspace/runs/abc12345", "branch": "agent/abc12345"}
+POST /worktree/remove {"run_id": "abc12345"}
+                      -> {"removed": true}
+GET  /worktree/list                         -> {"worktrees": [{"run_id":"...","path":"...","branch":"..."},...]}
+GET  /health                                -> 200 "ok"
 
 Auth: Authorization: Bearer <EXECUTOR_TOKEN>  (env var; if empty, auth is skipped for dev)
-All file operations are scoped to /workspace (no path traversal outside it).
+File operations are scoped to the run's worktree (/workspace/runs/{run_id}) or /workspace/main.
 """
 import os
 import json
@@ -26,15 +31,31 @@ import subprocess
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 TOKEN = os.environ.get("EXECUTOR_TOKEN", "")
-WORKDIR = "/workspace"
+WORKSPACE_ROOT = "/workspace"
+WORKSPACE_MAIN = "/workspace/main"
+WORKSPACE_RUNS = "/workspace/runs"
 MAX_LIMIT = 500
 
 
-def _full_path(rel: str) -> str:
-    """Resolve a workspace-relative path, rejecting traversal outside /workspace."""
+def _resolve_workdir(body: dict) -> str:
+    """Return the working directory for this request.
+    With run_id → /workspace/runs/{run_id} (must already exist — worktree was created by /worktree/add).
+    Without run_id → /workspace/main.
+    """
+    run_id = body.get("run_id", "")
+    if run_id:
+        path = os.path.join(WORKSPACE_RUNS, run_id)
+        if not os.path.isdir(path):
+            raise ValueError(f"Worktree for run_id '{run_id}' does not exist at {path}. Call /worktree/add first.")
+        return path
+    return WORKSPACE_MAIN
+
+
+def _full_path(rel: str, workdir: str) -> str:
+    """Resolve a workspace-relative path, rejecting traversal outside workdir."""
     clean = os.path.normpath(rel.lstrip("/")) if rel else "."
-    full = os.path.join(WORKDIR, clean)
-    if not os.path.abspath(full).startswith(os.path.abspath(WORKDIR)):
+    full = os.path.join(workdir, clean)
+    if not os.path.abspath(full).startswith(os.path.abspath(workdir)):
         raise ValueError(f"Path '{rel}' escapes workspace")
     return full
 
@@ -57,10 +78,19 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_GET(self):
+        if not self._auth_ok():
+            self.send_response(401)
+            self.end_headers()
+            return
         if self.path == "/health":
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b"ok")
+        elif self.path == "/worktree/list":
+            try:
+                self._json_response(self._handle_worktree_list())
+            except Exception as ex:
+                self._json_response({"error": str(ex)}, 500)
         else:
             self.send_response(404)
             self.end_headers()
@@ -75,12 +105,14 @@ class Handler(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(length) or b"{}")
 
         dispatch = {
-            "/run":    self._handle_run,
-            "/read":   self._handle_read,
-            "/write":  self._handle_write,
-            "/patch":  self._handle_patch,
-            "/list":   self._handle_list,
-            "/search": self._handle_search,
+            "/run":            self._handle_run,
+            "/read":           self._handle_read,
+            "/write":          self._handle_write,
+            "/patch":          self._handle_patch,
+            "/list":           self._handle_list,
+            "/search":         self._handle_search,
+            "/worktree/add":   self._handle_worktree_add,
+            "/worktree/remove": self._handle_worktree_remove,
         }
         handler = dispatch.get(self.path)
         if handler is None:
@@ -93,20 +125,18 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as ex:
             self._json_response({"error": str(ex)}, 500)
 
-    # ── Handlers ──────────────────────────────────────────────────────────────
+    # ── File/shell handlers ────────────────────────────────────────────────────
 
     def _handle_run(self, body):
         cmd = body.get("cmd", "")
         timeout = int(body.get("timeout", 60))
+        workdir = _resolve_workdir(body)
         # stdin=DEVNULL makes the sandbox genuinely non-interactive: any read from stdin gets EOF
-        # immediately instead of blocking forever. Without this an interactive program (e.g. `dotnet run`
-        # on a console menu calling Console.ReadKey/ReadLine) hangs until the timeout and piles up
-        # resources, which has wedged the whole container. start_new_session puts the command in its own
-        # process group so a timeout kills the entire tree (the shell AND `dotnet run`'s child app),
-        # not just the shell.
+        # immediately instead of blocking forever. start_new_session puts the command in its own
+        # process group so a timeout kills the entire tree, not just the shell.
         try:
             proc = subprocess.Popen(
-                cmd, shell=True, cwd=WORKDIR,
+                cmd, shell=True, cwd=workdir,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True, start_new_session=True,
@@ -135,7 +165,8 @@ class Handler(BaseHTTPRequestHandler):
         path = body.get("path", "")
         offset = max(0, int(body.get("offset", 0)))
         limit = min(MAX_LIMIT, max(1, int(body.get("limit", 200))))
-        full = _full_path(path)
+        workdir = _resolve_workdir(body)
+        full = _full_path(path, workdir)
         with open(full, encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
         total = len(lines)
@@ -151,7 +182,8 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_write(self, body):
         path = body.get("path", "")
         content = body.get("content", "")
-        full = _full_path(path)
+        workdir = _resolve_workdir(body)
+        full = _full_path(path, workdir)
         parent = os.path.dirname(full)
         if parent:
             os.makedirs(parent, exist_ok=True)
@@ -164,7 +196,8 @@ class Handler(BaseHTTPRequestHandler):
         old_string = body.get("old_string", "")
         new_string = body.get("new_string", "")
         replace_all = bool(body.get("replace_all", False))
-        full = _full_path(path)
+        workdir = _resolve_workdir(body)
+        full = _full_path(path, workdir)
         with open(full, encoding="utf-8", errors="replace") as f:
             text = f.read()
         if old_string not in text:
@@ -176,7 +209,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle_list(self, body):
         path = body.get("path", "")
-        full = _full_path(path)
+        workdir = _resolve_workdir(body)
+        full = _full_path(path, workdir)
         entries = sorted(os.scandir(full), key=lambda e: (e.is_file(), e.name))
         return {
             "entries": [
@@ -191,7 +225,8 @@ class Handler(BaseHTTPRequestHandler):
         pattern = body.get("pattern", "")
         search_path = body.get("path", ".")
         glob = body.get("glob", "")
-        full = _full_path(search_path)
+        workdir = _resolve_workdir(body)
+        full = _full_path(search_path, workdir)
         cmd = ["grep", "-rn", "--include", glob if glob else "*", "--", pattern, full]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         matches = []
@@ -199,16 +234,102 @@ class Handler(BaseHTTPRequestHandler):
             parts = ln.split(":", 2)
             if len(parts) >= 3:
                 try:
-                    rel = os.path.relpath(parts[0], WORKDIR)
+                    rel = os.path.relpath(parts[0], workdir)
                     matches.append({"file": rel, "line": int(parts[1]), "text": parts[2].strip()})
                 except (ValueError, OSError):
                     pass
         return {"matches": matches, "pattern": pattern}
 
+    # ── Worktree handlers ─────────────────────────────────────────────────────
+
+    def _handle_worktree_add(self, body):
+        run_id = body.get("run_id", "")
+        if not run_id:
+            raise ValueError("run_id is required")
+        branch = body.get("branch", f"agent/{run_id}")
+        can_push = bool(body.get("can_push", True))
+
+        worktree_path = os.path.join(WORKSPACE_RUNS, run_id)
+
+        # idempotent — if worktree already exists, just return success
+        if os.path.isdir(worktree_path):
+            return {"created": False, "already_exists": True, "path": worktree_path, "branch": branch}
+
+        os.makedirs(WORKSPACE_RUNS, exist_ok=True)
+
+        proc = subprocess.run(
+            ["git", "worktree", "add", worktree_path, "-b", branch],
+            capture_output=True, text=True, cwd=WORKSPACE_MAIN,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"git worktree add failed: {proc.stderr.strip()}")
+
+        if not can_push:
+            subprocess.run(
+                ["git", "remote", "set-url", "--push", "origin", "no-push://disabled"],
+                cwd=worktree_path,
+            )
+
+        return {"created": True, "path": worktree_path, "branch": branch}
+
+    def _handle_worktree_remove(self, body):
+        run_id = body.get("run_id", "")
+        if not run_id:
+            raise ValueError("run_id is required")
+
+        worktree_path = os.path.join(WORKSPACE_RUNS, run_id)
+
+        # idempotent — if already gone, return success
+        if not os.path.isdir(worktree_path):
+            return {"removed": False, "already_gone": True}
+
+        proc = subprocess.run(
+            ["git", "worktree", "remove", "--force", worktree_path],
+            capture_output=True, text=True, cwd=WORKSPACE_MAIN,
+        )
+        if proc.returncode != 0:
+            # fallback: prune + rm if worktree is in a broken state
+            subprocess.run(["git", "worktree", "prune"], cwd=WORKSPACE_MAIN)
+            import shutil
+            shutil.rmtree(worktree_path, ignore_errors=True)
+
+        return {"removed": True}
+
+    def _handle_worktree_list(self):
+        if not os.path.isdir(WORKSPACE_MAIN):
+            return {"worktrees": []}
+        proc = subprocess.run(
+            ["git", "worktree", "list", "--porcelain"],
+            capture_output=True, text=True, cwd=WORKSPACE_MAIN,
+        )
+        worktrees = []
+        current = {}
+        for line in proc.stdout.splitlines():
+            if line.startswith("worktree "):
+                if current:
+                    worktrees.append(current)
+                current = {"path": line[len("worktree "):]}
+            elif line.startswith("branch "):
+                current["branch"] = line[len("branch "):]
+        if current:
+            worktrees.append(current)
+
+        result = []
+        for wt in worktrees:
+            path = wt.get("path", "")
+            if path.startswith(WORKSPACE_RUNS + "/"):
+                run_id = path[len(WORKSPACE_RUNS) + 1:]
+                result.append({
+                    "run_id": run_id,
+                    "path": path,
+                    "branch": wt.get("branch", ""),
+                })
+        return {"worktrees": result}
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("EXECUTOR_PORT", "8080"))
-    print(f"[executor] listening on 0.0.0.0:{port} workdir={WORKDIR}", flush=True)
+    print(f"[executor] listening on 0.0.0.0:{port} workdir={WORKSPACE_ROOT}", flush=True)
     # ThreadingHTTPServer so a slow/long /run never blocks /health or a concurrent request — a single
     # stuck command must not make the whole sandbox look dead to the orchestrator.
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

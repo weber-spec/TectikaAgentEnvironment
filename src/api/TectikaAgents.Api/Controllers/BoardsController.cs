@@ -13,12 +13,14 @@ public class BoardsController : ControllerBase
 {
     private readonly ICosmosDbService _cosmos;
     private readonly ISecretProvider _secrets;
+    private readonly IWorkspaceService _workspaceService;
     private readonly ILogger<BoardsController> _logger;
 
-    public BoardsController(ICosmosDbService cosmos, ISecretProvider secrets, ILogger<BoardsController> logger)
+    public BoardsController(ICosmosDbService cosmos, ISecretProvider secrets, IWorkspaceService workspaceService, ILogger<BoardsController> logger)
     {
         _cosmos = cosmos;
         _secrets = secrets;
+        _workspaceService = workspaceService;
         _logger = logger;
     }
 
@@ -55,6 +57,12 @@ public class BoardsController : ControllerBase
         if (board is null) return NotFound();
         var currentUser = User.FindFirst("preferred_username")?.Value;
         if (board.OwnerId != currentUser) return Forbid();
+        // Destroy the board's ACI container if one was provisioned.
+        if (!string.IsNullOrEmpty(board.WorkspaceContainerName))
+        {
+            _logger.LogInformation("[BoardsController] destroying workspace container {Container} for board {BoardId}", board.WorkspaceContainerName, boardId);
+            await _workspaceService.DestroyBoardContainerAsync(board.WorkspaceContainerName, ct);
+        }
         await _cosmos.DeleteBoardAsync(TenantId, boardId, ct);
         return NoContent();
     }
