@@ -43,4 +43,15 @@ public class TectikaToolSchemaTests
         Assert.Contains("autonomy", def.Description, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Only when you genuinely cannot proceed", def.Description);
     }
+
+    // QA S1 §2.2 follow-up — request_approval is for consequential/irreversible actions, not a back door
+    // for "should I retry/finalize?" once request_human_input was hardened.
+    [Fact]
+    public void RequestApproval_Description_IsForConsequentialActions_NotSelfBugAsking()
+    {
+        var def = TectikaToolSchema.Definitions.Single(d => d.Name == "request_approval");
+        Assert.Contains("autonomy", def.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("irreversible", def.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Pause and ask the human to approve/reject before continuing.", def.Description);
+    }
 }

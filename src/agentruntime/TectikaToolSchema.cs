@@ -8,7 +8,7 @@ namespace TectikaAgents.AgentRuntime;
 /// whenever the toolset changes so AgentInstructionsHash republishes agent versions.</summary>
 public static class TectikaToolSchema
 {
-    public const string Version = "tools-v7";
+    public const string Version = "tools-v8";
 
     public sealed record ToolProp(string Type, string? Description = null, string[]? Enum = null);
     public sealed record ToolDef(
@@ -37,8 +37,8 @@ public static class TectikaToolSchema
             new Dictionary<string, ToolProp> {
                 ["question"] = new("string", "The question to ask."),
                 ["options"] = new("array", "Optional choices the user picks from.") }, ["question"]),
-        new("request_approval", "Pause and ask the human to approve/reject before continuing.",
-            new Dictionary<string, ToolProp> { ["description"] = new("string", "What needs approval.") }, ["description"]),
+        new("request_approval", "Pause for the human to approve a SPECIFIC consequential or irreversible action you are about to take (e.g. deleting data, a destructive migration, publishing externally). NOT for asking whether to keep going, retry, finalize, or fix your own build/runtime error — you have full autonomy for those, so just proceed. Do not use this to route around request_human_input; repeated approval requests for self-resolvable decisions are not allowed.",
+            new Dictionary<string, ToolProp> { ["description"] = new("string", "The specific action needing approval.") }, ["description"]),
         new("request_revision", "(QA/validator agents) Signal that an upstream task must be re-run with fixes.",
             new Dictionary<string, ToolProp> { ["reason"] = new("string", "What must be fixed.") }, ["reason"]),
         new("declare_output", "Register a finished DELIVERABLE for this task — a document/section the user and downstream tasks will receive. Call this once per real product of your work. Do NOT call it for exploration, debugging, or fix-up steps. Returns the output's id; pass that id to update_output or remove_output to revise it later this session.",

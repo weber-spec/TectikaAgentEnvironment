@@ -31,8 +31,9 @@ public class RunAgentRoundActivity
     private readonly string _provider;
     private readonly ILogger<RunAgentRoundActivity> _logger;
 
-    /// <summary>Max times one task may pause for request_human_input before the run stops pausing and
-    /// continues autonomously (QA S1 §2.2). Two genuine product questions are allowed; the 3rd+ converts.</summary>
+    /// <summary>Max times one task may pause for the human — request_human_input OR request_approval, counted
+    /// together — before the run stops pausing and continues autonomously (QA S1 §2.2). Two genuine asks are
+    /// allowed; the 3rd+ (of either tool) converts to autonomous continuation.</summary>
     private const int MaxHumanAsksPerTask = 2;
 
     public RunAgentRoundActivity(
@@ -153,14 +154,17 @@ public class RunAgentRoundActivity
             await _cosmos.PatchTaskPendingOutputsAsync(input.BoardId, input.TaskId, task.PendingOutputs, ct);
 
         // Repeat-ask guard (QA S1 §2.2): the task prompt grants full autonomy, yet the agent can stall a run by
-        // asking the human the same thing repeatedly. Count request_human_input pauses per task; past the cap,
-        // convert the ask into autonomous continuation (feed a firm nudge as the control tool's output) instead
-        // of pausing again. Only request_human_input is guarded — request_approval/request_revision still pause.
-        if (outcome.Kind == RoundKind.AwaitUser && outcome.Control?.Kind == PendingControlKind.HumanInput)
+        // repeatedly asking the human — and it will route around a single hardened tool (re-QA caught it switch
+        // from request_human_input to request_approval). So count BOTH human-pause tools toward one per-task
+        // budget; past the cap, convert the ask into autonomous continuation (feed a firm nudge as the control
+        // tool's output) instead of pausing again. request_revision is excluded — it's a validator handoff, not an ask.
+        if (outcome.Kind == RoundKind.AwaitUser
+            && outcome.Control?.Kind is PendingControlKind.HumanInput or PendingControlKind.Approval)
         {
+            var askKind = outcome.Control!.Kind;
             outcome = RepeatAskGuard.Apply(outcome, task.HumanAskCount, MaxHumanAsksPerTask, out var guardFired);
             if (guardFired)
-                _logger.LogInformation("[RunAgentRound] repeat-ask guard fired task={Task} priorAsks={Asks} — auto-continuing without pausing", input.TaskId, task.HumanAskCount);
+                _logger.LogInformation("[RunAgentRound] repeat-ask guard fired task={Task} priorAsks={Asks} kind={Kind} — auto-continuing without pausing", input.TaskId, task.HumanAskCount, askKind);
             else
             {
                 task.HumanAskCount += 1;
@@ -331,9 +335,10 @@ public class RunAgentRoundActivity
             "**NEVER:**\n" +
             "- Write implementation code as text in your response or inside `declare_output`\n" +
             "- Ask \"how would you like me to proceed?\" — explore and implement directly\n" +
-            "- Ask the human to decide implementation details, or to approve fixing your own build/runtime " +
-            "errors. You have full autonomy: pick the most reasonable approach and proceed. If an approach " +
-            "keeps failing, CHANGE the approach (e.g. a different library or design) rather than asking again\n" +
+            "- Ask the human (via request_human_input OR request_approval) to decide implementation details, to " +
+            "approve fixing your own build/runtime errors, or whether to retry/finalize. You have full autonomy: " +
+            "pick the most reasonable approach and proceed. If an approach keeps failing, CHANGE the approach " +
+            "(e.g. a different library or design) rather than asking\n" +
             "- Mark the task done without having run at least one `run_command` or `write_file`\n\n" +
             "**`declare_output` is for documents only** (specs, ADRs, READMEs, reports).\n" +
             "Code belongs in workspace files, not in tool call arguments.\n\n" +

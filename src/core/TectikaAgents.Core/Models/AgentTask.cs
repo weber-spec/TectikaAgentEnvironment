@@ -46,8 +46,9 @@ public class AgentTask
     [JsonPropertyName("currentArtifactId")]
     public string? CurrentArtifactId { get; set; }
 
-    /// <summary>How many times this task has paused for request_human_input across all its runs. The
-    /// repeat-ask guard (QA S1 §2.2) stops pausing once this reaches its cap and continues autonomously.</summary>
+    /// <summary>How many times this task has paused for the human (request_human_input or request_approval)
+    /// across all its runs. The repeat-ask guard (QA S1 §2.2) stops pausing once this reaches its cap and
+    /// continues autonomously.</summary>
     [JsonPropertyName("humanAskCount")]
     public int HumanAskCount { get; set; }
 

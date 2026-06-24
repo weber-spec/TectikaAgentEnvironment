@@ -13,6 +13,11 @@ public class RepeatAskGuardTests
             new PendingControl(PendingControlKind.HumanInput, "may I?"), null, null,
             Array.Empty<RoundToolCall>(), new TokenUsage(), "a");
 
+    private static RoundOutcome Approval(string callId) =>
+        new(RoundKind.AwaitUser, null, Array.Empty<PriorToolOutput>(), callId,
+            new PendingControl(PendingControlKind.Approval, "approve?"), null, null,
+            Array.Empty<RoundToolCall>(), new TokenUsage(), "a");
+
     [Fact]
     public void BelowThreshold_LeavesAwaitUserUntouched()
     {
@@ -45,6 +50,18 @@ public class RepeatAskGuardTests
 
         Assert.True(fired);
         Assert.Equal(RoundKind.Continue, result.Kind);
+    }
+
+    [Fact]
+    public void GuardsApprovalToo_AtThreshold()
+    {
+        // The activity counts request_approval toward the same budget, so Apply must convert an approval
+        // pause exactly like a human_input one.
+        var result = RepeatAskGuard.Apply(Approval("call_a"), priorAskCount: 2, threshold: 2, out var fired);
+
+        Assert.True(fired);
+        Assert.Equal(RoundKind.Continue, result.Kind);
+        Assert.Equal("call_a", Assert.Single(result.NextToolOutputs).CallId);
     }
 
     [Fact]

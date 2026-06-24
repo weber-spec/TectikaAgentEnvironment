@@ -21,8 +21,9 @@ All file operations are scoped to /workspace (no path traversal outside it).
 """
 import os
 import json
+import signal
 import subprocess
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 TOKEN = os.environ.get("EXECUTOR_TOKEN", "")
 WORKDIR = "/workspace"
@@ -97,14 +98,38 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_run(self, body):
         cmd = body.get("cmd", "")
         timeout = int(body.get("timeout", 60))
+        # stdin=DEVNULL makes the sandbox genuinely non-interactive: any read from stdin gets EOF
+        # immediately instead of blocking forever. Without this an interactive program (e.g. `dotnet run`
+        # on a console menu calling Console.ReadKey/ReadLine) hangs until the timeout and piles up
+        # resources, which has wedged the whole container. start_new_session puts the command in its own
+        # process group so a timeout kills the entire tree (the shell AND `dotnet run`'s child app),
+        # not just the shell.
         try:
-            proc = subprocess.run(
-                cmd, shell=True, capture_output=True, text=True,
-                timeout=timeout, cwd=WORKDIR,
+            proc = subprocess.Popen(
+                cmd, shell=True, cwd=WORKDIR,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, start_new_session=True,
             )
-            return {"stdout": proc.stdout, "stderr": proc.stderr, "exit_code": proc.returncode}
+        except Exception as ex:
+            return {"stdout": "", "stderr": f"failed to start command: {ex}", "exit_code": -1}
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+            return {"stdout": stdout, "stderr": stderr, "exit_code": proc.returncode}
         except subprocess.TimeoutExpired:
-            return {"stdout": "", "stderr": f"Command timed out after {timeout}s", "exit_code": -1}
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            try:
+                stdout, stderr = proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                stdout, stderr = "", ""
+            return {
+                "stdout": stdout or "",
+                "stderr": (stderr or "") + f"\nCommand timed out after {timeout}s (process group killed)",
+                "exit_code": -1,
+            }
 
     def _handle_read(self, body):
         path = body.get("path", "")
@@ -184,4 +209,6 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     port = int(os.environ.get("EXECUTOR_PORT", "8080"))
     print(f"[executor] listening on 0.0.0.0:{port} workdir={WORKDIR}", flush=True)
-    HTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    # ThreadingHTTPServer so a slow/long /run never blocks /health or a concurrent request — a single
+    # stuck command must not make the whole sandbox look dead to the orchestrator.
+    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
