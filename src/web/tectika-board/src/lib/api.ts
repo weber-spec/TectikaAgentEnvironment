@@ -8,6 +8,15 @@ import type {
 } from './types';
 import { trackEvent, trackException, redact } from './telemetry';
 
+/** QA §4.5 — consolidated board snapshot returned by GET /api/boards/{id}/state, so the live poll is a
+ * single round-trip instead of tasks + edges + N usage + N run requests every tick. */
+export interface BoardState {
+  tasks: AgentTask[];
+  edges: TaskEdge[];
+  usageByTaskId: Record<string, UsageRollup>;
+  runsById: Record<string, WorkflowRun>;
+}
+
 // Strip any trailing slash so `${API_BASE}${path}` (paths start with /api) never doubles up.
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5138').replace(/\/+$/, '');
 
@@ -61,6 +70,8 @@ export const api = {
   boards: {
     list: () => fetchApi<Board[]>('/api/boards'),
     get: (boardId: string) => fetchApi<Board>(`/api/boards/${boardId}`),
+    /** QA §4.5 — one consolidated snapshot (tasks + edges + per-task usage + active runs) for the live poll. */
+    state: (boardId: string) => fetchApi<BoardState>(`/api/boards/${boardId}/state`),
     create: (name: string, description?: string) =>
       fetchApi<Board>('/api/boards', { method: 'POST', body: JSON.stringify({ name, description }) }),
     update: (boardId: string, name: string, description?: string) =>

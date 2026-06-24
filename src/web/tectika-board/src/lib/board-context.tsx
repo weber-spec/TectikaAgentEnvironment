@@ -239,6 +239,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   const [liveEnabled, setLiveEnabled] = useState(true);
   const [liveState, setLiveState] = useState<'live' | 'paused' | 'reconnecting'>('live');
   const lastEditRef = useRef(0);
+  const failCountRef = useRef(0);  // QA §4.1: consecutive live-poll failures, to debounce the "reconnecting" flicker
 
   // run phase — tracks spinner/status-dot state for the Run Board button
   const [runPhase, setRunPhase] = useState<BoardRunPhase>(() => {
@@ -349,33 +350,8 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     setRunPhase({ kind: 'done', status });
   }, [runPhase, tasks, runsById, loading]);
 
-  // ── keep runsById fresh for active runs ───────────────────────────────────────
-  // runsById is seeded once at load; poll any run that is missing or still executing
-  // so per-task run state (and Run Board done-detection) reflects live status.
-  const pendingRunKey = tasks
-    .map(t => t.workflowRunId)
-    .filter((r): r is string => !!r)
-    .filter(rid => !TERMINAL_RUN_STATUSES.has(runsById[rid]?.status ?? ('' as RunStatus)))
-    .join(',');
-  useEffect(() => {
-    if (loading || error || !pendingRunKey) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const ids = new Set(pendingRunKey.split(','));
-    const targets = tasks.filter(t => t.workflowRunId && ids.has(t.workflowRunId));
-    const tick = async () => {
-      const fetched = await Promise.all(targets.map(t => api.runs.get(t.id, t.workflowRunId!).catch(() => null)));
-      if (cancelled) return;
-      const fresh = fetched.filter((r): r is WorkflowRun => !!r);
-      if (fresh.length) {
-        setRunsById(prev => { const next = { ...prev }; fresh.forEach(r => { next[r.id] = r; }); return next; });
-      }
-      if (!cancelled) timer = setTimeout(tick, 4000);
-    };
-    timer = setTimeout(tick, 1500);
-    return () => { cancelled = true; if (timer) clearTimeout(timer); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- pendingRunKey captures the relevant run/task identity
-  }, [pendingRunKey, boardId, loading, error]);
+  // runsById is seeded once at load and then kept fresh by the consolidated /state poll below
+  // (QA §4.5 — the separate 4s per-run poll was folded in), plus instant SSE status events.
 
   // ── live sync (PRD §2) ────────────────────────────────────────────────────────
   // Real-time updates via SSE on each active run, with a polling reconcile as a
@@ -404,12 +380,13 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
       if (cancelled) return;
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') { timer = setTimeout(tick, 7000); return; }
       try {
-        const [fresh, freshEdges] = await Promise.all([
-          api.tasks.list(boardId),
-          api.edges.list(boardId).catch(() => null),
-        ]);
+        // QA §4.5: one consolidated snapshot (tasks + edges + per-task usage + active runs) instead of
+        // tasks + edges + N usage + N run requests every tick.
+        const snap = await api.boards.state(boardId);
         if (cancelled) return;
+        failCountRef.current = 0;            // QA §4.1: a success clears the reconnect debounce
         setLiveState('live');
+        const fresh = snap.tasks;
         if (Date.now() - lastEditRef.current > 5000) {
           setTasks(local => {
             const localIds = new Set(local.map(t => t.id));
@@ -432,23 +409,18 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
             const added = fresh.filter(t => !localIds.has(t.id));
             return added.length ? [...updated, ...added] : updated;
           });
-          if (freshEdges) setEdges(freshEdges);
+          setEdges(snap.edges);
         }
-        // Reconcile usage for tasks that have a run (their tokens/cost can change as runs
-        // progress or after a /clear). Resilient: a per-task failure is skipped.
-        const usagePairs = await Promise.all(
-          fresh.filter(x => x.workflowRunId).map(x =>
-            api.usage.task(x.id).then(u => [x.id, u] as const).catch(() => null)),
-        );
-        if (!cancelled) {
-          const usageUpdates = usagePairs.filter((p): p is readonly [string, UsageRollup] => !!p);
-          if (usageUpdates.length) setUsageByTaskId(prev => {
-            const next = { ...prev };
-            usageUpdates.forEach(([id, u]) => { next[id] = u; });
-            return next;
-          });
-        }
-      } catch { if (!cancelled) setLiveState('reconnecting'); }
+        // Usage + run status come in the same snapshot now (QA §4.5 folded the separate per-run 4s poll in).
+        if (Object.keys(snap.usageByTaskId).length)
+          setUsageByTaskId(prev => ({ ...prev, ...snap.usageByTaskId }));
+        if (Object.keys(snap.runsById).length)
+          setRunsById(prev => ({ ...prev, ...snap.runsById }));
+      } catch {
+        // QA §4.1: don't flash "reconnecting" on a single transient blip (the flicker at run handoff) —
+        // only after a couple of consecutive failures.
+        if (!cancelled && ++failCountRef.current >= 2) setLiveState('reconnecting');
+      }
       if (!cancelled) timer = setTimeout(tick, 7000);
     };
     timer = setTimeout(tick, 7000);
