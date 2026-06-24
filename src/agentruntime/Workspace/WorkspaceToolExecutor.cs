@@ -57,7 +57,7 @@ public sealed class WorkspaceToolExecutor
 
     private async Task<string> RunCommandAsync(JsonElement args, string endpoint, string token, CancellationToken ct)
     {
-        var cmd = Str(args, "cmd");
+        var cmd = UnwrapCmd(Str(args, "cmd"));
         if (string.IsNullOrWhiteSpace(cmd))
             return Err("'cmd' parameter is required");
 
@@ -69,6 +69,25 @@ public sealed class WorkspaceToolExecutor
             stderr    = result.Stderr,
             exit_code = result.ExitCode,
         });
+    }
+
+    /// <summary>Defensive: some model tool-calls double-wrap the command as cmd="{\"cmd\":\"...\"}". Unwrap so
+    /// the real command both runs and is logged, instead of the literal JSON wrapper (QA S3 §4.4). Shared with
+    /// the trace summary in RoundExecutor so execution and logging stay consistent.</summary>
+    public static string UnwrapCmd(string cmd)
+    {
+        var trimmed = cmd.TrimStart();
+        if (trimmed.Length == 0 || trimmed[0] != '{') return cmd;
+        try
+        {
+            using var doc = JsonDocument.Parse(trimmed);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("cmd", out var inner)
+                && inner.ValueKind == JsonValueKind.String)
+                return inner.GetString()!;
+        }
+        catch (JsonException) { /* not a JSON wrapper — use as-is */ }
+        return cmd;
     }
 
     private static string Str(JsonElement e, string p) =>

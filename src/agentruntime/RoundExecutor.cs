@@ -195,7 +195,7 @@ public static class RoundExecutor
 
     private static string WorkspaceArgSummary(string toolName, JsonElement args) => toolName switch
     {
-        "run_command"  => Str(args, "cmd"),
+        "run_command"  => Workspace.WorkspaceToolExecutor.UnwrapCmd(Str(args, "cmd")),
         "read_file"    => Str(args, "path"),
         "write_file"   => Str(args, "path"),
         "edit_file"    => Str(args, "path"),

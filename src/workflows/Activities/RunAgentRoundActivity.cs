@@ -344,6 +344,9 @@ public class RunAgentRoundActivity
             "approve fixing your own build/runtime errors, or whether to retry/finalize. You have full autonomy: " +
             "pick the most reasonable approach and proceed. If an approach keeps failing, CHANGE the approach " +
             "(e.g. a different library or design) rather than asking\n" +
+            "- Claim you built, ran, tested, or verified something you did NOT actually run via `run_command` in " +
+            "THIS run. If a build/test wasn't run, or it failed, say so plainly in your summary — never assert a " +
+            "success you did not observe in a tool result\n" +
             "- Mark the task done without having run at least one `run_command` or `write_file`\n\n" +
             "**`declare_output` is for documents only** (specs, ADRs, READMEs, reports).\n" +
             "Code belongs in workspace files, not in tool call arguments.\n\n" +
