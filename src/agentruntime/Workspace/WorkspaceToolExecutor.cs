@@ -26,43 +26,48 @@ public sealed class WorkspaceToolExecutor
     public bool CanHandle(string toolName) => HandledTools.Contains(toolName);
 
     public async Task<string> ExecuteAsync(
-        string toolName, JsonElement args, string endpoint, string token, CancellationToken ct)
+        string toolName, JsonElement args, string endpoint, string token, string? runId, CancellationToken ct)
     {
         return toolName switch
         {
-            "run_command" => await RunCommandAsync(args, endpoint, token, ct),
+            "run_command" => await RunCommandAsync(args, endpoint, token, runId, ct),
             "read_file"   => await _workspace.InvokeAsync(endpoint, token, "/read", new {
-                path   = Str(args, "path"),
-                offset = IntOrDefault(args, "offset", 0),
-                limit  = IntOrDefault(args, "limit", 200) }, ct),
+                path    = Str(args, "path"),
+                offset  = IntOrDefault(args, "offset", 0),
+                limit   = IntOrDefault(args, "limit", 200),
+                run_id  = runId }, ct),
             "write_file"  => await _workspace.InvokeAsync(endpoint, token, "/write", new {
                 path    = Str(args, "path"),
-                content = Str(args, "content") }, ct),
+                content = Str(args, "content"),
+                run_id  = runId }, ct),
             "edit_file"   => await _workspace.InvokeAsync(endpoint, token, "/patch", new {
                 path        = Str(args, "path"),
                 old_string  = Str(args, "old_string"),
                 new_string  = Str(args, "new_string"),
-                replace_all = BoolOrDefault(args, "replace_all", false) }, ct),
+                replace_all = BoolOrDefault(args, "replace_all", false),
+                run_id      = runId }, ct),
             "list_dir"    => await _workspace.InvokeAsync(endpoint, token, "/list", new {
-                path = Str(args, "path") }, ct),
+                path   = Str(args, "path"),
+                run_id = runId }, ct),
             "search_code" => await _workspace.InvokeAsync(endpoint, token, "/search", new {
                 pattern = Str(args, "pattern"),
                 path    = Str(args, "path"),
-                glob    = Str(args, "glob") }, ct),
+                glob    = Str(args, "glob"),
+                run_id  = runId }, ct),
             _ => Err($"Unknown workspace tool '{toolName}'")
         };
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private async Task<string> RunCommandAsync(JsonElement args, string endpoint, string token, CancellationToken ct)
+    private async Task<string> RunCommandAsync(JsonElement args, string endpoint, string token, string? runId, CancellationToken ct)
     {
         var cmd = Str(args, "cmd");
         if (string.IsNullOrWhiteSpace(cmd))
             return Err("'cmd' parameter is required");
 
         var timeout = Math.Min(MaxTimeout, IntOrDefault(args, "timeout", 60));
-        var result = await _workspace.RunCommandAsync(endpoint, token, cmd, timeout, ct);
+        var result = await _workspace.RunCommandAsync(endpoint, token, cmd, timeout, runId, ct);
 
         return JsonSerializer.Serialize(new {
             stdout    = result.Stdout,

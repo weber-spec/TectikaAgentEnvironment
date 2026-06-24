@@ -85,10 +85,12 @@ public static class TectikaToolSchema
     // ── Workspace tools (appended when CanUseWorkspace = true) ──────────────────
     private static readonly ToolDef RunCommandTool = new(
         "run_command",
-        "Run a bash shell command in your sandbox workspace at `/workspace`. " +
-        "Returns stdout, stderr, and exit_code. The sandbox is created the first time you call this. " +
-        "When a GitHub repo is connected to the board it is cloned into `/workspace` with git configured " +
-        "(you can git commit / git push); otherwise `/workspace` is an empty sandbox with no git repo. " +
+        "Run a bash shell command in your sandbox workspace. " +
+        "Your working directory is already set to your run's workspace (at /workspace/runs/<run-id>). " +
+        "Returns stdout, stderr, and exit_code. " +
+        "When a GitHub repo is connected to the board the repo files are in your working directory " +
+        "with git configured (you can git commit / git push); otherwise the workspace is an empty sandbox with no git repo. " +
+        "**Do NOT cd /workspace** — use relative paths from your working directory. " +
         "Use for: builds (dotnet build, npm install), tests, git operations, package installs, and other shell execution. " +
         "For file operations prefer the dedicated tools: read_file, write_file, edit_file, list_dir, search_code.",
         new Dictionary<string, ToolProp>
@@ -106,7 +108,7 @@ public static class TectikaToolSchema
             "**Prefer over run_command cat** — returns numbered lines and handles large files efficiently. " +
             "Always call read_file before edit_file to confirm the exact text to match.",
             new Dictionary<string, ToolProp> {
-                ["path"]   = new("string",  "File path relative to /workspace, e.g. 'src/main.cs'."),
+                ["path"]   = new("string",  "File path relative to your workspace root, e.g. 'src/main.cs'."),
                 ["offset"] = new("integer", "Line offset to start from (0-based, default 0)."),
                 ["limit"]  = new("integer", "Max lines to return (default 200, max 500).") },
             ["path"]),
@@ -117,7 +119,7 @@ public static class TectikaToolSchema
             "**Prefer over run_command with heredoc** — heredoc breaks on special characters. " +
             "Use for new files or when replacing an entire file.",
             new Dictionary<string, ToolProp> {
-                ["path"]    = new("string", "File path relative to /workspace."),
+                ["path"]    = new("string", "File path relative to your workspace root."),
                 ["content"] = new("string", "Full file content to write.") },
             ["path", "content"]),
 
@@ -127,7 +129,7 @@ public static class TectikaToolSchema
             "Returns an error if old_string is not found — make the match as specific as needed to be unique. " +
             "**Prefer over run_command sed/awk** — reliable, no escaping issues, fails clearly if not found.",
             new Dictionary<string, ToolProp> {
-                ["path"]        = new("string",  "File path relative to /workspace."),
+                ["path"]        = new("string",  "File path relative to your workspace root."),
                 ["old_string"]  = new("string",  "The exact text to find and replace (must match precisely)."),
                 ["new_string"]  = new("string",  "The replacement text."),
                 ["replace_all"] = new("boolean", "Replace all occurrences (default: false, replaces only the first).") },
@@ -138,7 +140,7 @@ public static class TectikaToolSchema
             "Directories are listed before files, both sorted alphabetically. " +
             "**Prefer over run_command ls** — structured output, easy to navigate programmatically.",
             new Dictionary<string, ToolProp> {
-                ["path"] = new("string", "Directory path relative to /workspace. Omit or use '' for the workspace root.") },
+                ["path"] = new("string", "Directory path relative to your workspace root. Omit or use '' for the workspace root.") },
             []),
 
         new("search_code",

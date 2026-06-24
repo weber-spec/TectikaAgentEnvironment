@@ -199,12 +199,14 @@ public class WorkspaceService : IWorkspaceService
 
     public async Task<CommandResult> RunCommandAsync(
         string endpoint, string token, string command,
-        int timeoutSeconds = 60, CancellationToken ct = default)
+        int timeoutSeconds = 60, string? runId = null, CancellationToken ct = default)
     {
         var http = _httpFactory.CreateClient();
         http.Timeout = TimeSpan.FromSeconds(timeoutSeconds + 15);
 
-        var body = JsonSerializer.Serialize(new { cmd = command, timeout = timeoutSeconds });
+        var body = runId is null
+            ? JsonSerializer.Serialize(new { cmd = command, timeout = timeoutSeconds })
+            : JsonSerializer.Serialize(new { cmd = command, timeout = timeoutSeconds, run_id = runId });
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/run")
         {
             Content = new StringContent(body, Encoding.UTF8, "application/json"),

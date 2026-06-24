@@ -113,11 +113,11 @@ public class RunAgentRoundActivity
                     ? context
                     : context + "\n\n## User message\n" + input.UserInput;
             }
-            // Workspace prompt is always sent at round 0 when there is no user seed message
-            // (button-triggered run). For chat continuations (UserInput set) the user's message is enough.
-            // New threads always get it; existing threads get it only on button-triggered runs so the agent
-            // is reminded to use the workspace even when task context is already in the thread history.
-            if (string.IsNullOrEmpty(input.UserInput))
+            // Workspace prompt is sent:
+            //   - Always on a new thread (!hadThread) — covers both button-triggered and chat-triggered first runs.
+            //   - On existing threads when there is no user seed message (button re-trigger reminder).
+            // NOT sent on chat continuations on existing threads (agent already knows the workspace from history).
+            if (!hadThread || string.IsNullOrEmpty(input.UserInput))
                 userInput += WorkspacePrompt(role.Permissions.CanUseWorkspace, board.GitHub is not null, role.Permissions.CanPushCode,
                     $"agent/{input.RunId[..Math.Min(8, input.RunId.Length)]}");
         }
@@ -257,7 +257,7 @@ public class RunAgentRoundActivity
             var branchName = $"agent/{runId[..Math.Min(8, runId.Length)]}";
             var runIdShort = runId[..Math.Min(8, runId.Length)];
             var res = await _workspace.RunCommandAsync(run.WorkspaceEndpoint, run.WorkspaceToken,
-                $"cd /workspace/runs/{runIdShort} && git push origin {branchName}", 120, ct);
+                $"cd /workspace/runs/{runIdShort} && git push origin {branchName}", 120, runIdShort, ct);
             if (res.ExitCode == 0)
                 _logger.LogInformation("[RunAgentRound] finalization push run={RunId} ok", runId);
             else
@@ -315,6 +315,12 @@ public class RunAgentRoundActivity
         var header =
             "\n\n## Sandbox — MANDATORY WORKFLOW\n\n" +
             $"You have a live sandbox workspace at `/workspace/runs/{branch}` and **MUST** use it for all implementation work.\n\n" +
+            "**The sandbox is NON-INTERACTIVE.** There is no TTY, keyboard, or terminal — programs run " +
+            "unattended and any read from stdin returns EOF immediately. Do NOT design around live keypresses " +
+            "or terminal prompts, and do NOT choose interactive console-UI / TUI libraries (anything that draws " +
+            "to the terminal or waits for `ReadKey`/`readline`-style input) for code you must build and verify " +
+            "here. If a program needs input, make it argument/flag-driven, or feed input non-interactively " +
+            "(e.g. `run_command printf 'a\\nb\\n' | dotnet run`). Verify by running the program unattended.\n\n" +
             "**REQUIRED steps — do not skip:**\n" +
             "1. Call `list_dir` or `run_command git log --oneline -5` to see the current workspace state\n" +
             "2. Read files with `read_file` before editing them\n" +
@@ -324,6 +330,10 @@ public class RunAgentRoundActivity
             "**NEVER:**\n" +
             "- Write implementation code as text in your response or inside `declare_output`\n" +
             "- Ask \"how would you like me to proceed?\" — explore and implement directly\n" +
+            "- Ask the human (via request_human_input OR request_approval) to decide implementation details, to " +
+            "approve fixing your own build/runtime errors, or whether to retry/finalize. You have full autonomy: " +
+            "pick the most reasonable approach and proceed. If an approach keeps failing, CHANGE the approach " +
+            "(e.g. a different library or design) rather than asking\n" +
             "- Mark the task done without having run at least one `run_command` or `write_file`\n" +
             "- Run `git init`, `git checkout`, `git branch`, or create new branches — the branch is already set up\n\n" +
             "**`declare_output` is for documents only** (specs, ADRs, READMEs, reports).\n" +
@@ -382,7 +392,7 @@ public class RunAgentRoundActivity
                 // Ensure the worktree exists (idempotent) in case the container was recycled.
                 try { await _workspace.CreateWorktreeAsync(run.WorkspaceEndpoint, run.WorkspaceToken, _runId[..Math.Min(8, _runId.Length)], branchResume, _canPush, ct); }
                 catch (Exception ex) { _logger.LogWarning(ex, "[RunWorkspace] worktree idempotent-create failed run={RunId}", _runId); }
-                return _cached = new WorkspaceConnection(run.WorkspaceEndpoint, run.WorkspaceToken);
+                return _cached = new WorkspaceConnection(run.WorkspaceEndpoint, run.WorkspaceToken, _runId[..Math.Min(8, _runId.Length)]);
             }
 
             try
@@ -432,13 +442,12 @@ public class RunAgentRoundActivity
                         // We won — provision the container.
                         try
                         {
-                            var token = GenerateContainerToken();
-                            await _secrets.SetSecretAsync(tokenKey, token, ct);
                             var info = await _workspace.EnsureBoardContainerAsync(_board, ct);
                             if (info is null) throw new InvalidOperationException("EnsureBoardContainerAsync returned null.");
 
-                            // Store the token in the returned WorkspaceInfo (override with our token).
-                            // The container was started with a generated token; we save the same token to Key Vault.
+                            // Store the ACTUAL token the container was started with. Must match the
+                            // container's EXECUTOR_TOKEN env var so subsequent runs authenticate correctly.
+                            await _secrets.SetSecretAsync(tokenKey, info.Token, ct);
                             await _cosmos.PatchBoardWorkspaceAsync(_board.Id, _board.TenantId,
                                 info.ContainerName, info.Endpoint, BoardWorkspaceStatus.Ready, ct);
 
@@ -446,7 +455,7 @@ public class RunAgentRoundActivity
                             await _cosmos.PatchRunWorkspaceAsync(_runId, _taskId, info.ContainerName, info.Endpoint, info.Token, ct);
                             await _cosmos.PatchBoardWorkspaceLastUsedAsync(_board.Id, _board.TenantId, ct);
 
-                            return new WorkspaceConnection(info.Endpoint, info.Token);
+                            return new WorkspaceConnection(info.Endpoint, info.Token, runIdShort);
                         }
                         catch (Exception ex)
                         {
@@ -468,7 +477,7 @@ public class RunAgentRoundActivity
             await _workspace.CreateWorktreeAsync(board.WorkspaceEndpoint!, token, runIdShort, branch, _canPush, ct);
             await _cosmos.PatchRunWorkspaceAsync(_runId, _taskId, board.WorkspaceContainerName!, board.WorkspaceEndpoint!, token, ct);
             await _cosmos.PatchBoardWorkspaceLastUsedAsync(board.Id, board.TenantId, ct);
-            return new WorkspaceConnection(board.WorkspaceEndpoint!, token);
+            return new WorkspaceConnection(board.WorkspaceEndpoint!, token, runIdShort);
         }
 
         private async Task<bool> TryClaimProvisioningAsync(Board board, string etag, CancellationToken ct)
@@ -497,9 +506,6 @@ public class RunAgentRoundActivity
             return null;
         }
 
-        private static string GenerateContainerToken() =>
-            Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24))
-                   .Replace("+", "-").Replace("/", "_").TrimEnd('=');
     }
 }
 

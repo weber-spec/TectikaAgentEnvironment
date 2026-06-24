@@ -57,13 +57,17 @@ public class RoundExecutorWorkspaceTests
     // The executor is never invoked in these tests (wsConn is always null), so the methods just stub out.
     private sealed class UnusedWorkspaceService : IWorkspaceService
     {
-        public Task<WorkspaceInfo?> ProvisionAsync(Board board, string branchName, string runId, bool canPush, CancellationToken ct = default)
+        public Task<WorkspaceInfo?> EnsureBoardContainerAsync(Board board, CancellationToken ct = default)
+            => throw new NotImplementedException();
+        public Task CreateWorktreeAsync(string endpoint, string token, string runId, string branch, bool canPush, CancellationToken ct = default)
+            => throw new NotImplementedException();
+        public Task RemoveWorktreeAsync(string endpoint, string token, string runId, CancellationToken ct = default)
+            => throw new NotImplementedException();
+        public Task DestroyBoardContainerAsync(string containerName, CancellationToken ct = default)
             => throw new NotImplementedException();
         public Task<CommandResult> RunCommandAsync(string endpoint, string token, string command, int timeoutSeconds = 60, CancellationToken ct = default)
             => throw new NotImplementedException();
         public Task<string> InvokeAsync(string endpoint, string token, string route, object body, CancellationToken ct = default)
-            => throw new NotImplementedException();
-        public Task DestroyAsync(string containerName, CancellationToken ct = default)
             => throw new NotImplementedException();
     }
 

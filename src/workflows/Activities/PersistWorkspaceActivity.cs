@@ -6,7 +6,7 @@ using TectikaAgents.Workflows.Services;
 namespace TectikaAgents.Workflows.Activities;
 
 /// <summary>
-/// Durable Functions activity that commits the agent's workspace changes and pushes them to the task's
+/// Durable Functions activity that commits the agent's workspace changes and pushes them to the run's
 /// branch, so the work survives this run. Each run provisions a FRESH ACI that clones from origin, and the
 /// agent rarely runs git itself — so without this, files written via write_file die with the container and
 /// the next run can't see them (QA S1 §2.1 root cause). Called in the orchestrator's finally BEFORE
@@ -44,18 +44,19 @@ public class PersistWorkspaceActivity
                 return;
             }
 
+            var runIdShort = runId[..Math.Min(8, runId.Length)];
             var msg = $"agent: task {Short(run.TaskId)} run {Short(runId)}";
-            var branch = RunAgentRoundActivity.BranchForTask(run.TaskId);
-            // Stage all; commit only if something is staged; then push HEAD explicitly to the per-task branch
-            // BY NAME — never `git push origin HEAD` (the current branch). A workspace that's on the wrong
-            // branch (e.g. a stale image that ignored GIT_BRANCH and is sitting on main) must NEVER be able to
-            // push to main. Plain push (no force): a divergence is rejected + logged rather than clobbering
-            // prior runs' work. Push is disabled in the entrypoint for non-push roles, so an ungated attempt
+            var branch = $"agent/{runIdShort}";
+            // Stage all in the run's worktree; commit only if something is staged; then push HEAD explicitly
+            // to the per-run branch BY NAME — never `git push origin HEAD` (the current branch). A workspace
+            // that's on the wrong branch (e.g. a stale image sitting on main) must NEVER be able to push to
+            // main. Plain push (no force): a divergence is rejected + logged rather than clobbering prior
+            // runs' work. Push is disabled in the entrypoint for non-push roles, so an ungated attempt
             // simply fails here and is logged — state just won't carry for those roles.
-            var cmd = "cd /workspace && git add -A && " +
+            var cmd = $"cd /workspace/runs/{runIdShort} && git add -A && " +
                       $"(git diff --cached --quiet || git commit -m \"{msg}\") && " +
                       $"git push origin HEAD:refs/heads/{branch}";
-            var res = await _workspace.RunCommandAsync(run.WorkspaceEndpoint, run.WorkspaceToken, cmd, 120, ct);
+            var res = await _workspace.RunCommandAsync(run.WorkspaceEndpoint, run.WorkspaceToken, cmd, 120, runIdShort, ct);
             if (res.ExitCode == 0)
                 _logger.LogInformation("[PersistWorkspace] commit+push run={RunId} ok", runId);
             else
