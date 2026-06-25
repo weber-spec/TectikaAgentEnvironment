@@ -45,9 +45,12 @@ resource project 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-previ
 resource deployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
   parent: account
   name: modelName
-  // Standard (regional) deployment: this subscription has Standard gpt-4o quota in
+  // Standard (regional) deployment: this subscription has Standard quota in
   // Sweden Central but zero GlobalStandard quota. Account region (foundryLocation)
   // must be one with Standard quota for `modelName`.
+  // NOTE: gpt-5 is often offered only as GlobalStandard/DataZoneStandard — if the
+  // Standard SKU has no gpt-5 quota here, switch sku.name and/or foundryLocation
+  // after verifying availability in Azure (Foundry → Quotas).
   sku: { name: 'Standard', capacity: modelCapacity }
   properties: {
     model: { format: 'OpenAI', name: modelName, version: modelVersion }

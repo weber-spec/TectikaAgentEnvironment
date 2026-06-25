@@ -78,15 +78,6 @@ const NAV_INSIGHTS: NavItem[] = [
       </svg>
     ),
   },
-  {
-    href: '/settings/pricing',
-    labelKey: 'pricing',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-        <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-      </svg>
-    ),
-  },
 ];
 
 const NAV_BOTTOM: NavItem[] = [

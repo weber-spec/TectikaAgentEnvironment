@@ -275,7 +275,7 @@ public class InMemoryCosmosDbService : ICosmosDbService
 
     public Task<List<UsageTimePoint>> GetUsageTimeSeriesAsync(string scope, string scopeId, int days, CancellationToken ct = default)
     {
-        days = Math.Clamp(days, 1, 90);
+        days = Math.Clamp(days, 1, 365);
         var today = DateTimeOffset.UtcNow.Date;
         var since = today.AddDays(-(days - 1));
         var byDay = new Dictionary<string, UsageTimePoint>();
@@ -288,9 +288,43 @@ public class InMemoryCosmosDbService : ICosmosDbService
             (scope == "board" ? e.BoardId == scopeId : e.TenantId == scopeId) && e.Timestamp.UtcDateTime.Date >= since))
         {
             var key = e.Timestamp.UtcDateTime.ToString("yyyy-MM-dd");
-            if (byDay.TryGetValue(key, out var pt)) { pt.Tokens += e.Usage.Total; pt.CostUsd += e.CostUsd; }
+            if (!byDay.TryGetValue(key, out var pt)) continue;
+            pt.Tokens += e.Usage.Total;
+            pt.CostUsd += e.CostUsd;
+            pt.Input += e.Usage.Input;
+            pt.CachedInput += e.Usage.CachedInput;
+            pt.Output += e.Usage.Output;
+            pt.Reasoning += e.Usage.Reasoning;
+            var modelKey = $"{e.Provider}/{e.Model}";
+            if (!pt.PerModel.TryGetValue(modelKey, out var mb)) { mb = new ModelDayBucket(); pt.PerModel[modelKey] = mb; }
+            mb.Tokens += e.Usage.Total;
+            mb.CostUsd += e.CostUsd;
         }
         return Task.FromResult(byDay.Values.OrderBy(p => p.Date).ToList());
+    }
+
+    public Task<List<AgentUsage>> GetUsageByAgentAsync(string scope, string scopeId, int days, CancellationToken ct = default)
+    {
+        days = Math.Clamp(days, 1, 365);
+        var since = DateTimeOffset.UtcNow.Date.AddDays(-(days - 1));
+        var byAgent = new Dictionary<string, AgentUsage>();
+        foreach (var e in _usageEvents.Values.Where(e =>
+            (scope == "board" ? e.BoardId == scopeId : e.TenantId == scopeId) && e.Timestamp.UtcDateTime.Date >= since))
+        {
+            if (!byAgent.TryGetValue(e.AgentRoleId, out var a))
+            {
+                a = new AgentUsage { AgentRoleId = e.AgentRoleId, AgentRoleName = e.AgentRoleName };
+                byAgent[e.AgentRoleId] = a;
+            }
+            if (!string.IsNullOrEmpty(e.AgentRoleName)) a.AgentRoleName = e.AgentRoleName;
+            a.Tokens.Input += e.Usage.Input;
+            a.Tokens.CachedInput += e.Usage.CachedInput;
+            a.Tokens.Output += e.Usage.Output;
+            a.Tokens.Reasoning += e.Usage.Reasoning;
+            a.CostUsd += e.CostUsd;
+            a.EventCount++;
+        }
+        return Task.FromResult(byAgent.Values.OrderByDescending(a => a.Tokens.Total).ToList());
     }
 
     // ── Preview Sessions ──────────────────────────────────────────────────────────

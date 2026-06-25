@@ -2,19 +2,25 @@
 
 import { api } from '@/lib/api';
 import { useEffect, useState } from 'react';
-import type { Board, AgentTask, WorkflowRun, AgentRole, UsageRollup, UsageTimePoint } from '@/lib/types';
+import type { Board, AgentTask, WorkflowRun, AgentRole, UsageRollup, UsageTimePoint, AgentUsage } from '@/lib/types';
 import { colorFor } from '@/lib/palette';
-import { BarChart, LineChart, type Datum } from '@/components/charts/Charts';
+import { BarChart, type Datum } from '@/components/charts/Charts';
+import { UsageChart } from '@/components/charts/UsageChart';
 import { Skeleton, Avatar } from '@/components/ui/primitives';
 import { Icon } from '@/components/ui/icons';
-import { formatCurrency, formatCompact, formatDuration, displayName } from '@/lib/format';
+import { formatCurrency, formatCompact, formatDuration } from '@/lib/format';
 import { ModelBreakdownTable } from '@/components/workspace/ModelBreakdownTable';
+import { PricingTable } from '@/components/analytics/PricingTable';
 
 const ALL = 'all';
+const SERIES_DAYS = 365; // pulled once; the chart aggregates client-side into day/week/month
+
+type Tab = 'overview' | 'pricing';
 
 export default function AnalyticsPage() {
   const [boards, setBoards] = useState<Board[] | null>(null);
   const [scope, setScope] = useState<string>(''); // boardId or ALL; '' until boards resolve
+  const [tab, setTab] = useState<Tab>('overview');
 
   useEffect(() => {
     api.boards.list()
@@ -29,9 +35,11 @@ export default function AnalyticsPage() {
       <div className="px-8 py-5 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-[var(--foreground)]">Analytics</h1>
-          <p className="text-sm text-[var(--muted)] mt-0.5">Agent performance, throughput and cost for {scopeLabel}.</p>
+          <p className="text-sm text-[var(--muted)] mt-0.5">
+            {tab === 'overview' ? `Agent performance, throughput and cost for ${scopeLabel}.` : 'Model pricing catalog used to compute costs.'}
+          </p>
         </div>
-        {boards && boards.length > 0 && (
+        {tab === 'overview' && boards && boards.length > 0 && (
           <label className="flex items-center gap-2 text-sm">
             <span className="text-[var(--muted)]">Project</span>
             <select
@@ -45,16 +53,37 @@ export default function AnalyticsPage() {
           </label>
         )}
       </div>
-      <div className="px-8 pb-8">
-        {!boards || scope === ''
-          ? <div className="grid grid-cols-3 gap-4">{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-40" />)}</div>
-          : <ScopedAnalytics key={scope} scope={scope} />}
+
+      <div className="px-8">
+        <div className="flex items-center gap-1 border-b border-[var(--border)]">
+          <TabButton active={tab === 'overview'} onClick={() => setTab('overview')}>Overview</TabButton>
+          <TabButton active={tab === 'pricing'} onClick={() => setTab('pricing')}>Pricing</TabButton>
+        </div>
+      </div>
+
+      <div className="px-8 py-6">
+        {tab === 'pricing'
+          ? <PricingTable />
+          : (!boards || scope === ''
+            ? <div className="grid grid-cols-3 gap-4">{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-40" />)}</div>
+            : <ScopedAnalytics key={scope} scope={scope} />)}
       </div>
     </div>
   );
 }
 
-type ScopedData = { tasks: AgentTask[]; runs: WorkflowRun[]; roles: AgentRole[]; usage: UsageRollup | null; series: UsageTimePoint[] };
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-4 py-2.5 text-sm font-medium -mb-px border-b-2 transition-colors ${active ? 'border-[var(--primary,#0073ea)] text-[var(--foreground)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+type ScopedData = { tasks: AgentTask[]; runs: WorkflowRun[]; roles: AgentRole[]; usage: UsageRollup | null; series: UsageTimePoint[]; byAgent: AgentUsage[] };
 
 function ScopedAnalytics({ scope }: { scope: string }) {
   const [d, setD] = useState<ScopedData | null>(null);
@@ -73,11 +102,12 @@ function ScopedAnalytics({ scope }: { scope: string }) {
       const runs = (await Promise.all(
         tasks.filter(t => t.workflowRunId).map(t => api.runs.get(t.id, t.workflowRunId!).catch(() => null)),
       )).filter((r): r is WorkflowRun => !!r);
-      const [usage, series] = await Promise.all([
+      const [usage, series, byAgent] = await Promise.all([
         scope === ALL ? api.usage.project().catch(() => null) : api.usage.board(scope).catch(() => null),
-        scope === ALL ? api.usage.projectTimeseries(14).catch(() => []) : api.usage.boardTimeseries(scope, 14).catch(() => []),
+        scope === ALL ? api.usage.projectTimeseries(SERIES_DAYS).catch(() => []) : api.usage.boardTimeseries(scope, SERIES_DAYS).catch(() => []),
+        scope === ALL ? api.usage.byAgentProject(SERIES_DAYS).catch(() => []) : api.usage.byAgentBoard(scope, SERIES_DAYS).catch(() => []),
       ]);
-      if (!cancelled) setD({ tasks, runs, roles, usage, series });
+      if (!cancelled) setD({ tasks, runs, roles, usage, series, byAgent });
     };
     load();
     const iv = setInterval(load, 7000); // live: refresh KPIs/charts as runs progress + after /clear
@@ -88,25 +118,22 @@ function ScopedAnalytics({ scope }: { scope: string }) {
   return <Body {...d} />;
 }
 
-function Body({ tasks, runs, roles, usage, series }: ScopedData) {
+function Body({ tasks, runs, roles, usage, series, byAgent }: ScopedData) {
   const totalTokens = usage?.lifetime.tokens.total ?? runs.reduce((s, r) => s + r.totalTokens, 0);
   const totalCost = usage?.lifetime.costUsd ?? runs.reduce((s, r) => s + r.estimatedCostUsd, 0);
   // Average wall-clock run duration (completed runs). Steerable runs track time at the run level, not per step.
   const runDurations = runs.filter(r => r.completedAt).map(r => new Date(r.completedAt!).getTime() - new Date(r.startedAt).getTime()).filter(ms => ms > 0);
   const avgDuration = runDurations.length ? runDurations.reduce((s, x) => s + x, 0) / runDurations.length : 0;
 
-  // tokens per agent role (via tasks → roles)
-  const tokensByRole = new Map<string, number>();
-  runs.forEach(r => { const task = tasks.find(t => t.id === r.taskId); if (task?.assignee.type === 'Agent') tokensByRole.set(task.assignee.id, (tokensByRole.get(task.assignee.id) ?? 0) + r.totalTokens); });
-  const tokenData: Datum[] = [...tokensByRole.entries()].map(([id, v]) => ({ label: roles.find(r => r.id === id)?.displayName ?? displayName(id), hex: colorFor(id), value: v }));
+  // Tokens per agent — ledger truth (UsageEvent), keyed by agentRoleId.
+  const tokensByRole = new Map<string, number>(byAgent.map(a => [a.agentRoleId, a.tokens.total]));
+  const tokenData: Datum[] = byAgent
+    .filter(a => a.tokens.total > 0)
+    .map(a => ({ label: roles.find(r => r.id === a.agentRoleId)?.displayName ?? a.agentRoleName, hex: colorFor(a.agentRoleId), value: a.tokens.total }));
 
-  // completed per agent
+  // completed per agent (from task status)
   const completedByAgent = new Map<string, number>();
   tasks.filter(t => t.status === 'Done' && t.assignee.type === 'Agent').forEach(t => completedByAgent.set(t.assignee.id, (completedByAgent.get(t.assignee.id) ?? 0) + 1));
-
-  // REAL token usage per day from the usage ledger (zero-filled by the API)
-  const lineData: Datum[] = series.map(p => ({ label: p.date.slice(5), hex: '#0073ea', value: p.tokens }));
-  const hasSeries = series.some(p => p.tokens > 0);
 
   return (
     <div className="flex flex-col gap-4">
@@ -118,10 +145,10 @@ function Body({ tasks, runs, roles, usage, series }: ScopedData) {
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <Card title="Tokens / day (last 14 days)">
-          {hasSeries ? <LineChart data={lineData} /> : <p className="text-sm text-[var(--muted)]">No usage recorded in this period yet.</p>}
+        <Card title="Token usage over time">
+          <UsageChart series={series} />
         </Card>
-        <Card title="Token usage by agent">{tokenData.length ? <BarChart data={tokenData} horizontal height={200} /> : <p className="text-sm text-[var(--muted)]">No runs recorded yet.</p>}</Card>
+        <Card title="Token usage by agent">{tokenData.length ? <BarChart data={tokenData} horizontal height={200} /> : <p className="text-sm text-[var(--muted)]">No usage recorded yet.</p>}</Card>
       </div>
 
       <Card title="Agent leaderboard">

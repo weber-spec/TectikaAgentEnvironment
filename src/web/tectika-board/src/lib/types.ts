@@ -234,10 +234,29 @@ export interface UsageEventsPage {
   continuationToken?: string | null;
 }
 
+export interface ModelDayBucket {
+  tokens: number;
+  costUsd: number;
+}
+
 export interface UsageTimePoint {
   date: string;     // "yyyy-MM-dd"
   tokens: number;
   costUsd: number;
+  input: number;
+  cachedInput: number;
+  output: number;
+  reasoning: number;
+  perModel: Record<string, ModelDayBucket>;  // keyed by "provider/model"
+}
+
+/** Ledger-truth usage aggregated per agent role. */
+export interface AgentUsage {
+  agentRoleId: string;
+  agentRoleName: string;
+  tokens: TokenUsage;
+  costUsd: number;
+  eventCount: number;
 }
 
 export interface ModelPrice {

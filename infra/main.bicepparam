@@ -9,8 +9,10 @@ param location = 'westeurope'
 // Set a short token in another tenant if a bare name collides globally.
 param nameSuffix = ''
 
-// Foundry account + model region. gpt-4o Standard quota is region-specific;
-// this subscription has it in Sweden Central, not West Europe.
+// Foundry account + model region. Model quota is region-specific; this
+// subscription has Standard quota in Sweden Central, not West Europe.
+// NOTE: gpt-5 may require GlobalStandard quota and/or a different region —
+// verify availability in Azure (Foundry → Quotas) before deploying.
 param foundryLocation = 'swedencentral'
 
 // Cosmos write region is immutable. The live account in this tenant sits in
@@ -22,8 +24,8 @@ param cosmosLocation = 'northeurope'
 // tenantId        defaults to the deploying subscription's tenant
 
 // Foundry model deployment
-param modelName = 'gpt-4o'
-param modelVersion = '2024-11-20'
+param modelName = 'gpt-5'
+param modelVersion = '2025-08-07'
 param modelCapacity = 30
 
 // apiImage / webImage / apiClientId / platformClientId are supplied at deploy

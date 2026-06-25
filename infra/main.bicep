@@ -20,7 +20,7 @@ param nameSuffix string = ''
 @description('Azure region for every resource.')
 param location string = 'westeurope'
 
-@description('Region for the Azure AI Foundry account + model deployment. Kept separate from `location` because gpt-4o quota is region-specific (this subscription has Standard gpt-4o quota in Sweden Central, none in West Europe).')
+@description('Region for the Azure AI Foundry account + model deployment. Kept separate from `location` because model quota is region-specific (this subscription has Standard quota in Sweden Central, none in West Europe). NOTE: gpt-5 may require GlobalStandard quota and/or another region — verify in Azure before deploying.')
 param foundryLocation string = 'swedencentral'
 
 @description('Data region for the Cosmos DB account (the `locations` write region). Cosmos regions are immutable, so when adopting an existing account this must match its current region. Defaults to `location`; deploy.ps1 auto-detects the live value on re-runs.')
@@ -34,10 +34,10 @@ param tenantId string = subscription().tenantId
 
 // ── Foundry model deployment ─────────────────────────────────────────────────
 @description('Model name to deploy in the Foundry project.')
-param modelName string = 'gpt-4o'
+param modelName string = 'gpt-5'
 
 @description('Model version for the deployment.')
-param modelVersion string = '2024-11-20'
+param modelVersion string = '2025-08-07'
 
 @description('GlobalStandard capacity (TPM in thousands).')
 param modelCapacity int = 30

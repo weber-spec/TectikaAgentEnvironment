@@ -91,6 +91,16 @@ public class UsageController : ControllerBase
     public async Task<IActionResult> GetBoardTimeSeries(string boardId, [FromQuery] int days = 14, CancellationToken ct = default) =>
         Ok(await _cosmos.GetUsageTimeSeriesAsync("board", boardId, days, ct));
 
+    /// <summary>GET /api/usage/project/by-agent?days=14 — ledger-truth usage per agent role for the tenant.</summary>
+    [HttpGet("project/by-agent")]
+    public async Task<IActionResult> GetProjectByAgent([FromQuery] int days = 14, CancellationToken ct = default) =>
+        Ok(await _cosmos.GetUsageByAgentAsync("project", TenantId, days, ct));
+
+    /// <summary>GET /api/usage/board/{boardId}/by-agent?days=14 — ledger-truth usage per agent role for one board.</summary>
+    [HttpGet("board/{boardId}/by-agent")]
+    public async Task<IActionResult> GetBoardByAgent(string boardId, [FromQuery] int days = 14, CancellationToken ct = default) =>
+        Ok(await _cosmos.GetUsageByAgentAsync("board", boardId, days, ct));
+
     /// <summary>GET /api/usage/pricing — current pricing catalog version and prices.</summary>
     [HttpGet("pricing")]
     public IActionResult GetPricing() =>

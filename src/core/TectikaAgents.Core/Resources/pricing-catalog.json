@@ -1,6 +1,33 @@
 {
-  "version": "2026-06-17",
+  "version": "2026-06-25",
   "prices": [
+    {
+      "provider": "azure-foundry",
+      "model": "gpt-5",
+      "inputPerMillion": 1.25,
+      "cachedInputPerMillion": 0.125,
+      "outputPerMillion": 10.00,
+      "currency": "USD",
+      "effectiveFrom": "2025-08-07T00:00:00Z"
+    },
+    {
+      "provider": "azure-foundry",
+      "model": "gpt-5-mini",
+      "inputPerMillion": 0.25,
+      "cachedInputPerMillion": 0.025,
+      "outputPerMillion": 2.00,
+      "currency": "USD",
+      "effectiveFrom": "2025-08-07T00:00:00Z"
+    },
+    {
+      "provider": "azure-foundry",
+      "model": "gpt-5-nano",
+      "inputPerMillion": 0.05,
+      "cachedInputPerMillion": 0.005,
+      "outputPerMillion": 0.40,
+      "currency": "USD",
+      "effectiveFrom": "2025-08-07T00:00:00Z"
+    },
     {
       "provider": "azure-foundry",
       "model": "gpt-4o",

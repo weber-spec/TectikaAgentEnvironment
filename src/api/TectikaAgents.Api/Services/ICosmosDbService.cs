@@ -70,6 +70,8 @@ public interface ICosmosDbService
     Task<UsageEventsPage> GetUsageEventsForTaskAsync(string tenantId, string taskId, int max, string? continuationToken, CancellationToken ct = default);
     /// <summary>Daily token/cost series for the last <paramref name="days"/> days. scope = "board" (scopeId=boardId) or "project" (scopeId=tenantId). Days with no usage are returned as zero points so the chart is continuous.</summary>
     Task<List<UsageTimePoint>> GetUsageTimeSeriesAsync(string scope, string scopeId, int days, CancellationToken ct = default);
+    /// <summary>Ledger-truth usage aggregated per agent role over the last <paramref name="days"/> days. scope = "board" (scopeId=boardId) or "project" (scopeId=tenantId).</summary>
+    Task<List<AgentUsage>> GetUsageByAgentAsync(string scope, string scopeId, int days, CancellationToken ct = default);
 
     // ── Run trace ────────────────────────────────────────────────────────────────
     /// <summary>Steerable run trace for a task (Activity tab replay), ordered oldest-first.</summary>

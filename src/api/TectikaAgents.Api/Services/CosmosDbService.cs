@@ -480,7 +480,7 @@ public class CosmosDbService : ICosmosDbService
 
     public async Task<List<UsageTimePoint>> GetUsageTimeSeriesAsync(string scope, string scopeId, int days, CancellationToken ct = default)
     {
-        days = Math.Clamp(days, 1, 90);
+        days = Math.Clamp(days, 1, 365);
         var today = DateTimeOffset.UtcNow.Date;
         var since = today.AddDays(-(days - 1));
         var field = scope == "board" ? "boardId" : "tenantId";   // events carry both
@@ -502,8 +502,47 @@ public class CosmosDbService : ICosmosDbService
             if (!byDay.TryGetValue(key, out var pt)) continue;   // outside window (defensive)
             pt.Tokens += e.Usage.Total;
             pt.CostUsd += e.CostUsd;
+            pt.Input += e.Usage.Input;
+            pt.CachedInput += e.Usage.CachedInput;
+            pt.Output += e.Usage.Output;
+            pt.Reasoning += e.Usage.Reasoning;
+            var modelKey = $"{e.Provider}/{e.Model}";
+            if (!pt.PerModel.TryGetValue(modelKey, out var mb)) { mb = new ModelDayBucket(); pt.PerModel[modelKey] = mb; }
+            mb.Tokens += e.Usage.Total;
+            mb.CostUsd += e.CostUsd;
         }
         return byDay.Values.OrderBy(p => p.Date).ToList();
+    }
+
+    public async Task<List<AgentUsage>> GetUsageByAgentAsync(string scope, string scopeId, int days, CancellationToken ct = default)
+    {
+        days = Math.Clamp(days, 1, 365);
+        var since = DateTimeOffset.UtcNow.Date.AddDays(-(days - 1));
+        var field = scope == "board" ? "boardId" : "tenantId";   // events carry both
+        var q = new QueryDefinition($"SELECT * FROM c WHERE c.{field} = @id AND c.timestamp >= @since")
+            .WithParameter("@id", scopeId)
+            .WithParameter("@since", new DateTimeOffset(since, TimeSpan.Zero));
+        // Cross-partition (events are partitioned by /taskId); bounded by the time window.
+        var events = await QueryAsync<UsageEvent>(UsageEventsContainer, q, partitionKey: null, ct);
+
+        var byAgent = new Dictionary<string, AgentUsage>();
+        foreach (var e in events)
+        {
+            if (!byAgent.TryGetValue(e.AgentRoleId, out var a))
+            {
+                a = new AgentUsage { AgentRoleId = e.AgentRoleId, AgentRoleName = e.AgentRoleName };
+                byAgent[e.AgentRoleId] = a;
+            }
+            // Keep the most recent display name we see for the role.
+            if (!string.IsNullOrEmpty(e.AgentRoleName)) a.AgentRoleName = e.AgentRoleName;
+            a.Tokens.Input += e.Usage.Input;
+            a.Tokens.CachedInput += e.Usage.CachedInput;
+            a.Tokens.Output += e.Usage.Output;
+            a.Tokens.Reasoning += e.Usage.Reasoning;
+            a.CostUsd += e.CostUsd;
+            a.EventCount++;
+        }
+        return byAgent.Values.OrderByDescending(a => a.Tokens.Total).ToList();
     }
 
     // ── Preview Sessions ──────────────────────────────────────────────────────
