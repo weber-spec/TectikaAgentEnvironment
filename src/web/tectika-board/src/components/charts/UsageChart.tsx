@@ -19,6 +19,7 @@ interface Bucket {
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 // How many buckets to show per granularity (most recent N).
 const LIMIT: Record<Granularity, number> = { day: 30, week: 16, month: 12 };
 
@@ -50,7 +51,7 @@ function bucketize(series: UsageTimePoint[], gran: Granularity): Bucket[] {
   if (gran === 'day') {
     return series.map(p => {
       const d = parseUTC(p.date);
-      const b = emptyBucket(p.date, mmdd(d), d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }));
+      const b = emptyBucket(p.date, mmdd(d), `${WEEKDAYS[d.getUTCDay()]}, ${mmdd(d)} ${d.getUTCFullYear()}`);
       add(b, p);
       return b;
     });
