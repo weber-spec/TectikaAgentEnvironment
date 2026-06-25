@@ -36,6 +36,26 @@ public class SteerableAgentOrchestrator
             logger.LogInformation("[Steerable] done task={TaskId} run={RunId} state={State}", input.TaskId, input.RunId, state);
             return new SteerableRunResult(input.RunId, state.ToString());
         }
+        catch (Exception ex)
+        {
+            // A failure that bubbles past the round loop — context load (role/task/board not found, a Cosmos
+            // error), thread setup, etc. — would otherwise end the orchestration with the run stuck
+            // "InProgress" and NO failure signal at all (not even the red pill). Mark it Failed so the user
+            // always gets a reason. Class is left null → classified from the message (falls back to Unknown).
+            logger.LogError("[Steerable] run {RunId} failed unhandled: {Msg}", input.RunId, ex.Message);
+            try
+            {
+                await context.CallActivityAsync(nameof(UpdateRunStatusActivity),
+                    new UpdateRunStatusInput(input.RunId, input.TaskId, input.BoardId, RunStatus.Failed, null,
+                        ErrorMessage: ex.Message));
+            }
+            catch (Exception statusEx)
+            {
+                logger.LogWarning("[Steerable] could not mark run {RunId} Failed after unhandled error: {Msg}",
+                    input.RunId, statusEx.Message);
+            }
+            return new SteerableRunResult(input.RunId, SteerableState.Failed.ToString());
+        }
         finally
         {
             // Persist the run's workspace changes (commit+push to the task branch) BEFORE teardown, so the
@@ -122,18 +142,18 @@ public class SteerableAgentOrchestrator
             };
             await _ctx.CallActivityAsync(nameof(UpdateRunStatusActivity),
                 new UpdateRunStatusInput(_in.RunId, _in.TaskId, _in.BoardId, status, null,
-                    ErrorMessage: last?.Error));
+                    ErrorMessage: last?.Error, FailureClass: last?.FailureClass));
         }
 
-        public async Task OnExhaustedAsync(string reason, RoundOutcome? last)
+        public async Task OnExhaustedAsync(string reason, RunFailureClass cls, RoundOutcome? last)
         {
             // Preserve partial deliverables as a terminal artifact + mark the task Failed...
             await _ctx.CallActivityAsync(nameof(FinalizeExhaustedRunActivity),
                 new FinalizeExhaustedInput(_in.RunId, _in.TaskId, _in.BoardId, _in.TenantId, reason));
-            // ...then mark the run itself Failed (with the reason as the error message).
+            // ...then mark the run itself Failed (carrying the reason AND its class for the user message).
             await _ctx.CallActivityAsync(nameof(UpdateRunStatusActivity),
                 new UpdateRunStatusInput(_in.RunId, _in.TaskId, _in.BoardId, RunStatus.Failed, null,
-                    ErrorMessage: reason));
+                    ErrorMessage: reason, FailureClass: cls));
         }
     }
 }

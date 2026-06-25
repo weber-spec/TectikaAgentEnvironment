@@ -14,6 +14,7 @@ public class SteerableRunCoreTests
         public readonly List<SteerableState> States = new();
         public int WaitCalls;
         public string? ExhaustedReason;   // set when OnExhaustedAsync fires
+        public RunFailureClass? ExhaustedClass;   // the class passed alongside the exhaustion reason
 
         public FakeDriver(IEnumerable<RoundOutcome> script, IEnumerable<string>? userMessages = null, string? steer = null)
         { _script = new(script); _userMessages = new(userMessages ?? Array.Empty<string>()); _steer = steer; }
@@ -24,7 +25,7 @@ public class SteerableRunCoreTests
         public Task<string?> WaitForUserMessageAsync() { WaitCalls++; return Task.FromResult(_userMessages.Count > 0 ? _userMessages.Dequeue() : null); }
         public string? TryDrainUserMessage() { var s = _steer; _steer = null; return s; }
         public Task OnStateAsync(SteerableState state, RoundOutcome? last) { States.Add(state); return Task.CompletedTask; }
-        public Task OnExhaustedAsync(string reason, RoundOutcome? last) { ExhaustedReason = reason; return Task.CompletedTask; }
+        public Task OnExhaustedAsync(string reason, RunFailureClass cls, RoundOutcome? last) { ExhaustedReason = reason; ExhaustedClass = cls; return Task.CompletedTask; }
     }
 
     private static RoundOutcome Cont(params PriorToolOutput[] next) =>
@@ -94,6 +95,7 @@ public class SteerableRunCoreTests
         Assert.Equal(SteerableState.Failed, state);
         Assert.NotNull(d.ExhaustedReason);                   // partial work finalized, not stranded
         Assert.Contains("maximum", d.ExhaustedReason!);
+        Assert.Equal(RunFailureClass.Exhaustion, d.ExhaustedClass);   // round-cap → Exhaustion class
     }
 
     [Fact]
@@ -105,5 +107,6 @@ public class SteerableRunCoreTests
         Assert.Equal(1, d.WaitCalls);                        // blocked once, then timed out
         Assert.NotNull(d.ExhaustedReason);
         Assert.Contains("timeout", d.ExhaustedReason!);
+        Assert.Equal(RunFailureClass.UserTimeout, d.ExhaustedClass);   // AwaitUser timeout → UserTimeout class
     }
 }

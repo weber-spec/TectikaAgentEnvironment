@@ -73,6 +73,9 @@ function PanelInner({ task }: { task: AgentTask }) {
         <button onClick={() => openTask(undefined)} className="w-8 h-8 flex items-center justify-center rounded-md text-[var(--muted)] hover:bg-[var(--surface)] shrink-0"><Icon.x size={18} /></button>
       </div>
 
+      {/* Why did it fail? Mounted only for Failed tasks so the subscription is scoped to when it's needed. */}
+      {task.status === 'Failed' && <FailureBanner task={task} />}
+
       {/* dual-pane body */}
       <div className="flex-1 flex min-h-0">
         {/* left: execution thread / config */}
@@ -205,6 +208,41 @@ function useRunEvents(task: AgentTask, activeRunId?: string): RunEvent[] {
   );
 }
 
+// ── Failure banner — the short "why it failed" surfaced on the failed task itself ─────────────
+// Sourced from the persisted RunFailed event (the same one the Activity timeline shows), so the user
+// sees a class-mapped message + correlation ref without opening the Activity tab. Only mounted for
+// Failed tasks (see PanelInner), so an old failure on a re-run/now-Done task never lingers here.
+function FailureBanner({ task }: { task: AgentTask }) {
+  const events = useRunEvents(task);
+  const failure = useMemo(
+    () => [...events].reverse().find(e => e.kind === 'RunFailed'),
+    [events],
+  );
+  const [open, setOpen] = useState(false);
+  if (!failure) return null;
+  return (
+    <div className="mx-5 mt-3 rounded-lg border px-3 py-2 text-[13px]"
+      style={{ borderColor: '#e2445c55', background: '#e2445c14' }}>
+      <div className="flex items-start gap-2">
+        <Icon.warning size={15} className="mt-0.5 shrink-0 text-[#e2445c]" />
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold" style={{ color: '#e2445c' }}>Run failed</div>
+          <div className="text-[var(--foreground)] break-words">{failure.title}</div>
+          {failure.detail && (
+            <>
+              <button onClick={() => setOpen(o => !o)} className="mt-1 text-[11px] text-[var(--muted)] hover:text-[var(--foreground)] inline-flex items-center gap-1">
+                <Icon.chevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+                {open ? 'Hide details' : 'Show details'}
+              </button>
+              {open && <div className="mt-1 text-[12px] text-[var(--muted)] whitespace-pre-wrap break-words font-mono">{failure.detail}</div>}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Activity — hierarchical round → sub-activity timeline ─────────────────────
 function ActivityTab({ task }: { task: AgentTask }) {
   const events = useRunEvents(task);
@@ -225,20 +263,30 @@ function ActivityTab({ task }: { task: AgentTask }) {
 
 function ActivityRow({ ev, subs }: { ev: RunEvent; subs: RunEvent[] }) {
   const [open, setOpen] = useState(false);
+  const isFailure = ev.kind === 'RunFailed';
   const hasChildren = subs.length > 0;
+  // A failure has no sub-activities; its expandable content is the accurate internal reason (detail).
+  const expandable = hasChildren || (isFailure && !!ev.detail);
   const label = ev.kind === 'RoundStarted' ? (ev.title || 'Working…')
     : ev.kind === 'UserMessage' ? `You: ${ev.title}`
     : ev.kind === 'AgentMessage' ? (ev.title || 'Agent replied')
+    : isFailure ? (ev.title || 'Run failed')
     : (ev.title || ev.kind);
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)]/40">
-      <button disabled={!hasChildren} onClick={() => setOpen(o => !o)}
+    <div className="rounded-lg border bg-[var(--surface)]/40"
+      style={isFailure ? { borderColor: '#e2445c55', background: '#e2445c10' } : { borderColor: 'var(--border)' }}>
+      <button disabled={!expandable} onClick={() => setOpen(o => !o)}
         className="w-full flex items-center gap-2 px-2.5 py-2 text-left text-[13px]">
-        <Icon.bolt size={13} className="text-[#fdab3d] shrink-0" />
-        <span className="flex-1 truncate text-[var(--foreground)]">{label}</span>
+        {isFailure
+          ? <Icon.warning size={13} className="shrink-0 text-[#e2445c]" />
+          : <Icon.bolt size={13} className="text-[#fdab3d] shrink-0" />}
+        <span className={`flex-1 truncate ${isFailure ? '' : 'text-[var(--foreground)]'}`} style={isFailure ? { color: '#e2445c' } : undefined}>{label}</span>
         <span className="text-[10px] text-[var(--muted-2)]">{relativeTime(ev.timestamp)}</span>
-        {hasChildren && <Icon.chevronDown size={14} className={`text-[var(--muted)] transition-transform ${open ? 'rotate-180' : ''}`} />}
+        {expandable && <Icon.chevronDown size={14} className={`text-[var(--muted)] transition-transform ${open ? 'rotate-180' : ''}`} />}
       </button>
+      {open && isFailure && ev.detail && (
+        <div className="px-2.5 pb-2 border-t border-[var(--border)] pt-1.5 text-[12px] text-[var(--muted)] whitespace-pre-wrap break-words font-mono">{ev.detail}</div>
+      )}
       {open && hasChildren && (
         <div className="px-2.5 pb-2 flex flex-col gap-1 border-t border-[var(--border)] pt-1.5">
           {subs.map(c => (

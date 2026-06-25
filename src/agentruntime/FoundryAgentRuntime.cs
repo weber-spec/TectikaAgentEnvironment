@@ -240,7 +240,8 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
             req.BoardGitHub != null, req.BoardGitHub?.Owner ?? "(null)", _gitHub != null);
         if (string.IsNullOrEmpty(req.Role.FoundryAgentId))
             return new RoundOutcome(RoundKind.Final, "", [], null, null, null, null, [], new TokenUsage(),
-                $"round-{req.RunId}-{req.Round}", Error: "Role has no Foundry agent — ensure the agent first.");
+                $"round-{req.RunId}-{req.Round}", Error: "Role has no Foundry agent — ensure the agent first.",
+                FailureClass: RunFailureClass.ModelProvider);
         try
         {
             var http = await ClientAsync(ct).ConfigureAwait(false);
@@ -284,7 +285,8 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
             // with this message), instead of letting the agent finish without its workspace tools.
             if (p.WorkspaceUnavailable is not null)
                 return new RoundOutcome(RoundKind.Final, null, [], null, null, p.RoundIntent, p.BriefUpdate,
-                    p.ToolCalls, usage, id, Error: p.WorkspaceUnavailable, OutputOps: p.OutputOps);
+                    p.ToolCalls, usage, id, Error: p.WorkspaceUnavailable, OutputOps: p.OutputOps,
+                    FailureClass: RunFailureClass.SandboxInfra);
 
             if (p.IsFinal)
             {
@@ -302,8 +304,10 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         catch (Exception ex)
         {
             _logger.LogError(ex, "RunRound failed for role {Role} task {Task} round {Round}", req.Role.Id, req.Task.Id, req.Round);
+            // This catch wraps the Foundry round invocation (auth, HTTP, response parse) — classify as the
+            // model/provider class so the user sees a "model service" message, not a raw exception.
             return new RoundOutcome(RoundKind.Final, "", [], null, null, null, null, [], new TokenUsage(),
-                $"round-{req.RunId}-{req.Round}", Error: ex.Message);
+                $"round-{req.RunId}-{req.Round}", Error: ex.Message, FailureClass: RunFailureClass.ModelProvider);
         }
     }
 

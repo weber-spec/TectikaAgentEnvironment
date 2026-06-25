@@ -49,6 +49,39 @@ public class RunEventFactoryTests
     }
 
     [Fact]
+    public void BuildFailureEvent_HasFriendlyTitle_AndAccurateDetailWithFullRunId()
+    {
+        const string runId = "abc1234567-run";
+        var internalReason = "Key Vault secret 'workspace-token-board-x' returned 403 Forbidden";
+
+        var ev = RunEventFactory.BuildFailureEvent(runId, "task-1", round: 5,
+            RunFailureClass.SandboxInfra, internalReason);
+
+        Assert.Equal(RunEventKind.RunFailed, ev.Kind);
+        Assert.Null(ev.ParentId);                              // top-level row in the Activity timeline
+        Assert.Equal(5, ev.Round);
+        Assert.Equal(runId, ev.RunId);
+        Assert.Equal("task-1", ev.TaskId);
+
+        // Title = the short, user-facing message (class-specific + short correlation ref), NOT the raw error.
+        Assert.Equal(RunFailurePresenter.UserMessage(RunFailureClass.SandboxInfra, runId), ev.Title);
+        Assert.DoesNotContain("403", ev.Title!);
+
+        // Detail = the accurate internal reason + the FULL runId, for devs pivoting to App Insights.
+        Assert.Contains(internalReason, ev.Detail!);
+        Assert.Contains(runId, ev.Detail!);
+    }
+
+    [Fact]
+    public void BuildFailureEvent_ToleratesNullInternalReason()
+    {
+        var ev = RunEventFactory.BuildFailureEvent("run-1", "task-1", 0, RunFailureClass.Unknown, null);
+        Assert.Equal(RunEventKind.RunFailed, ev.Kind);
+        Assert.False(string.IsNullOrWhiteSpace(ev.Title));    // still a friendly title
+        Assert.Contains("run-1", ev.Detail!);                 // full runId still present for correlation
+    }
+
+    [Fact]
     public void NeedsRevision_AddsRevisionMessage_WithReason()
     {
         var reason = "The build is failing because MainMenu.cs references a missing type.";

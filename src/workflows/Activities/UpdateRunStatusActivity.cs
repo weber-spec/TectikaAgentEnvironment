@@ -78,7 +78,7 @@ public class UpdateRunStatusActivity
         if (input.Status == RunStatus.Completed)
             await _events.PublishRunCompletedAsync(input.RunId, input.TaskId, ct);
         else if (input.Status == RunStatus.Failed)
-            await _events.PublishRunFailedAsync(input.RunId, input.TaskId, input.ErrorMessage ?? "Unknown error", ct);
+            await EmitRunFailureAsync(input.RunId, input.TaskId, run.CurrentStep, input.FailureClass, input.ErrorMessage, ct);
 
         if (taskStatus == AgentTaskStatus.Done)
         {
@@ -87,6 +87,35 @@ public class UpdateRunStatusActivity
         }
         else if (taskStatus == AgentTaskStatus.Review)
             await TryTriggerQaLoopAsync(input.BoardId, input.TaskId, input.RunId, ct);
+    }
+
+    /// <summary>The single place a run failure becomes user-visible: persist a <see cref="RunEventKind.RunFailed"/>
+    /// event (so the Activity timeline + task banner show WHY), mirror it over SSE, and publish the run_failed
+    /// AgentEvent carrying the SHORT user-facing message (which drives the failure notification). The exact
+    /// internal reason and the failure class are logged with the runId for App Insights correlation.</summary>
+    private async Task EmitRunFailureAsync(
+        string runId, string taskId, int round, RunFailureClass? explicitClass, string? internalReason, CancellationToken ct)
+    {
+        var cls = explicitClass ?? RunFailurePresenter.Classify(internalReason);
+        var userMessage = RunFailurePresenter.UserMessage(cls, runId);
+
+        _logger.LogError("[RunFailure] run={RunId} task={TaskId} class={Class} reason={Reason}",
+            runId, taskId, cls, internalReason ?? "(none)");
+
+        // Persist + mirror the timeline event. Best-effort: a trace-write hiccup must not stop the
+        // run_failed notification (the user still needs to be told the run failed).
+        try
+        {
+            var ev = RunEventFactory.BuildFailureEvent(runId, taskId, round, cls, internalReason);
+            var saved = await _cosmos.CreateRunEventAsync(ev, ct);
+            await _events.PublishRunEventAsync(saved, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[RunFailure] failed to persist/mirror RunFailed event for run {RunId}", runId);
+        }
+
+        await _events.PublishRunFailedAsync(runId, taskId, userMessage, ct);
     }
 
     private async Task TryTriggerQaLoopAsync(string boardId, string validatorTaskId, string runId, CancellationToken ct)
@@ -117,7 +146,7 @@ public class UpdateRunStatusActivity
             _logger.LogWarning("[QaLoop] exhausted on edge {EdgeId} after {N} iterations — marking {TaskId} Blocked",
                 edge.Id, edge.CurrentIterations, validatorTaskId);
             await _cosmos.UpdateTaskStatusAsync(boardId, validatorTaskId, AgentTaskStatus.Blocked, runId, ct);
-            await _events.PublishRunFailedAsync(runId, validatorTaskId,
+            await EmitRunFailureAsync(runId, validatorTaskId, round: 0, RunFailureClass.Exhaustion,
                 $"QA validation did not converge after {edge.MaxIterations} attempts — manual review required.", ct);
             return;
         }
@@ -256,4 +285,5 @@ public record UpdateRunStatusInput(
     string BoardId,
     RunStatus Status,
     int? CurrentStep,
-    string? ErrorMessage = null);
+    string? ErrorMessage = null,
+    RunFailureClass? FailureClass = null);   // the failure CLASS that drives the user-facing message (null on non-failure transitions)

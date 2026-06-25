@@ -374,6 +374,11 @@ public class RunAgentRoundActivity
         private readonly ILogger _logger;
         private WorkspaceConnection? _cached;
         private bool _failed;
+        private string? _lastError;
+
+        /// <summary>The real cause of the failed provisioning attempt (e.g. a Key Vault 403), surfaced so
+        /// the run's failure reason is accurate rather than a generic "sandbox could not be started".</summary>
+        public string? LastError => _lastError;
 
         public RunWorkspaceProvider(WorkflowCosmosService cosmos, IWorkspaceService workspace,
             ISecretProvider secrets, Board board, string runId, string taskId, bool canPush, ILogger logger)
@@ -406,6 +411,7 @@ public class RunAgentRoundActivity
             {
                 _logger.LogError(ex, "[RunWorkspace] workspace provisioning failed run={RunId}", _runId);
                 _failed = true;
+                _lastError = ex.Message;   // carry the accurate cause to the run's failure reason
                 return null;
             }
         }

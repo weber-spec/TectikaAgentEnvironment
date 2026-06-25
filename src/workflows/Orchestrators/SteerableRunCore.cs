@@ -20,8 +20,9 @@ public interface IRoundDriver
     Task OnStateAsync(SteerableState state, RoundOutcome? last);
     /// <summary>The run ended WITHOUT the agent finalizing (round cap hit, or no human reply before the
     /// AwaitUser timeout). Persist any partial deliverables and mark the run terminally failed so work
-    /// isn't silently stranded with the task stuck InProgress.</summary>
-    Task OnExhaustedAsync(string reason, RoundOutcome? last);
+    /// isn't silently stranded with the task stuck InProgress. <paramref name="cls"/> distinguishes the
+    /// two cases so the user-facing message is accurate (Exhaustion vs UserTimeout).</summary>
+    Task OnExhaustedAsync(string reason, RunFailureClass cls, RoundOutcome? last);
 }
 
 /// <summary>The fine-grained Shape-B loop: the orchestrator drives one round at a time, folding any
@@ -65,7 +66,8 @@ public static class SteerableRunCore
                     {
                         // No human responded before the timeout — finalize instead of blocking forever
                         // (which would also keep the sandbox alive indefinitely).
-                        await driver.OnExhaustedAsync("no response received before the wait timeout", outcome);
+                        await driver.OnExhaustedAsync("no response received before the wait timeout",
+                            RunFailureClass.UserTimeout, outcome);
                         return SteerableState.Failed;
                     }
                     // Resume: submit any explore outputs computed alongside the control tool, plus the
@@ -87,7 +89,8 @@ public static class SteerableRunCore
         }
 
         // Ran out of rounds: persist partial work + mark terminal rather than failing empty-handed.
-        await driver.OnExhaustedAsync($"reached the maximum of {maxRounds} rounds without completing", last);
+        await driver.OnExhaustedAsync($"reached the maximum of {maxRounds} rounds without completing",
+            RunFailureClass.Exhaustion, last);
         return SteerableState.Failed;
     }
 }

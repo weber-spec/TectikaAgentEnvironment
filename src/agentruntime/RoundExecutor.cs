@@ -151,7 +151,11 @@ public static class RoundExecutor
                             // be provisioned. It needs the workspace; rather than letting it limp on and emit a
                             // misleading artifact, signal the runtime to fail the run cleanly. Still answer the
                             // call so the conversation isn't left awaiting tool output.
-                            workspaceUnavailable = "The workspace sandbox could not be started, so this run cannot use its workspace tools.";
+                            // Carry the provider's REAL failure cause (e.g. a Key Vault 403) as the internal
+                            // reason — falling back to a generic line only when it couldn't say why — so the run's
+                            // failure reason is accurate instead of always blaming sandbox startup.
+                            workspaceUnavailable = workspaceProvider.LastError
+                                ?? "The workspace sandbox could not be started, so this run cannot use its workspace tools.";
                             outputs.Add(new(call.CallId, """{"error":"The workspace sandbox could not be started. This run will stop."}"""));
                             traced.Add(new(call.Name, WorkspaceArgSummary(call.Name, args), "sandbox unavailable — failing run"));
                         }
