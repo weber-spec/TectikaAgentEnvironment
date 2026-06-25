@@ -1,3 +1,33 @@
+# Build context is the repo root; this image only needs the .NET source under src/
+# (core, agentruntime, workflows, api). Everything below is excluded from the upload
+# tar so the ACR build context stays small.
+#
+# NOTE: patterns are intentionally written WITHOUT a trailing slash. az acr build's
+# ignore matcher did not honor `dir/`-style (trailing-slash) patterns here, so the
+# whole context (~640MB) used to upload and the build hung. Plain `dir` form works.
+
+# Frontend app — not part of the API image (its node_modules/.next are ~650MB).
 src/web
-src/workflows
-src/agentruntime
+
+# .NET build artifacts — the container runs a fresh restore/publish.
+**/bin
+**/obj
+
+# Node / build outputs (anywhere they appear)
+**/node_modules
+**/.next
+**/dist
+
+# VCS / agent worktrees / IDE / infra / docs — not needed in the image.
+.git
+.gitignore
+.claude
+.claire
+.vs
+.vscode
+*.user
+infra
+.github
+plans
+**/TestResults
+.monday_tkn
