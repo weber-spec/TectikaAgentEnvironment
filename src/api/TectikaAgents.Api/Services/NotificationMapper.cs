@@ -20,8 +20,10 @@ public static class NotificationMapper
         {
             TenantId = tenantId,
             Type = "failed",
+            // Content is now the short, user-facing failure message (with its correlation ref) — show it
+            // directly rather than prefixing "Error:" in front of a raw exception.
             Title = $"Task run failed",
-            Subtitle = e.Content is not null ? $"Error: {Truncate(e.Content, 80)}" : null,
+            Subtitle = e.Content is not null ? Truncate(e.Content, 120) : null,
             RunId = e.RunId,
             TaskId = e.TaskId,
             SourceEventType = e.Type,

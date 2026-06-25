@@ -19,10 +19,6 @@ public interface IChatService
     /// boundary (ChatClearedAt). Non-destructive — RunEvents are kept, just hidden by the UI.</summary>
     Task<bool> ClearAsync(string boardId, string taskId, CancellationToken ct = default);
 
-    /// <summary>Start a new usage session for the task (current-session tokens reset to zero) WITHOUT
-    /// clearing the conversation — used by "Reset &amp; run". Lifetime/board/project usage persist.</summary>
-    Task<bool> ResetUsageSessionAsync(string boardId, string taskId, CancellationToken ct = default);
-
     /// <summary>Terminate the task's active run (Durable orchestration) and mark it Cancelled.</summary>
     Task<bool> StopAsync(string boardId, string taskId, CancellationToken ct = default);
 
@@ -153,18 +149,6 @@ public class ChatService : IChatService
         await _cosmos.UpdateTaskAsync(task, ct);
         await _cosmos.ResetTaskUsageSessionAsync(task.TenantId, taskId, newSessionId, ct);  // reset rollup currentSession bucket
         _logger.LogInformation("[Chat] cleared task {TaskId}", taskId);
-        return true;
-    }
-
-    public async Task<bool> ResetUsageSessionAsync(string boardId, string taskId, CancellationToken ct = default)
-    {
-        var task = await _cosmos.GetTaskAsync(boardId, taskId, ct);
-        if (task is null) return false;
-        var newSessionId = Guid.NewGuid().ToString();
-        task.UsageSessionId = newSessionId;
-        await _cosmos.UpdateTaskAsync(task, ct);
-        await _cosmos.ResetTaskUsageSessionAsync(task.TenantId, taskId, newSessionId, ct);
-        _logger.LogInformation("[Chat] reset usage session for task {TaskId}", taskId);
         return true;
     }
 

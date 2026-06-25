@@ -229,11 +229,19 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
 
     public async Task<RoundOutcome> RunRoundAsync(RoundRequest req, IProjectExplorer explorer, CancellationToken ct = default)
     {
+        using var _ = _logger.BeginScope(new Dictionary<string, object>
+        {
+            ["runId"] = req.RunId,
+            ["taskId"] = req.Task.Id,
+            ["round"] = req.Round
+        });
+        
         _logger.LogInformation("[RunRoundAsync] BoardGitHub={HasGitHub} Owner={Owner} gitHubExecutor={HasExecutor}",
             req.BoardGitHub != null, req.BoardGitHub?.Owner ?? "(null)", _gitHub != null);
         if (string.IsNullOrEmpty(req.Role.FoundryAgentId))
             return new RoundOutcome(RoundKind.Final, "", [], null, null, null, null, [], new TokenUsage(),
-                $"round-{req.RunId}-{req.Round}", Error: "Role has no Foundry agent — ensure the agent first.");
+                $"round-{req.RunId}-{req.Round}", Error: "Role has no Foundry agent — ensure the agent first.",
+                FailureClass: RunFailureClass.ModelProvider);
         try
         {
             var http = await ClientAsync(ct).ConfigureAwait(false);
@@ -277,7 +285,8 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
             // with this message), instead of letting the agent finish without its workspace tools.
             if (p.WorkspaceUnavailable is not null)
                 return new RoundOutcome(RoundKind.Final, null, [], null, null, p.RoundIntent, p.BriefUpdate,
-                    p.ToolCalls, usage, id, Error: p.WorkspaceUnavailable, OutputOps: p.OutputOps);
+                    p.ToolCalls, usage, id, Error: p.WorkspaceUnavailable, OutputOps: p.OutputOps,
+                    FailureClass: RunFailureClass.SandboxInfra);
 
             if (p.IsFinal)
             {
@@ -295,8 +304,10 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         catch (Exception ex)
         {
             _logger.LogError(ex, "RunRound failed for role {Role} task {Task} round {Round}", req.Role.Id, req.Task.Id, req.Round);
+            // This catch wraps the Foundry round invocation (auth, HTTP, response parse) — classify as the
+            // model/provider class so the user sees a "model service" message, not a raw exception.
             return new RoundOutcome(RoundKind.Final, "", [], null, null, null, null, [], new TokenUsage(),
-                $"round-{req.RunId}-{req.Round}", Error: ex.Message);
+                $"round-{req.RunId}-{req.Round}", Error: ex.Message, FailureClass: RunFailureClass.ModelProvider);
         }
     }
 
@@ -323,22 +334,42 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
     private async Task<HttpResponseMessage> PostResponsesWithHealAsync(
         HttpClient http, ResponsesRequest body, string? threadId, CancellationToken ct)
     {
-        var resp = await http.PostAsJsonAsync($"{_base}/openai/v1/responses", body, Json, ct).ConfigureAwait(false);
+        var url = $"{_base}/openai/v1/responses";
+        var resp = await http.PostAsJsonAsync(url, body, Json, ct).ConfigureAwait(false);
+        string? lastHealed = null;
+        
         for (var attempt = 0; attempt < MaxHealAttempts && resp.StatusCode == System.Net.HttpStatusCode.BadRequest; attempt++)
         {
             var errBody = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             var danglingId = FoundryConversationHeal.ParseMissingToolCallId(errBody);
             if (danglingId is null) break; // not a dangling-tool-call error — let EnsureOkAsync handle it
+            
+            if (danglingId == lastHealed)
+            {
+                _logger.LogInformation("[FoundryHeal] {Thread} call {CallId} still dangling after a synthetic output - giving up (won't burn the retry budget)", threadId, danglingId);
+                break;
+            }
+
             _logger.LogWarning("[FoundryHeal] conversation {Thread} stuck on unanswered call {CallId}; submitting synthetic output and retrying (attempt {Attempt})",
                 threadId, danglingId, attempt + 1);
 
             var healBody = new ResponsesRequest(
                 new object[] { new FunctionCallOutput("function_call_output", danglingId, HealOutput) },
                 body.AgentReference, threadId, null);
-            (await http.PostAsJsonAsync($"{_base}/openai/v1/responses", healBody, Json, ct).ConfigureAwait(false)).Dispose();
+
+            using (var healResp = await http.PostAsJsonAsync(url, healBody, Json, ct).ConfigureAwait(false))
+            {
+                if (!healResp.IsSuccessStatusCode)
+                {
+                    var healErr = await healResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                    _logger.LogError("[FoundryHeal] {Thread} releasing {CallId} was REJECTED. status={Status}, body={Body}", threadId, danglingId, (int)healResp.StatusCode, healErr);
+                    break;
+                }
+            }
+            lastHealed = danglingId;
 
             resp.Dispose();
-            resp = await http.PostAsJsonAsync($"{_base}/openai/v1/responses", body, Json, ct).ConfigureAwait(false);
+            resp = await http.PostAsJsonAsync(url, body, Json, ct).ConfigureAwait(false);
         }
         return resp;
     }

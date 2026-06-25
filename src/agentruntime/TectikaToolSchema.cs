@@ -8,7 +8,7 @@ namespace TectikaAgents.AgentRuntime;
 /// whenever the toolset changes so AgentInstructionsHash republishes agent versions.</summary>
 public static class TectikaToolSchema
 {
-    public const string Version = "tools-v8";
+    public const string Version = "tools-v9";
 
     public sealed record ToolProp(string Type, string? Description = null, string[]? Enum = null);
     public sealed record ToolDef(
@@ -29,7 +29,10 @@ public static class TectikaToolSchema
                 ["taskId"] = new("string", "The task whose artifact to read."),
                 ["version"] = new("integer", "Optional specific version; omit for latest.") }, ["taskId"]),
         // ── Control (signal the orchestrator) ──────────────────────────────────
-        new("round_intent", "Announce, in one short line, what you are about to do this round. Call this at the START of each round.",
+        new("round_intent", "Announce, in one short line, what you are about to do this round. Call this at the START of each round. " +
+            "You have a LIMITED number of rounds, so make each one count: a round can carry MANY tool calls at once — " +
+            "batch independent work into a single round (e.g. write several files together, or read multiple files in parallel) " +
+            "instead of one tool per round. Reserve a separate round only when a later step depends on an earlier step's result.",
             new Dictionary<string, ToolProp> { ["text"] = new("string", "One-line intent, e.g. 'Gathering data about the project'.") }, ["text"]),
         new("update_brief", "Append a one-line note to this task's running brief (history visible to downstream tasks).",
             new Dictionary<string, ToolProp> { ["text"] = new("string", "One-line brief update.") }, ["text"]),
@@ -103,9 +106,11 @@ public static class TectikaToolSchema
     private static readonly IReadOnlyList<ToolDef> FileTools =
     [
         new("read_file",
-            "Read the content of a file in the workspace. Returns content with line numbers (format: 'N\\tline'). " +
+            "Read the content of a file in the workspace. Returns the file's EXACT raw text — no line-number " +
+            "prefixes and no leading byte-order mark — so you can copy any span verbatim into edit_file's old_string. " +
+            "Line positions are reported separately (from_line/to_line/total_lines). " +
             "Use offset/limit for large files (default: 200 lines, max: 500). " +
-            "**Prefer over run_command cat** — returns numbered lines and handles large files efficiently. " +
+            "**Prefer over run_command cat** — handles large files efficiently and returns clean content. " +
             "Always call read_file before edit_file to confirm the exact text to match.",
             new Dictionary<string, ToolProp> {
                 ["path"]   = new("string",  "File path relative to your workspace root, e.g. 'src/main.cs'."),
@@ -124,8 +129,9 @@ public static class TectikaToolSchema
             ["path", "content"]),
 
         new("edit_file",
-            "Replace an exact string in an existing file. **Always call read_file first** to confirm the exact " +
-            "text including indentation and whitespace. old_string must match character-for-character. " +
+            "Replace an exact string in an existing file. **Always call read_file first** and copy old_string " +
+            "VERBATIM from what read_file returned — its output is the raw file text, so a copied span matches " +
+            "character-for-character (do not add line numbers; they are not part of the content). " +
             "Returns an error if old_string is not found — make the match as specific as needed to be unique. " +
             "**Prefer over run_command sed/awk** — reliable, no escaping issues, fails clearly if not found.",
             new Dictionary<string, ToolProp> {

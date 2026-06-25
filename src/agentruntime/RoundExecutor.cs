@@ -39,6 +39,25 @@ public static class RoundExecutor
         string? intent = null, brief = null, openControlCallId = null, workspaceUnavailable = null;
         PendingControl? control = null;
 
+        // The first control tool of a round becomes THE pause we await a human reply on: its call_id is
+        // returned as openControlCallId and answered on resume (or by RepeatAskGuard). A round can only pause
+        // once, so a 2nd+ control call is closed here with a placeholder output — otherwise it would be left
+        // unanswered and poison this task's reused Foundry conversation on the next run ("No tool output found").
+        void RegisterControl(PendingControl pending, string callId, string name, string arg, string awaitingLabel)
+        {
+            if (openControlCallId is null)
+            {
+                control = pending;
+                openControlCallId = callId;
+                traced.Add(new(name, arg, awaitingLabel));
+            }
+            else
+            {
+                outputs.Add(new(callId, ControlSupersededOutput));
+                traced.Add(new(name, arg, "ignored — a control tool was already taken this round"));
+            }
+        }
+
         foreach (var call in resp.ToolCalls)
         {
             onToolCall(call.Name, call.ArgumentsJson);
@@ -96,17 +115,14 @@ public static class RoundExecutor
                     break;
                 }
                 case "request_human_input":
-                    control ??= new(PendingControlKind.HumanInput, Str(args, "question"), StrArr(args, "options"));
-                    openControlCallId ??= call.CallId;
-                    traced.Add(new("request_human_input", Str(args, "question"), "awaiting human")); break;
+                    RegisterControl(new(PendingControlKind.HumanInput, Str(args, "question"), StrArr(args, "options")),
+                        call.CallId, "request_human_input", Str(args, "question"), "awaiting human"); break;
                 case "request_approval":
-                    control ??= new(PendingControlKind.Approval, Str(args, "description"));
-                    openControlCallId ??= call.CallId;
-                    traced.Add(new("request_approval", Str(args, "description"), "awaiting human")); break;
+                    RegisterControl(new(PendingControlKind.Approval, Str(args, "description")),
+                        call.CallId, "request_approval", Str(args, "description"), "awaiting human"); break;
                 case "request_revision":
-                    control ??= new(PendingControlKind.Revision, Str(args, "reason"));
-                    openControlCallId ??= call.CallId;
-                    traced.Add(new("request_revision", Str(args, "reason"), "revision requested")); break;
+                    RegisterControl(new(PendingControlKind.Revision, Str(args, "reason")),
+                        call.CallId, "request_revision", Str(args, "reason"), "revision requested"); break;
                 case "get_board_overview":
                     outputs.Add(new(call.CallId, await Serialize(explorer.GetBoardOverviewAsync(ct))));
                     traced.Add(new("get_board_overview", "", Summarize(outputs[^1].Output))); break;
@@ -135,7 +151,11 @@ public static class RoundExecutor
                             // be provisioned. It needs the workspace; rather than letting it limp on and emit a
                             // misleading artifact, signal the runtime to fail the run cleanly. Still answer the
                             // call so the conversation isn't left awaiting tool output.
-                            workspaceUnavailable = "The workspace sandbox could not be started, so this run cannot use its workspace tools.";
+                            // Carry the provider's REAL failure cause (e.g. a Key Vault 403) as the internal
+                            // reason — falling back to a generic line only when it couldn't say why — so the run's
+                            // failure reason is accurate instead of always blaming sandbox startup.
+                            workspaceUnavailable = workspaceProvider.LastError
+                                ?? "The workspace sandbox could not be started, so this run cannot use its workspace tools.";
                             outputs.Add(new(call.CallId, """{"error":"The workspace sandbox could not be started. This run will stop."}"""));
                             traced.Add(new(call.Name, WorkspaceArgSummary(call.Name, args), "sandbox unavailable — failing run"));
                         }
@@ -180,6 +200,11 @@ public static class RoundExecutor
         return new RoundProcessResult(false, null, safeOutputs, openControlCallId, control, intent, brief, traced, ops, workspaceUnavailable);
     }
 
+    /// <summary>Output submitted for a 2nd+ control tool in the same round. A round can pause only once, so
+    /// extra control calls are closed immediately (never left dangling) and the model is told it wasn't taken.</summary>
+    private const string ControlSupersededOutput =
+        "{\"status\":\"not_taken\",\"reason\":\"Only one control action (human input / approval / revision) is processed per round; this one was not taken. Re-issue it on its own if you still need it.\"}";
+
     /// <summary>Max characters of any single tool output submitted back to the model. Oversized output
     /// (e.g. `cat huge.log`, a multi-MB artifact) is truncated with a marker rather than blowing the
     /// context window or token budget.</summary>
@@ -195,7 +220,7 @@ public static class RoundExecutor
 
     private static string WorkspaceArgSummary(string toolName, JsonElement args) => toolName switch
     {
-        "run_command"  => Str(args, "cmd"),
+        "run_command"  => Workspace.WorkspaceToolExecutor.UnwrapCmd(Str(args, "cmd")),
         "read_file"    => Str(args, "path"),
         "write_file"   => Str(args, "path"),
         "edit_file"    => Str(args, "path"),

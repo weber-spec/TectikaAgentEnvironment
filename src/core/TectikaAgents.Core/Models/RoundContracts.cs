@@ -40,4 +40,5 @@ public sealed record RoundOutcome(
     TokenUsage Usage,
     string CompletionId,
     string? Error = null,
-    IReadOnlyList<OutputOp>? OutputOps = null);
+    IReadOnlyList<OutputOp>? OutputOps = null,
+    RunFailureClass? FailureClass = null);   // set alongside Error so the failure CLASS (not the raw text) drives the user message

@@ -50,6 +50,13 @@ public class SseConnectionManager
                 await client.Writer.WriteAsync(data.AsMemory(), ct);
                 await client.Writer.FlushAsync(ct);
             }
+            catch (Exception ex) when (ex is ObjectDisposedException or IOException or OperationCanceledException)
+            {
+                // Expected at run handoff / tab close: the client's response body is gone. Drop it quietly
+                // rather than logging a warning on every disconnect race (QA S3 §4.1).
+                _logger.LogDebug("[Sse] client gone channel={Channel}", agentEvent.RunId);
+                deadClients.Add(client);
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "[Sse] client write failed channel={Channel}", agentEvent.RunId);

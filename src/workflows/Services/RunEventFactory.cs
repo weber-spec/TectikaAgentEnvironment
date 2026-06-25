@@ -103,6 +103,26 @@ public static class RunEventFactory
         return events;
     }
 
+    /// <summary>Builds the terminal RunFailed event for the Activity timeline (and the task banner).
+    /// Title is the short, class-mapped user message (with the short correlation ref); Detail carries the
+    /// ACCURATE internal reason plus the full runId so a dev can pivot straight to App Insights. Pure —
+    /// the activity persists it and mirrors it over SSE.</summary>
+    public static RunEvent BuildFailureEvent(
+        string runId, string taskId, int round, RunFailureClass cls, string? internalReason)
+    {
+        var reason = string.IsNullOrWhiteSpace(internalReason) ? "(no further detail captured)" : internalReason!;
+        return new RunEvent
+        {
+            TaskId = taskId,
+            RunId = runId,
+            Round = round,
+            ParentId = null,
+            Kind = RunEventKind.RunFailed,
+            Title = RunFailurePresenter.UserMessage(cls, runId),
+            Detail = $"{reason}\nRun ID: {runId}",
+        };
+    }
+
     private static string Truncate(string s, int max) => s.Length <= max ? s : s[..max] + "…";
 }
 

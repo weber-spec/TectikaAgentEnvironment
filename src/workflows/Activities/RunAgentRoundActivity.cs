@@ -334,6 +334,9 @@ public class RunAgentRoundActivity
             "approve fixing your own build/runtime errors, or whether to retry/finalize. You have full autonomy: " +
             "pick the most reasonable approach and proceed. If an approach keeps failing, CHANGE the approach " +
             "(e.g. a different library or design) rather than asking\n" +
+            "- Claim you built, ran, tested, or verified something you did NOT actually run via `run_command` in " +
+            "THIS run. If a build/test wasn't run, or it failed, say so plainly in your summary — never assert a " +
+            "success you did not observe in a tool result\n" +
             "- Mark the task done without having run at least one `run_command` or `write_file`\n" +
             "- Run `git init`, `git checkout`, `git branch`, or create new branches — the branch is already set up\n\n" +
             "**`declare_output` is for documents only** (specs, ADRs, READMEs, reports).\n" +
@@ -371,6 +374,11 @@ public class RunAgentRoundActivity
         private readonly ILogger _logger;
         private WorkspaceConnection? _cached;
         private bool _failed;
+        private string? _lastError;
+
+        /// <summary>The real cause of the failed provisioning attempt (e.g. a Key Vault 403), surfaced so
+        /// the run's failure reason is accurate rather than a generic "sandbox could not be started".</summary>
+        public string? LastError => _lastError;
 
         public RunWorkspaceProvider(WorkflowCosmosService cosmos, IWorkspaceService workspace,
             ISecretProvider secrets, Board board, string runId, string taskId, bool canPush, ILogger logger)
@@ -403,6 +411,7 @@ public class RunAgentRoundActivity
             {
                 _logger.LogError(ex, "[RunWorkspace] workspace provisioning failed run={RunId}", _runId);
                 _failed = true;
+                _lastError = ex.Message;   // carry the accurate cause to the run's failure reason
                 return null;
             }
         }

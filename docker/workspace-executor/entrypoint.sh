@@ -15,8 +15,21 @@ if [ -n "${REPO_URL:-}" ]; then
     chmod 600 /root/.git-credentials
     git config --global user.email "agent@tectika.com"
     git config --global user.name "Tectika Agent"
-    # Clone to /workspace/main — no branch checkout; worktrees are created per-run by the backend.
-    git clone --depth=1 "$REPO_URL" /workspace/main
+    # Clone to /workspace/main with retry/backoff — no branch checkout; worktrees are created per-run by the
+    # backend. A transient GitHub/network blip (Octokit NotFound / SocketException seen in QA S3 §4.2) must not
+    # crash the sandbox into a silent 300s health-timeout, so retry a few times and only fail hard (clear log)
+    # if the repo is genuinely unreachable.
+    clone_ok=false
+    for attempt in 1 2 3; do
+        if git clone --depth=1 "$REPO_URL" /workspace/main; then clone_ok=true; break; fi
+        echo "[entrypoint] clone attempt $attempt failed; retrying in $((attempt * 3))s"
+        rm -rf /workspace/main
+        sleep "$((attempt * 3))"
+    done
+    if [ "$clone_ok" != true ]; then
+        echo "[entrypoint] FATAL: git clone failed after 3 attempts for $REPO_URL"
+        exit 1
+    fi
     cd /workspace/main
     # Permission gate: roles without CanPushCode get a workspace that can read but not push.
     if [ "${GIT_CAN_PUSH:-false}" != "true" ]; then
