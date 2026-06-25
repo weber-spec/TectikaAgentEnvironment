@@ -9,7 +9,7 @@ public class WorkspaceEnvTests
     [Fact]
     public void Standalone_has_only_executor_token_no_repo_vars()
     {
-        var env = WorkspaceService.BuildEnv(null, "agent/x", "tok", null);
+        var env = WorkspaceService.BuildEnv(null, "tok", null);
         Assert.Single(env);
         Assert.Equal("EXECUTOR_TOKEN", env[0].Name);
     }
@@ -18,9 +18,8 @@ public class WorkspaceEnvTests
     public void With_repo_includes_repo_vars()
     {
         var gh = new GitHubRepoConnection { RepoUrl = "https://github.com/o/r", Owner = "o", Repo = "r", PatSecretName = "s" };
-        var env = WorkspaceService.BuildEnv(gh, "agent/x", "tok", "pat");
+        var env = WorkspaceService.BuildEnv(gh, "tok", "pat");
         Assert.Contains(env, e => e.Name == "REPO_URL");
-        Assert.Contains(env, e => e.Name == "GIT_BRANCH");
         Assert.Contains(env, e => e.Name == "GIT_PAT");
         Assert.Contains(env, e => e.Name == "EXECUTOR_TOKEN");
     }
@@ -30,10 +29,10 @@ public class WorkspaceEnvTests
     {
         var gh = new GitHubRepoConnection { RepoUrl = "https://github.com/o/r", Owner = "o", Repo = "r", PatSecretName = "s" };
 
-        var noPush = WorkspaceService.BuildEnv(gh, "agent/x", "tok", "pat", canPush: false);
+        var noPush = WorkspaceService.BuildEnv(gh, "tok", "pat", canPush: false);
         Assert.Equal("false", noPush.Single(e => e.Name == "GIT_CAN_PUSH").Value);
 
-        var canPush = WorkspaceService.BuildEnv(gh, "agent/x", "tok", "pat", canPush: true);
+        var canPush = WorkspaceService.BuildEnv(gh, "tok", "pat", canPush: true);
         Assert.Equal("true", canPush.Single(e => e.Name == "GIT_CAN_PUSH").Value);
     }
 

@@ -43,19 +43,4 @@ public class WorkspacePromptTests
         var p = RunAgentRoundActivity.WorkspacePrompt(canUseWorkspace: true, repoConnected: true, canPushCode: true);
         Assert.Contains("full autonomy", p);
     }
-
-    // QA S1 §2.1 — per-task branch + continuation awareness.
-    [Fact] public void BranchForTask_is_per_task_and_stable()
-    {
-        Assert.Equal("agent/task-T1", RunAgentRoundActivity.BranchForTask("T1"));
-        Assert.Equal(RunAgentRoundActivity.BranchForTask("T1"), RunAgentRoundActivity.BranchForTask("T1"));
-        Assert.NotEqual(RunAgentRoundActivity.BranchForTask("T1"), RunAgentRoundActivity.BranchForTask("T2"));
-    }
-
-    [Fact] public void ContinuationNote_names_the_branch_and_says_files_restored()
-    {
-        var note = RunAgentRoundActivity.ContinuationNote("agent/task-abc");
-        Assert.Contains("agent/task-abc", note);
-        Assert.Contains("restored", note);
-    }
 }

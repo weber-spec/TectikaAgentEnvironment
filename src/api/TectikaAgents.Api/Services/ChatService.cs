@@ -79,7 +79,7 @@ public class ChatService : IChatService
 
         var newRun = await _cosmos.CreateRunAsync(new WorkflowRun
         {
-            TenantId = tenantId, TaskId = taskId, Status = RunStatus.Pending,
+            TenantId = tenantId, TaskId = taskId, BoardId = boardId, Status = RunStatus.Pending,
             PreviousTaskStatus = task.Status
         }, ct);
 

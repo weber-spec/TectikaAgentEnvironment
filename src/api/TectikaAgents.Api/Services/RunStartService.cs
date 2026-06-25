@@ -70,6 +70,7 @@ public class RunStartService : IRunStartService
         {
             TenantId           = tenantId,
             TaskId             = taskId,
+            BoardId            = boardId,
             Status             = RunStatus.Pending,
             PreviousTaskStatus = AgentTaskStatus.Backlog   // claim only succeeds from Backlog
         };

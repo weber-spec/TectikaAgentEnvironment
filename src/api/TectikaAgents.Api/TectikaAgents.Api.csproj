@@ -25,6 +25,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\core\TectikaAgents.Core\TectikaAgents.Core.csproj" />
     <ProjectReference Include="..\..\agentruntime\TectikaAgents.AgentRuntime.csproj" />
+    <ProjectReference Include="..\..\workflows\TectikaAgents.Workflows.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,6 +1,12 @@
 # Normalize line endings in the repo so a Windows checkout can't ship CRLF where it breaks.
 * text=auto
 
+# Docker ignore files MUST be LF. Docker/ACR's ignore parser treats a trailing CR as part of the
+# pattern, so a CRLF `.dockerignore` makes every pattern (e.g. `**/bin/\r`) match nothing — the whole
+# build context (src/web, bin/obj, ~640MB) then uploads to ACR and the build hangs on the upload.
+.dockerignore text eol=lf
+**/.dockerignore text eol=lf
+
 # Shell scripts MUST be LF. A CRLF entrypoint.sh makes bash fail on the first directive inside a
 # Linux container — e.g. `set -euo pipefail\r` → "set: pipefail: invalid option name" — which
 # crash-loops the workspace sandbox image (CrashLoopBackOff) so the agent's tools silently never start.

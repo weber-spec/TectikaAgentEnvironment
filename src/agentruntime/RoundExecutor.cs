@@ -141,7 +141,7 @@ public static class RoundExecutor
                         var wsConn = workspaceProvider is null ? null : await workspaceProvider.EnsureAsync(ct);
                         if (wsConn is not null)
                         {
-                            var wsResult = await workspace.ExecuteAsync(call.Name, args, wsConn.Endpoint, wsConn.Token, ct);
+                            var wsResult = await workspace.ExecuteAsync(call.Name, args, wsConn.Endpoint, wsConn.Token, wsConn.RunId, ct);
                             outputs.Add(new(call.CallId, wsResult));
                             traced.Add(new(call.Name, WorkspaceArgSummary(call.Name, args), Summarize(wsResult)));
                         }

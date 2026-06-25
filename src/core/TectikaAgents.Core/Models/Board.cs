@@ -42,4 +42,18 @@ public class Board
 
     [JsonPropertyName("github")]
     public GitHubRepoConnection? GitHub { get; set; }
+
+    [JsonPropertyName("workspaceContainerName")]
+    public string? WorkspaceContainerName { get; set; }
+
+    [JsonPropertyName("workspaceEndpoint")]
+    public string? WorkspaceEndpoint { get; set; }
+
+    [JsonPropertyName("workspaceStatus")]
+    public BoardWorkspaceStatus WorkspaceStatus { get; set; } = BoardWorkspaceStatus.None;
+
+    [JsonPropertyName("workspaceLastUsedAt")]
+    public DateTimeOffset? WorkspaceLastUsedAt { get; set; }
 }
+
+public enum BoardWorkspaceStatus { None, Provisioning, Ready }

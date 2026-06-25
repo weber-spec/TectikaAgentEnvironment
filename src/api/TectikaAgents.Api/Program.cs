@@ -157,6 +157,9 @@ else
 // ── CLI Bridge WebSocket ─────────────────────────────────────────────────────
 builder.Services.AddSingleton<CliBridgeManager>();
 
+// ── Workspace Service (board-level ACI containers) ───────────────────────────
+builder.Services.AddSingleton<TectikaAgents.Core.Interfaces.IWorkspaceService, TectikaAgents.Workflows.Services.WorkspaceService>();
+
 // ── HttpClientFactory (used by RunsController to call Durable Functions) ──────
 builder.Services.AddHttpClient();
 

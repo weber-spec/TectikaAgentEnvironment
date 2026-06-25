@@ -230,6 +230,15 @@ function Deploy-Api {
     -f docker/preview-runner/Dockerfile docker/preview-runner/
   Write-Info "preview-runner image $($PreviewImage):$($script:Sha) pushed."
 
+  # The agent-workspace image is pulled by per-board ACI containers at agent runtime.
+  # Build alongside the API so executor.py stays in lockstep with the backend that provisions it.
+  Write-Log "Building agent-workspace image"
+  $WorkspaceImage = Get-Env 'TECTIKA_WORKSPACE_IMAGE' 'agent-workspace'
+  Invoke-Native az acr build -r $AcrName `
+    -t "$($WorkspaceImage):$($script:Sha)" -t "$($WorkspaceImage):latest" `
+    docker/workspace-executor/
+  Write-Info "agent-workspace image $($WorkspaceImage):$($script:Sha) pushed."
+
   if ($Verify) {
     Wait-Revision $ApiApp
     Test-Smoke "$ApiFqdn/api/boards"
