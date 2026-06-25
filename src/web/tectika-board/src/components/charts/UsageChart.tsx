@@ -4,7 +4,7 @@ import React, { useMemo, useState } from 'react';
 import type { UsageTimePoint } from '@/lib/types';
 import { formatCompact, formatCurrency } from '@/lib/format';
 
-type Granularity = 'day' | 'week' | 'month';
+type Granularity = 'week' | 'month' | 'halfYear';
 
 interface Bucket {
   key: string;
@@ -20,19 +20,12 @@ interface Bucket {
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-// How many buckets to show per granularity (most recent N).
-const LIMIT: Record<Granularity, number> = { day: 30, week: 16, month: 12 };
+// The toggle selects the visible time window. Usage is tracked per-day, so each
+// point is one calendar day: Week = last 7, Month = last 30, 6 months = last 180.
+const WINDOW_DAYS: Record<Granularity, number> = { week: 7, month: 30, halfYear: 180 };
 
 const parseUTC = (d: string) => new Date(`${d}T00:00:00Z`);
 const mmdd = (d: Date) => `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
-
-function mondayOf(d: Date): Date {
-  const day = d.getUTCDay();                 // 0=Sun..6=Sat
-  const shift = day === 0 ? -6 : 1 - day;    // back to Monday
-  const r = new Date(d);
-  r.setUTCDate(d.getUTCDate() + shift);
-  return r;
-}
 
 function emptyBucket(key: string, label: string, rangeLabel: string): Bucket {
   return { key, label, rangeLabel, tokens: 0, costUsd: 0, input: 0, cachedInput: 0, output: 0, perModel: {} };
@@ -47,48 +40,27 @@ function add(b: Bucket, p: UsageTimePoint) {
   }
 }
 
+/** Daily points over the selected window (most recent WINDOW_DAYS[gran] days). */
 function bucketize(series: UsageTimePoint[], gran: Granularity): Bucket[] {
-  if (gran === 'day') {
-    return series.map(p => {
-      const d = parseUTC(p.date);
-      const b = emptyBucket(p.date, mmdd(d), `${WEEKDAYS[d.getUTCDay()]}, ${mmdd(d)} ${d.getUTCFullYear()}`);
-      add(b, p);
-      return b;
-    });
-  }
-  const map = new Map<string, Bucket>();
-  for (const p of series) {
+  return series.slice(-WINDOW_DAYS[gran]).map(p => {
     const d = parseUTC(p.date);
-    let key: string, label: string, rangeLabel: string;
-    if (gran === 'week') {
-      const ws = mondayOf(d);
-      const we = new Date(ws); we.setUTCDate(ws.getUTCDate() + 6);
-      key = ws.toISOString().slice(0, 10);
-      label = mmdd(ws);
-      rangeLabel = `${mmdd(ws)} – ${mmdd(we)}`;
-    } else {
-      key = p.date.slice(0, 7);            // yyyy-MM
-      label = MONTHS[d.getUTCMonth()];
-      rangeLabel = `${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
-    }
-    let b = map.get(key);
-    if (!b) { b = emptyBucket(key, label, rangeLabel); map.set(key, b); }
+    const b = emptyBucket(p.date, mmdd(d), `${WEEKDAYS[d.getUTCDay()]}, ${mmdd(d)} ${d.getUTCFullYear()}`);
     add(b, p);
-  }
-  return [...map.values()].sort((a, b) => (a.key < b.key ? -1 : 1));
+    return b;
+  });
 }
 
 const GRANS: { id: Granularity; label: string }[] = [
-  { id: 'day', label: 'Day' },
   { id: 'week', label: 'Week' },
   { id: 'month', label: 'Month' },
+  { id: 'halfYear', label: '6 Months' },
 ];
 
 export function UsageChart({ series, color = '#0073ea', height = 240 }: { series: UsageTimePoint[]; color?: string; height?: number }) {
-  const [gran, setGran] = useState<Granularity>('day');
+  const [gran, setGran] = useState<Granularity>('month');
   const [hover, setHover] = useState<number | null>(null);
 
-  const buckets = useMemo(() => bucketize(series, gran).slice(-LIMIT[gran]), [series, gran]);
+  const buckets = useMemo(() => bucketize(series, gran), [series, gran]);
   const max = Math.max(1, ...buckets.map(b => b.tokens));
   const W = 1000, top = 16, bottom = height - 26;
   const N = buckets.length;
