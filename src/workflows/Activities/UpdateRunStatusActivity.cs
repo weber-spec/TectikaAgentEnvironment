@@ -39,6 +39,11 @@ public class UpdateRunStatusActivity
         _logger.LogInformation("[UpdateRunStatus] run={RunId} task={TaskId} -> {Status} step={Step}",
             input.RunId, input.TaskId, input.Status, input.CurrentStep);
 
+        if (input.Status == RunStatus.Failed)
+        {
+            _logger.LogError("[UpdateRunStatus] run={RunId} task={TaskId} -> Failed: {Error}", input.RunId, input.TaskId, input.ErrorMessage ?? "(no error message found)");
+        }
+
         var run = await _cosmos.GetRunAsync(input.TaskId, input.RunId, ct);
         if (run is null)
         {

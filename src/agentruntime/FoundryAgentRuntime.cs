@@ -229,6 +229,13 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
 
     public async Task<RoundOutcome> RunRoundAsync(RoundRequest req, IProjectExplorer explorer, CancellationToken ct = default)
     {
+        using var _ = _logger.BeginScope(new Dictionary<string, object>
+        {
+            ["runId"] = req.RunId,
+            ["taskId"] = req.Task.Id,
+            ["round"] = req.Round
+        });
+        
         _logger.LogInformation("[RunRoundAsync] BoardGitHub={HasGitHub} Owner={Owner} gitHubExecutor={HasExecutor}",
             req.BoardGitHub != null, req.BoardGitHub?.Owner ?? "(null)", _gitHub != null);
         if (string.IsNullOrEmpty(req.Role.FoundryAgentId))
@@ -323,22 +330,42 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
     private async Task<HttpResponseMessage> PostResponsesWithHealAsync(
         HttpClient http, ResponsesRequest body, string? threadId, CancellationToken ct)
     {
-        var resp = await http.PostAsJsonAsync($"{_base}/openai/v1/responses", body, Json, ct).ConfigureAwait(false);
+        var url = $"{_base}/openai/v1/responses";
+        var resp = await http.PostAsJsonAsync(url, body, Json, ct).ConfigureAwait(false);
+        string? lastHealed = null;
+        
         for (var attempt = 0; attempt < MaxHealAttempts && resp.StatusCode == System.Net.HttpStatusCode.BadRequest; attempt++)
         {
             var errBody = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             var danglingId = FoundryConversationHeal.ParseMissingToolCallId(errBody);
             if (danglingId is null) break; // not a dangling-tool-call error — let EnsureOkAsync handle it
+            
+            if (danglingId == lastHealed)
+            {
+                _logger.LogInformation("[FoundryHeal] {Thread} call {CallId} still dangling after a synthetic output - giving up (won't burn the retry budget)", threadId, danglingId);
+                break;
+            }
+
             _logger.LogWarning("[FoundryHeal] conversation {Thread} stuck on unanswered call {CallId}; submitting synthetic output and retrying (attempt {Attempt})",
                 threadId, danglingId, attempt + 1);
 
             var healBody = new ResponsesRequest(
                 new object[] { new FunctionCallOutput("function_call_output", danglingId, HealOutput) },
                 body.AgentReference, threadId, null);
-            (await http.PostAsJsonAsync($"{_base}/openai/v1/responses", healBody, Json, ct).ConfigureAwait(false)).Dispose();
+
+            using (var healResp = await http.PostAsJsonAsync(url, healBody, Json, ct).ConfigureAwait(false))
+            {
+                if (!healResp.IsSuccessStatusCode)
+                {
+                    var healErr = await healResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                    _logger.LogError("[FoundryHeal] {Thread} releasing {CallId} was REJECTED. status={Status}, body={Body}", threadId, danglingId, (int)healResp.StatusCode, healErr);
+                    break;
+                }
+            }
+            lastHealed = danglingId;
 
             resp.Dispose();
-            resp = await http.PostAsJsonAsync($"{_base}/openai/v1/responses", body, Json, ct).ConfigureAwait(false);
+            resp = await http.PostAsJsonAsync(url, body, Json, ct).ConfigureAwait(false);
         }
         return resp;
     }
