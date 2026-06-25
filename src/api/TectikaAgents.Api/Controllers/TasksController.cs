@@ -54,11 +54,6 @@ public class TasksController : ControllerBase
     public async Task<IActionResult> Clear(string boardId, string taskId, CancellationToken ct) =>
         await _chat.ClearAsync(boardId, taskId, ct) ? Ok() : NotFound("Task not found.");
 
-    /// <summary>/reset-usage — start a new usage session (current-session tokens reset) without clearing the chat. Used by "Reset &amp; run".</summary>
-    [HttpPost("{taskId}/reset-usage")]
-    public async Task<IActionResult> ResetUsage(string boardId, string taskId, CancellationToken ct) =>
-        await _chat.ResetUsageSessionAsync(boardId, taskId, ct) ? Ok() : NotFound("Task not found.");
-
     /// <summary>/stop — terminate the task's active run.</summary>
     [HttpPost("{taskId}/stop")]
     public async Task<IActionResult> Stop(string boardId, string taskId, CancellationToken ct) =>

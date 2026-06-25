@@ -29,7 +29,7 @@ export function RunTaskButton({ task, mode = 'button' }: { task: AgentTask; mode
   const title = running
     ? 'Stop this run'
     : needsReset
-      ? 'Reset this task and start a fresh run'
+      ? "Reset this task and start a fresh run (clears the agent's memory)"
       : hasUnmetDep
         ? "Run this task's agent (upstream tasks aren't done yet)"
         : "Run this task's agent";
@@ -66,8 +66,9 @@ export function RunTaskButton({ task, mode = 'button' }: { task: AgentTask; mode
         <Button variant="primary" size="sm" onClick={() => { resetAndRun(task.id); setResetOpen(false); }}>Reset &amp; run</Button>
       </>}>
       <p className="text-sm text-[var(--muted)]">
-        This discards the current result and starts a fresh run. To continue the existing work instead,
-        message the agent in the <span className="font-semibold text-[var(--foreground)]">Chat</span> tab.
+        This discards the current result and <span className="font-semibold text-[var(--foreground)]">clears the agent&apos;s
+        memory</span>, then starts a fresh run — the agent won&apos;t remember the previous attempt. To continue the
+        existing work instead, message the agent in the <span className="font-semibold text-[var(--foreground)]">Chat</span> tab.
       </p>
     </Modal>
   );

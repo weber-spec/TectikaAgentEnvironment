@@ -14,6 +14,7 @@ import { buildPeople, seedCollaboration, uid, CURRENT_USER } from './collaborati
 import { STATUS_CONFIG, PRIORITY_CONFIG } from './palette';
 import { toast } from './toast';
 import { runAutomations } from './automations';
+import { resetTaskForRerun, startTaskRun } from './task-actions';
 
 /**
  * Run statuses where the run is no longer actively executing — finished
@@ -708,12 +709,11 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     // runs on the not-yet-started snapshot — sees no live tasks and no runs — and
     // immediately resolves the phase back to idle. Runs that fail to start are reverted below.
     setTasks(prev => prev.map(t => batch.has(t.id) ? { ...t, status: 'InProgress' } : t));
-    // Failed tasks must be reset to Backlog before a fresh run (same as resetAndRun);
-    // Backlog tasks start directly. Per-task failures are isolated by allSettled.
-    const results = await Promise.allSettled(ids.map(async id => {
-      if (retry.has(id)) await api.tasks.updateStatus(boardId, id, 'Backlog');
-      return api.runs.start(boardId, id);
-    }));
+    // Failed tasks get a true fresh start before re-running (same as resetAndRun): back to
+    // Backlog AND a cleared conversation, so a poisoned thread can't doom the retry. Backlog
+    // tasks start directly. Per-task failures are isolated by allSettled.
+    const results = await Promise.allSettled(ids.map(id =>
+      startTaskRun(boardId, id, { reset: retry.has(id) })));
     // Record each started run on its task so the spinner reflects the run immediately
     // and completion detection can follow each run to a terminal state.
     const started = new Map<string, string>();
@@ -768,11 +768,13 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     const task = tasks.find(t => t.id === taskId);
     if (!task || task.assignee?.type !== 'Agent') return;
     try {
-      await api.tasks.updateStatus(boardId, taskId, 'Backlog');
-      // "Reset" is a deliberate fresh start → begin a new usage session (current-session
-      // tokens reset to zero; lifetime/board/project cost persist). Refresh usage right away
-      // so the reset shows even if the run fails to start.
-      await api.tasks.resetUsage(boardId, taskId).catch(() => {});
+      // "Reset" is a deliberate fresh start: move back to Backlog AND clear the agent's
+      // conversation — a new Foundry thread (the prior memory is dropped, so a poisoned
+      // thread can't survive the reset), cleared brief, and a fresh usage session
+      // (current-session tokens reset to zero; lifetime/board/project cost persist). /clear
+      // does all of that server-side. Refresh usage right away so the reset shows even if the
+      // run fails to start.
+      await resetTaskForRerun(boardId, taskId);
       void refreshUsage(taskId);
       const res = await api.runs.start(boardId, taskId);
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, workflowRunId: res.runId, status: 'InProgress' } : t));
