@@ -5,7 +5,9 @@ HTTP executor running inside the ACI workspace container.
 POST /run             {"cmd": "...", "timeout": 60, "run_id": "..."}  (run_id optional)
                       -> {"stdout":"...","stderr":"...","exit_code":0}
 POST /read            {"path": "src/main.cs", "offset": 0, "limit": 200, "run_id": "..."}
-                      -> {"content":"1\t...\n2\t...","total_lines":N,"from_line":1,"to_line":N}
+                      -> {"content":"<exact raw file text>","total_lines":N,"from_line":1,"to_line":N}
+                      content is the file's EXACT bytes (no line-number prefixes, leading BOM stripped) so
+                      it can be copied verbatim into /patch old_string; line positions live in the envelope.
 POST /write           {"path": "src/foo.cs", "content": "...", "run_id": "..."}
                       -> {"written": true, "path": "src/foo.cs"}
 POST /patch           {"path": "src/foo.cs", "old_string": "...", "new_string": "...", "replace_all": false, "run_id": "..."}
@@ -167,13 +169,15 @@ class Handler(BaseHTTPRequestHandler):
         limit = min(MAX_LIMIT, max(1, int(body.get("limit", 200))))
         workdir = _resolve_workdir(body)
         full = _full_path(path, workdir)
-        with open(full, encoding="utf-8", errors="replace") as f:
+        # utf-8-sig strips a leading BOM so `content` is the file's true text; return it RAW (no
+        # "N\t" line-number prefixes) so the model can copy it verbatim into edit_file/old_string.
+        # Line positions are reported in the envelope (from_line/to_line/total_lines), not inline.
+        with open(full, encoding="utf-8-sig", errors="replace") as f:
             lines = f.readlines()
         total = len(lines)
         chunk = lines[offset:offset + limit]
-        content = "".join(f"{offset + i + 1}\t{l}" for i, l in enumerate(chunk))
         return {
-            "content": content,
+            "content": "".join(chunk),
             "total_lines": total,
             "from_line": offset + 1,
             "to_line": offset + len(chunk),
@@ -198,12 +202,24 @@ class Handler(BaseHTTPRequestHandler):
         replace_all = bool(body.get("replace_all", False))
         workdir = _resolve_workdir(body)
         full = _full_path(path, workdir)
-        with open(full, encoding="utf-8", errors="replace") as f:
-            text = f.read()
+        # Match against the same view read_file shows: BOM stripped (decoded as utf-8-sig). Preserve the
+        # file's original BOM on write so we don't silently change its encoding.
+        with open(full, "rb") as f:
+            raw = f.read()
+        had_bom = raw.startswith(b"\xef\xbb\xbf")
+        text = raw.decode("utf-8-sig" if had_bom else "utf-8", errors="replace")
         if old_string not in text:
-            return {"error": f"old_string not found in '{path}'"}
+            # Backstop: tolerate a stray leading BOM the model may have carried into old_string.
+            stripped = old_string.lstrip("\ufeff")
+            if stripped and stripped in text:
+                old_string = stripped
+            else:
+                return {"error": f"old_string not found in '{path}'. Match against the EXACT text "
+                        f"read_file returns — raw file content, no 'N\\t' line-number prefixes and no "
+                        f"leading byte-order mark. Re-read the file and copy the target text verbatim, "
+                        f"including indentation and whitespace."}
         result = text.replace(old_string, new_string) if replace_all else text.replace(old_string, new_string, 1)
-        with open(full, "w", encoding="utf-8") as f:
+        with open(full, "w", encoding="utf-8-sig" if had_bom else "utf-8") as f:
             f.write(result)
         return {"applied": True, "path": path}
 
