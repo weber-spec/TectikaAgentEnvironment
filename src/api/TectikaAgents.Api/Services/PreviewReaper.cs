@@ -38,6 +38,14 @@ public sealed class PreviewIdleReaperService : BackgroundService
                 using var scope = _sp.CreateScope();
                 var cosmos = scope.ServiceProvider.GetRequiredService<ICosmosDbService>();
                 var active = await cosmos.ListActivePreviewsAsync(ct);
+
+                // Skip ARM/ACI entirely when no previews are active — orphans can't exist without provisioning.
+                if (!active.Any())
+                {
+                    await Task.Delay(Interval, ct);
+                    continue;
+                }
+
                 var now = DateTimeOffset.UtcNow;
                 foreach (var s in PreviewReaper.SelectExpired(active, now))
                 {
