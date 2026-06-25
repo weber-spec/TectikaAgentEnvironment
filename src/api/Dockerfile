@@ -7,6 +7,9 @@ WORKDIR /src
 
 COPY src/core/TectikaAgents.Core/TectikaAgents.Core.csproj             src/core/TectikaAgents.Core/
 COPY src/agentruntime/TectikaAgents.AgentRuntime.csproj                src/agentruntime/
+# The API DI-registers TectikaAgents.Workflows.Services.WorkspaceService (board-level workspaces),
+# so the API project references the workflows project and its source must be in the build context.
+COPY src/workflows/TectikaAgents.Workflows.csproj                      src/workflows/
 COPY src/api/TectikaAgents.Api/TectikaAgents.Api.csproj                src/api/TectikaAgents.Api/
 
 RUN dotnet restore src/api/TectikaAgents.Api/TectikaAgents.Api.csproj
@@ -15,6 +18,7 @@ RUN dotnet restore src/api/TectikaAgents.Api/TectikaAgents.Api.csproj
 FROM restore AS publish
 COPY src/core/         src/core/
 COPY src/agentruntime/ src/agentruntime/
+COPY src/workflows/    src/workflows/
 COPY src/api/          src/api/
 
 RUN dotnet publish src/api/TectikaAgents.Api/TectikaAgents.Api.csproj \
