@@ -15,6 +15,9 @@ public interface IWorkspaceSnapshotStore
 
     /// <summary>Download the board's snapshot bundle, or null if none exists yet.</summary>
     Task<byte[]?> DownloadAsync(string boardId, CancellationToken ct = default);
+
+    /// <summary>Delete the board's snapshot bundle if present (best-effort, idempotent).</summary>
+    Task DeleteAsync(string boardId, CancellationToken ct = default);
 }
 
 /// <summary>Blob-backed snapshot store. Reuses the host's storage account (the one behind
@@ -61,5 +64,12 @@ public sealed class BlobWorkspaceSnapshotStore : IWorkspaceSnapshotStore
         await blob.DownloadToAsync(ms, ct);
         _logger.LogInformation("[Snapshot] downloaded board {BoardId} snapshot ({Bytes} bytes)", boardId, ms.Length);
         return ms.ToArray();
+    }
+
+    public async Task DeleteAsync(string boardId, CancellationToken ct = default)
+    {
+        await EnsureContainerAsync(ct);
+        await _container.GetBlobClient(BlobName(boardId)).DeleteIfExistsAsync(cancellationToken: ct);
+        _logger.LogInformation("[Snapshot] deleted board {BoardId} snapshot (if present)", boardId);
     }
 }
