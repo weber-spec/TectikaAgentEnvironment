@@ -231,6 +231,66 @@ public class CosmosDbService : ICosmosDbService
         catch (Exception ex) { _logger.LogWarning(ex, "[Usage] task events cleanup failed {TaskId}", taskId); }
     }
 
+    public async Task PurgeTaskWorkDataAsync(string tenantId, string boardId, string taskId, CancellationToken ct = default)
+    {
+        // Runs (partition /taskId) + each run's human interactions (partition /runId).
+        var runs = await GetRunsByTaskAsync(taskId, ct);
+        foreach (var run in runs)
+        {
+            try
+            {
+                var interactionIds = await QueryAsync<string>(HumanInteractionsContainer,
+                    new QueryDefinition("SELECT VALUE c.id FROM c WHERE c.runId = @r").WithParameter("@r", run.Id), run.Id, ct);
+                foreach (var iid in interactionIds)
+                    await SafeDeleteAsync(() => GetContainer(HumanInteractionsContainer)
+                        .DeleteItemAsync<HumanInteraction>(iid, new PartitionKey(run.Id), cancellationToken: ct), HumanInteractionsContainer, iid);
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "[Purge] interactions for run {RunId} failed", run.Id); }
+
+            await SafeDeleteAsync(() => GetContainer(WorkflowRunsContainer)
+                .DeleteItemAsync<WorkflowRun>(run.Id, new PartitionKey(taskId), cancellationToken: ct), WorkflowRunsContainer, run.Id);
+        }
+
+        // Artifacts (partition /taskId).
+        foreach (var a in await GetArtifactVersionsAsync(taskId, ct))
+            await SafeDeleteAsync(() => GetContainer(ArtifactsContainer)
+                .DeleteItemAsync<Artifact>(a.Id, new PartitionKey(taskId), cancellationToken: ct), ArtifactsContainer, a.Id);
+
+        // Run events (partition /taskId).
+        try
+        {
+            var eventIds = await QueryAsync<string>(RunEventsContainer,
+                new QueryDefinition("SELECT VALUE c.id FROM c WHERE c.taskId = @t").WithParameter("@t", taskId), taskId, ct);
+            foreach (var eid in eventIds)
+                await SafeDeleteAsync(() => GetContainer(RunEventsContainer)
+                    .DeleteItemAsync<RunEvent>(eid, new PartitionKey(taskId), cancellationToken: ct), RunEventsContainer, eid);
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "[Purge] run events for task {TaskId} failed", taskId); }
+
+        // Usage events (partition /taskId).
+        try
+        {
+            var usageIds = await QueryAsync<string>(UsageEventsContainer,
+                new QueryDefinition("SELECT VALUE c.id FROM c WHERE c.taskId = @t").WithParameter("@t", taskId), taskId, ct);
+            foreach (var uid in usageIds)
+                await SafeDeleteAsync(() => GetContainer(UsageEventsContainer)
+                    .DeleteItemAsync<UsageEvent>(uid, new PartitionKey(taskId), cancellationToken: ct), UsageEventsContainer, uid);
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "[Purge] usage events for task {TaskId} failed", taskId); }
+
+        // Task usage rollup (partition /tenantId).
+        await SafeDeleteAsync(() => GetContainer(UsageRollupsContainer)
+            .DeleteItemAsync<UsageRollup>(UsageRollup.TaskId(taskId), new PartitionKey(tenantId), cancellationToken: ct), UsageRollupsContainer, UsageRollup.TaskId(taskId));
+    }
+
+    /// <summary>Run a delete, swallowing a 404 (already gone) and logging any other failure.</summary>
+    private async Task SafeDeleteAsync(Func<Task> del, string container, string id)
+    {
+        try { await del(); }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { }
+        catch (Exception ex) { _logger.LogWarning(ex, "[Purge] delete failed (non-fatal) container={Container} id={Id}", container, id); }
+    }
+
     // ── Agent Roles ───────────────────────────────────────────────────────────
 
     public async Task<IEnumerable<AgentRole>> GetAgentRolesAsync(string tenantId, CancellationToken ct = default)

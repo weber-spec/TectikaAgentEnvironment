@@ -107,6 +107,18 @@ public class InMemoryCosmosDbService : ICosmosDbService
         return Task.CompletedTask;
     }
 
+    public Task PurgeTaskWorkDataAsync(string tenantId, string boardId, string taskId, CancellationToken ct = default)
+    {
+        var runIds = _runs.Values.Where(r => r.TaskId == taskId).Select(r => r.Id).ToHashSet();
+        foreach (var id in runIds) _runs.TryRemove(id, out _);
+        foreach (var i in _interactions.Values.Where(i => runIds.Contains(i.RunId)).ToList()) _interactions.TryRemove(i.Id, out _);
+        foreach (var a in _artifacts.Values.Where(a => a.TaskId == taskId).ToList()) _artifacts.TryRemove(a.Id, out _);
+        foreach (var e in _runEvents.Values.Where(e => e.TaskId == taskId).ToList()) _runEvents.TryRemove(e.Id, out _);
+        foreach (var u in _usageEvents.Values.Where(u => u.TaskId == taskId).ToList()) _usageEvents.TryRemove(u.Id, out _);
+        _usageRollups.TryRemove(UsageRollup.TaskId(taskId), out _);
+        return Task.CompletedTask;
+    }
+
     // ── Agent Roles ────────────────────────────────────────────────────────────
     public Task<IEnumerable<AgentRole>> GetAgentRolesAsync(string tenantId, CancellationToken ct = default) =>
         Task.FromResult(_agentRoles.Values.Where(r => r.TenantId == tenantId).AsEnumerable());

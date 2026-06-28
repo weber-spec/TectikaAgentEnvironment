@@ -30,6 +30,10 @@ public interface ICosmosDbService
     /// another caller won the race. The single guard against the same task starting two concurrent runs.</summary>
     Task<AgentTask?> TryClaimTaskForRunAsync(string boardId, string taskId, string runId, string sessionId, CancellationToken ct = default);
     Task DeleteTaskAsync(string boardId, string taskId, CancellationToken ct = default);
+    /// <summary>Delete ALL produced work for one task — runs (and their human interactions),
+    /// artifacts, run events, usage events, and the task usage rollup. Best-effort and idempotent;
+    /// used by board reset. Does NOT delete the task document itself.</summary>
+    Task PurgeTaskWorkDataAsync(string tenantId, string boardId, string taskId, CancellationToken ct = default);
 
     // ── Agent Roles ────────────────────────────────────────────────────────────
     Task<IEnumerable<AgentRole>> GetAgentRolesAsync(string tenantId, CancellationToken ct = default);
