@@ -21,6 +21,7 @@ public class UpdateRunStatusActivity
     private readonly IGitHubReadService _ghRead;
     private readonly IGitHubWriteService _ghWrite;
     private readonly IWorkspaceService _workspace;
+    private readonly IWorkspaceSnapshotStore _snapshots;
 
     public UpdateRunStatusActivity(
         WorkflowCosmosService cosmos,
@@ -30,7 +31,8 @@ public class UpdateRunStatusActivity
         IConfiguration config,
         IGitHubReadService ghRead,
         IGitHubWriteService ghWrite,
-        IWorkspaceService workspace)
+        IWorkspaceService workspace,
+        IWorkspaceSnapshotStore snapshots)
     {
         _cosmos = cosmos;
         _events = events;
@@ -40,6 +42,7 @@ public class UpdateRunStatusActivity
         _ghRead = ghRead;
         _ghWrite = ghWrite;
         _workspace = workspace;
+        _snapshots = snapshots;
     }
 
     [Function(nameof(UpdateRunStatusActivity))]
@@ -298,6 +301,17 @@ public class UpdateRunStatusActivity
         if (result.Ok)
         {
             _logger.LogInformation("[Merge] local merge of {Head} into board main ok for task {TaskId}", runIdShort, taskId);
+            // Durably snapshot the advanced main line so the board's files survive ACI recycle (no-repo has
+            // no origin to push to — blob storage is its durable backing store).
+            try
+            {
+                var bundle = await _workspace.BundleAsync(run.WorkspaceEndpoint, run.WorkspaceToken, ct);
+                await _snapshots.UploadAsync(boardId, bundle, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Merge] snapshot upload failed for board {BoardId} (non-fatal)", boardId);
+            }
             return true;
         }
         _logger.LogWarning("[Merge] local merge conflict for task {TaskId} in: {Files}", taskId, string.Join(", ", result.ConflictFiles));

@@ -25,6 +25,7 @@ public class RunAgentRoundActivity
     private readonly ContextManager _contextManager;
     private readonly WorkflowEventPublisher _events;
     private readonly IWorkspaceService _workspace;
+    private readonly IWorkspaceSnapshotStore _snapshots;
     private readonly ISecretProvider _secrets;
     private readonly IGitHubReadService _ghRead;
     private readonly UsageRecorder _usage;
@@ -40,6 +41,7 @@ public class RunAgentRoundActivity
         ContextManager contextManager,
         WorkflowEventPublisher events,
         IWorkspaceService workspace,
+        IWorkspaceSnapshotStore snapshots,
         ISecretProvider secrets,
         IGitHubReadService ghRead,
         UsageRecorder usage,
@@ -52,6 +54,7 @@ public class RunAgentRoundActivity
         _contextManager = contextManager;
         _events = events;
         _workspace = workspace;
+        _snapshots = snapshots;
         _secrets = secrets;
         _ghRead = ghRead;
         _usage = usage;
@@ -128,7 +131,7 @@ public class RunAgentRoundActivity
             {
                 BoardGitHub = board.GitHub,
                 Workspace = role.Permissions.CanUseWorkspace
-                    ? new RunWorkspaceProvider(_cosmos, _workspace, _secrets, board, input.RunId, input.TaskId, role.Permissions.CanPushCode, _logger)
+                    ? new RunWorkspaceProvider(_cosmos, _workspace, _snapshots, _secrets, board, input.RunId, input.TaskId, role.Permissions.CanPushCode, _logger)
                     : null,
             },
             explorer, ct);
@@ -377,6 +380,7 @@ public class RunAgentRoundActivity
 
         private readonly WorkflowCosmosService _cosmos;
         private readonly IWorkspaceService _workspace;
+        private readonly IWorkspaceSnapshotStore _snapshots;
         private readonly ISecretProvider _secrets;
         private Board _board;
         private readonly string _runId;
@@ -392,9 +396,9 @@ public class RunAgentRoundActivity
         public string? LastError => _lastError;
 
         public RunWorkspaceProvider(WorkflowCosmosService cosmos, IWorkspaceService workspace,
-            ISecretProvider secrets, Board board, string runId, string taskId, bool canPush, ILogger logger)
+            IWorkspaceSnapshotStore snapshots, ISecretProvider secrets, Board board, string runId, string taskId, bool canPush, ILogger logger)
         {
-            _cosmos = cosmos; _workspace = workspace; _secrets = secrets;
+            _cosmos = cosmos; _workspace = workspace; _snapshots = snapshots; _secrets = secrets;
             _board = board; _runId = runId; _taskId = taskId; _canPush = canPush; _logger = logger;
         }
 
@@ -470,6 +474,25 @@ public class RunAgentRoundActivity
                             await _secrets.SetSecretAsync(tokenKey, info.Token, ct);
                             await _cosmos.PatchBoardWorkspaceAsync(_board.Id, _board.TenantId,
                                 info.ContainerName, info.Endpoint, BoardWorkspaceStatus.Ready, ct);
+
+                            // No-repo durable restore: a fresh container starts with an empty /workspace/main
+                            // (entrypoint git-init). If this board has a saved snapshot, restore it BEFORE the
+                            // worktree forks from main, so the new container carries the board's prior files.
+                            if (_board.GitHub is null)
+                            {
+                                try
+                                {
+                                    var snap = await _snapshots.DownloadAsync(_board.Id, ct);
+                                    if (snap is not null)
+                                        await _workspace.RestoreAsync(info.Endpoint, info.Token, snap, ct);
+                                }
+                                catch (Exception ex)
+                                {
+                                    // Best-effort: a restore failure leaves the empty init (work continues
+                                    // without prior files) rather than failing the run.
+                                    _logger.LogWarning(ex, "[Workspace] no-repo snapshot restore failed for board {BoardId} (non-fatal)", _board.Id);
+                                }
+                            }
 
                             await _workspace.CreateWorktreeAsync(info.Endpoint, info.Token, runIdShort, branch, _canPush, ct);
                             await _cosmos.PatchRunWorkspaceAsync(_runId, _taskId, info.ContainerName, info.Endpoint, info.Token, ct);
