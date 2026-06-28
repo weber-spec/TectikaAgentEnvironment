@@ -107,6 +107,16 @@ public class BoardsController : ControllerBase
             _logger.LogWarning("[GitHubConnect] board {BoardId} RepoUrl {RepoUrl} missing owner/repo", boardId, req.RepoUrl);
             return BadRequest("RepoUrl must be in the form https://github.com/owner/repo");
         }
+        var normalizedRepo = BoardGitHubRules.NormalizeRepo(parts[1]);
+
+        // One repo ⇄ one board (tenant-wide). Reject a repo already connected to another board.
+        var allBoards = await _cosmos.GetBoardsAsync(TenantId, ct);
+        var conflict = BoardGitHubRules.FindConflict(allBoards, boardId, parts[0], normalizedRepo);
+        if (conflict is not null)
+        {
+            _logger.LogWarning("[GitHubConnect] board {BoardId} repo {Owner}/{Repo} already on board {OtherId}", boardId, parts[0], normalizedRepo, conflict.Id);
+            return Conflict(new { error = $"Repository {parts[0]}/{normalizedRepo} is already connected to board \"{conflict.Name}\". A repository can be connected to only one board." });
+        }
 
         var secretName = $"github-pat-board-{boardId}";
         if (!string.IsNullOrEmpty(req.Pat))
@@ -126,14 +136,14 @@ public class BoardsController : ControllerBase
         {
             RepoUrl = req.RepoUrl,
             Owner = parts[0],
-            Repo = parts[1],
+            Repo = normalizedRepo,
             PatSecretName = secretName
         };
 
         try
         {
             var updated = await _cosmos.UpdateBoardAsync(board, ct);
-            _logger.LogInformation("[GitHubConnect] board {BoardId} connected to {Owner}/{Repo}", boardId, parts[0], parts[1]);
+            _logger.LogInformation("[GitHubConnect] board {BoardId} connected to {Owner}/{Repo}", boardId, parts[0], normalizedRepo);
             return Ok(updated);
         }
         catch (Exception ex)
