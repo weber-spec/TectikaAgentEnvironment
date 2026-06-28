@@ -8,7 +8,7 @@ namespace TectikaAgents.AgentRuntime;
 /// whenever the toolset changes so AgentInstructionsHash republishes agent versions.</summary>
 public static class TectikaToolSchema
 {
-    public const string Version = "tools-v9";
+    public const string Version = "tools-v10";
 
     public sealed record ToolProp(string Type, string? Description = null, string[]? Enum = null);
     public sealed record ToolDef(
@@ -44,11 +44,12 @@ public static class TectikaToolSchema
             new Dictionary<string, ToolProp> { ["description"] = new("string", "The specific action needing approval.") }, ["description"]),
         new("request_revision", "(QA/validator agents) Signal that an upstream task must be re-run with fixes.",
             new Dictionary<string, ToolProp> { ["reason"] = new("string", "What must be fixed.") }, ["reason"]),
-        new("declare_output", "Register a finished DELIVERABLE for this task — a document/section the user and downstream tasks will receive. Call this once per real product of your work. Do NOT call it for exploration, debugging, or fix-up steps. Returns the output's id; pass that id to update_output or remove_output to revise it later this session.",
+        new("declare_output", "Register a finished DELIVERABLE for this task — what the user and downstream tasks receive. `content` describes the deliverable; if it is, or includes, files you wrote in the workspace, list their paths in `files` so they are linked on the record (downstream tasks read this record and open the linked files — they do NOT pull from your private run branch). Call once per real product of your work. Do NOT call it for exploration, debugging, or fix-up steps. Returns the output's id; pass that id to update_output or remove_output to revise it later this session.",
             new Dictionary<string, ToolProp> {
-                ["content"] = new("string", "The deliverable's full content."),
+                ["content"] = new("string", "A description/summary of the deliverable — what it is and where it lives."),
                 ["label"] = new("string", "Short label, e.g. 'Itinerary' or 'API spec'."),
                 ["contentType"] = new("string", "Content format (default Markdown).", new[] { "Markdown", "Json", "Data", "Code" }),
+                ["files"] = new("array", "Workspace-relative paths of the files this deliverable produced, e.g. ['docs/Plan.md','src/Game/Map.cs']. They become clickable links on the record."),
             }, ["content"]),
         new("update_output", "Revise a deliverable you previously declared (by its id) — replace its content, label, or format. Use this when your work evolved during the session.",
             new Dictionary<string, ToolProp> {

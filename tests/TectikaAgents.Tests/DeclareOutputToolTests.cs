@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.Json;
 using TectikaAgents.AgentRuntime;
 using TectikaAgents.Core.Models;
@@ -12,6 +13,11 @@ public class DeclareOutputToolTests
         RoundExecutor.ExecuteOneRoundAsync(
             RoundResponse.Tools(calls), new NullProjectExplorer(), (_, __) => { },
             null, null, null, null, null, default);
+
+    private static Task<RoundProcessResult> RunRepo(GitHubRepoConnection repo, params ToolCall[] calls) =>
+        RoundExecutor.ExecuteOneRoundAsync(
+            RoundResponse.Tools(calls), new NullProjectExplorer(), (_, __) => { },
+            null, repo, null, null, null, default);
 
     [Fact]
     public async Task DeclareOutput_EmitsDeclareOp_AndReturnsId()
@@ -73,5 +79,24 @@ public class DeclareOutputToolTests
     {
         var r = await Run(FC("round_intent", new { text = "go" }));
         Assert.Empty(r.OutputOps);
+    }
+
+    [Fact]
+    public async Task DeclareOutput_WithFiles_AttachesLinks_AlongsideDescription()
+    {
+        var r = await Run(FC("declare_output", new { content = "the plan", files = new[] { "docs/Plan.md", "Game/Map.cs" } }));
+        var declared = Assert.Single(r.OutputOps).Declared!;
+        Assert.Equal(new[] { "docs/Plan.md", "Game/Map.cs" }, declared.Links.Select(l => l.Path));
+        Assert.All(declared.Links, l => Assert.Equal(FileLinkSource.Workspace, l.Source));   // no repo connected
+        Assert.Equal("the plan", declared.Inline!.Content);   // description preserved alongside the links
+    }
+
+    [Fact]
+    public async Task DeclareOutput_WithFiles_RepoConnected_SourceIsRepo()
+    {
+        var repo = new GitHubRepoConnection { Owner = "o", Repo = "r" };
+        var r = await RunRepo(repo, FC("declare_output", new { content = "code", files = new[] { "src/A.cs" } }));
+        var link = Assert.Single(Assert.Single(r.OutputOps).Declared!.Links);
+        Assert.Equal(FileLinkSource.Repo, link.Source);
     }
 }

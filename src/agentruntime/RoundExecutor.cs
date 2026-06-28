@@ -88,6 +88,7 @@ public static class RoundExecutor
                         Kind = OutputKind.Document,
                         Label = StrOrNull(args, "label"),
                         Inline = new InlineContent { ContentType = ParseContentType(StrOrNull(args, "contentType")), Content = Str(args, "content") },
+                        Links = FileLinks(args, boardRepo),
                     };
                     ops.Add(new OutputOp(OutputOpKind.Declare, newId, Declared: declared));
                     outputs.Add(new(call.CallId, $"{{\"id\":\"{newId}\"}}"));
@@ -243,4 +244,16 @@ public static class RoundExecutor
         e.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.Array
             ? v.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList()
             : null;
+
+    /// <summary>Parse the declare_output `files` param into deliverable file links. Source is inferred
+    /// from whether the board has a connected repo (Repo) or not (Workspace) — both resolve against main.</summary>
+    private static List<FileLink> FileLinks(JsonElement e, GitHubRepoConnection? boardRepo)
+    {
+        var paths = StrArr(e, "files");
+        if (paths is null) return [];
+        var source = boardRepo is not null ? FileLinkSource.Repo : FileLinkSource.Workspace;
+        return paths.Where(p => !string.IsNullOrWhiteSpace(p))
+                    .Select(p => new FileLink { Path = p.Trim(), Source = source })
+                    .ToList();
+    }
 }
