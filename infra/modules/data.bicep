@@ -109,6 +109,14 @@ resource functionDeployContainer 'Microsoft.Storage/storageAccounts/blobServices
   name: functionDeployContainerName
 }
 
+// Durable per-board git-bundle snapshots for no-repo boards (their files have no GitHub origin, so this
+// blob container is their durable store, restored into a fresh ACI on provision). The workflows MI already
+// holds Storage Blob Data Owner on this account (see rbac.bicep), so no extra role assignment is needed.
+resource workspaceSnapshotsContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blobService
+  name: 'workspace-snapshots'
+}
+
 // ── Key Vault (RBAC authorization) ───────────────────────────────────────────
 resource kv 'Microsoft.KeyVault/vaults@2023-07-01' = {
   name: toLower(take('kv-${namePrefix}${sfx}', 24))
