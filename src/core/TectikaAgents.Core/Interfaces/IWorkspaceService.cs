@@ -34,6 +34,10 @@ public interface IWorkspaceService
     /// <summary>Delete the ACI container group for a board.</summary>
     Task DestroyBoardContainerAsync(string containerName, CancellationToken ct = default);
 
+    /// <summary>Live ACI state for the board's container group, queried from Azure Resource Manager.
+    /// Returns <see cref="WorkspaceAzureState.NotFound"/> when no group exists.</summary>
+    Task<WorkspaceAzureState> GetBoardContainerStatusAsync(string containerName, CancellationToken ct = default);
+
     /// <summary>Run a shell command in the workspace container. Returns stdout/stderr/exit_code.
     /// Pass <paramref name="runId"/> (short, 8-char) to execute inside the run's worktree;
     /// null falls back to /workspace/main.</summary>
@@ -56,3 +60,5 @@ public sealed record CommandResult(
     public bool Success => ExitCode == 0;
     public string Summary => Success ? Stdout.Trim() : $"exit {ExitCode}\n{Stderr.Trim()}";
 }
+
+public enum WorkspaceAzureState { NotFound, Provisioning, Running, Stopped, Failed, Unknown }

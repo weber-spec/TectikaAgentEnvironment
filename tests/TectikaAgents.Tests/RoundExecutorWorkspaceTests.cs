@@ -114,6 +114,8 @@ public class RoundExecutorWorkspaceTests
             => throw new NotImplementedException();
         public Task DestroyBoardContainerAsync(string containerName, CancellationToken ct = default)
             => throw new NotImplementedException();
+        public Task<WorkspaceAzureState> GetBoardContainerStatusAsync(string containerName, CancellationToken ct = default)
+            => throw new NotImplementedException();
         public Task<CommandResult> RunCommandAsync(string endpoint, string token, string command, int timeoutSeconds = 60, string? runId = null, CancellationToken ct = default)
             => throw new NotImplementedException();
         public Task<string> InvokeAsync(string endpoint, string token, string route, object body, CancellationToken ct = default)

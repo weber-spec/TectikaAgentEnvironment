@@ -18,6 +18,7 @@ public sealed class FakeWorkspaceForRepo : IWorkspaceService
     public Task<byte[]> BundleAsync(string endpoint, string token, CancellationToken ct = default) => throw new NotImplementedException();
     public Task RestoreAsync(string endpoint, string token, byte[] bundle, CancellationToken ct = default) => throw new NotImplementedException();
     public Task DestroyBoardContainerAsync(string containerName, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<WorkspaceAzureState> GetBoardContainerStatusAsync(string containerName, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<CommandResult> RunCommandAsync(string endpoint, string token, string command, int timeoutSeconds = 60, string? runId = null, CancellationToken ct = default) => throw new NotImplementedException();
 }
 
@@ -54,6 +55,7 @@ public sealed class FakeCosmosForRepo : ICosmosDbService
     public Task<AgentTask> UpdateTaskAsync(AgentTask task, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<AgentTask?> TryClaimTaskForRunAsync(string boardId, string taskId, string runId, string sessionId, CancellationToken ct = default) => throw new NotImplementedException();
     public Task DeleteTaskAsync(string boardId, string taskId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task PurgeTaskWorkDataAsync(string tenantId, string boardId, string taskId, CancellationToken ct = default) => throw new NotImplementedException();
 
     // ── Agent Roles ────────────────────────────────────────────────────────
     public Task<IEnumerable<AgentRole>> GetAgentRolesAsync(string tenantId, CancellationToken ct = default) => throw new NotImplementedException();

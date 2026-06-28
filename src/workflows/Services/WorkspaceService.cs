@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Azure;
 using Azure.Identity;
 using Azure.ResourceManager;
 using Azure.ResourceManager.ContainerInstance;
@@ -240,6 +241,53 @@ public class WorkspaceService : IWorkspaceService
         {
             _logger.LogWarning(ex, "[Workspace] destroy {Name} failed (non-fatal)", containerName);
         }
+    }
+
+    public async Task<WorkspaceAzureState> GetBoardContainerStatusAsync(string containerName, CancellationToken ct = default)
+    {
+        try
+        {
+            var arm = new ArmClient(new DefaultAzureCredential());
+            var subscription = await arm.GetDefaultSubscriptionAsync(ct);
+            var rg = (await subscription.GetResourceGroupAsync(_resourceGroup, ct)).Value;
+            var group = (await rg.GetContainerGroupAsync(containerName, ct)).Value;
+            return MapAciState(group.Data.InstanceView?.State);
+        }
+        catch (RequestFailedException e) when (e.Status == 404)
+        {
+            return WorkspaceAzureState.NotFound;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Workspace] status query for {Name} failed", containerName);
+            return WorkspaceAzureState.Unknown;
+        }
+    }
+
+    /// <summary>Map the ACI container-group instance-view state string to our enum. Exact matches for
+    /// the known ACI states first, then a substring fallback for any future/unknown variants. Public +
+    /// static so it is unit-testable without Azure. ("Succeeded" = the group ran to completion → Stopped.)</summary>
+    public static WorkspaceAzureState MapAciState(string? state)
+    {
+        if (string.IsNullOrWhiteSpace(state)) return WorkspaceAzureState.Unknown;
+        switch (state.Trim().ToLowerInvariant())
+        {
+            case "running": return WorkspaceAzureState.Running;
+            case "pending":
+            case "creating":
+            case "waiting": return WorkspaceAzureState.Provisioning;
+            case "stopped":
+            case "succeeded":
+            case "terminated": return WorkspaceAzureState.Stopped;
+            case "failed": return WorkspaceAzureState.Failed;
+        }
+        // Fallback heuristic for unknown/future ACI state strings.
+        var s = state.ToLowerInvariant();
+        if (s.Contains("run")) return WorkspaceAzureState.Running;
+        if (s.Contains("pend") || s.Contains("creat") || s.Contains("wait")) return WorkspaceAzureState.Provisioning;
+        if (s.Contains("stop") || s.Contains("terminat") || s.Contains("succeed")) return WorkspaceAzureState.Stopped;
+        if (s.Contains("fail") || s.Contains("error")) return WorkspaceAzureState.Failed;
+        return WorkspaceAzureState.Unknown;
     }
 
     public async Task<CommandResult> RunCommandAsync(
