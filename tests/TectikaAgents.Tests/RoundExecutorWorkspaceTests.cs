@@ -106,6 +106,8 @@ public class RoundExecutorWorkspaceTests
             => throw new NotImplementedException();
         public Task RemoveWorktreeAsync(string endpoint, string token, string runId, CancellationToken ct = default)
             => throw new NotImplementedException();
+        public Task<WorkspaceMergeResult> MergeRunBranchAsync(string endpoint, string token, string runId, CancellationToken ct = default)
+            => throw new NotImplementedException();
         public Task DestroyBoardContainerAsync(string containerName, CancellationToken ct = default)
             => throw new NotImplementedException();
         public Task<CommandResult> RunCommandAsync(string endpoint, string token, string command, int timeoutSeconds = 60, string? runId = null, CancellationToken ct = default)

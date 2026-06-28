@@ -180,6 +180,28 @@ public class WorkspaceService : IWorkspaceService
         }
     }
 
+    public async Task<WorkspaceMergeResult> MergeRunBranchAsync(
+        string endpoint, string token, string runId, CancellationToken ct = default)
+    {
+        _logger.LogInformation("[Workspace] merging run branch run={RunId} into board main", runId);
+        var json = await InvokeAsync(endpoint, token, "/worktree/merge", new { run_id = runId }, ct);
+        return ParseMerge(json);
+    }
+
+    /// <summary>Parse the executor /worktree/merge response. Public + static so it is unit-testable
+    /// without HTTP.</summary>
+    public static WorkspaceMergeResult ParseMerge(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.TryGetProperty("merged", out var m) && m.ValueKind == JsonValueKind.True)
+            return WorkspaceMergeResult.Success();
+        var files = root.TryGetProperty("files", out var f) && f.ValueKind == JsonValueKind.Array
+            ? f.EnumerateArray().Select(e => e.GetString() ?? "").Where(s => s.Length > 0).ToList()
+            : new List<string>();
+        return WorkspaceMergeResult.Conflict(files);
+    }
+
     public async Task DestroyBoardContainerAsync(string containerName, CancellationToken ct = default)
     {
         _logger.LogInformation("[Workspace] destroying ACI {Name}", containerName);

@@ -18,6 +18,11 @@ public interface IWorkspaceService
     /// <summary>Remove a git worktree for a run (best-effort — errors are logged, not thrown).</summary>
     Task RemoveWorktreeAsync(string endpoint, string token, string runId, CancellationToken ct = default);
 
+    /// <summary>No-repo boards: fold a run's branch into the LOCAL board main line via the executor
+    /// /worktree/merge op (commit worktree → merge → conflict-abort). Ok on a clean merge, else the
+    /// conflicting files (main left untouched).</summary>
+    Task<WorkspaceMergeResult> MergeRunBranchAsync(string endpoint, string token, string runId, CancellationToken ct = default);
+
     /// <summary>Delete the ACI container group for a board.</summary>
     Task DestroyBoardContainerAsync(string containerName, CancellationToken ct = default);
 
