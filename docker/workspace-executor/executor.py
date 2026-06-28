@@ -22,6 +22,9 @@ POST /worktree/add    {"run_id": "abc12345", "branch": "agent/abc12345", "can_pu
                       the main clone's current branch (the repo default).
 POST /worktree/remove {"run_id": "abc12345"}
                       -> {"removed": true}
+POST /worktree/merge  {"run_id": "abc12345"}   (no-repo boards: fold the run branch into local main)
+                      -> {"merged": true, "commit": "<sha>"}
+                       | {"merged": false, "conflict": true, "files": ["a.cs", ...], "detail": "..."}
 GET  /worktree/list                         -> {"worktrees": [{"run_id":"...","path":"...","branch":"..."},...]}
 GET  /health                                -> 200 "ok"
 
@@ -32,6 +35,7 @@ import os
 import json
 import signal
 import subprocess
+import threading
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 TOKEN = os.environ.get("EXECUTOR_TOKEN", "")
@@ -39,6 +43,7 @@ WORKSPACE_ROOT = "/workspace"
 WORKSPACE_MAIN = "/workspace/main"
 WORKSPACE_RUNS = "/workspace/runs"
 MAX_LIMIT = 500
+_MERGE_LOCK = threading.Lock()   # serialize merges into /workspace/main (one container per board)
 
 
 def _resolve_workdir(body: dict) -> str:
@@ -146,6 +151,7 @@ class Handler(BaseHTTPRequestHandler):
             "/search":         self._handle_search,
             "/worktree/add":   self._handle_worktree_add,
             "/worktree/remove": self._handle_worktree_remove,
+            "/worktree/merge": self._handle_worktree_merge,
         }
         handler = dispatch.get(self.path)
         if handler is None:
@@ -326,6 +332,49 @@ class Handler(BaseHTTPRequestHandler):
             )
 
         return {"created": True, "path": worktree_path, "branch": branch}
+
+    def _handle_worktree_merge(self, body):
+        run_id = body.get("run_id", "")
+        if not run_id:
+            return {"error": "run_id required"}
+        branch = f"agent/{run_id}"
+        worktree = os.path.join(WORKSPACE_RUNS, run_id)
+
+        # Serialize merges into /workspace/main — one container per board ⇒ one process, so a process
+        # lock is sufficient to prevent two completing runs racing on the shared index.
+        with _MERGE_LOCK:
+            # Commit any uncommitted work in the run's worktree so its branch is complete.
+            if os.path.isdir(worktree):
+                subprocess.run(["git", "add", "-A"], cwd=worktree)
+                subprocess.run(["git", "commit", "-m", f"agent run {run_id}"], cwd=worktree)  # no-op if nothing staged
+
+            # Merge into whatever branch /workspace/main is on (main or master).
+            target = subprocess.run(
+                ["git", "branch", "--show-current"],
+                cwd=WORKSPACE_MAIN, capture_output=True, text=True).stdout.strip() or "main"
+            merge = subprocess.run(
+                ["git", "merge", "--no-ff", "-m", f"merge {branch}", branch],
+                cwd=WORKSPACE_MAIN, capture_output=True, text=True)
+
+            if merge.returncode != 0:
+                files = subprocess.run(
+                    ["git", "diff", "--name-only", "--diff-filter=U"],
+                    cwd=WORKSPACE_MAIN, capture_output=True, text=True).stdout.split()
+                subprocess.run(["git", "merge", "--abort"], cwd=WORKSPACE_MAIN)
+                return {"merged": False, "conflict": True, "files": files,
+                        "detail": (merge.stderr or merge.stdout).strip()[:500]}
+
+            commit = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=WORKSPACE_MAIN, capture_output=True, text=True).stdout.strip()
+            # Push the advanced main line if a remote exists (best-effort; local main is the truth).
+            if subprocess.run(["git", "remote"], cwd=WORKSPACE_MAIN, capture_output=True, text=True).stdout.strip():
+                push = subprocess.run(
+                    ["git", "push", "origin", f"HEAD:refs/heads/{target}"],
+                    cwd=WORKSPACE_MAIN, capture_output=True, text=True)
+                if push.returncode != 0:
+                    print(f"[worktree/merge] push failed: {push.stderr.strip()}", flush=True)
+            return {"merged": True, "commit": commit}
 
     def _handle_worktree_remove(self, body):
         run_id = body.get("run_id", "")
