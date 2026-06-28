@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -85,6 +86,13 @@ public class ContextManager
                 sb.AppendLine($"(Full content available via the get_artifact tool: taskId={art.TaskId}.)");
                 used += EstimateTokens(summary);
             }
+
+            // Surface the deliverable's declared file links (S2): the exact files this upstream task
+            // produced, reachable on your base branch — open them with read_file, do not hunt or assume.
+            var linkPaths = art.Outputs.SelectMany(o => o.Links).Select(l => l.Path)
+                .Where(p => !string.IsNullOrWhiteSpace(p)).Distinct().ToList();
+            if (linkPaths.Count > 0)
+                sb.AppendLine($"Deliverable files from task {art.TaskId}: {string.Join(", ", linkPaths)}");
         }
 
         sb.AppendLine("\nComplete the task. Be thorough and production-ready.");

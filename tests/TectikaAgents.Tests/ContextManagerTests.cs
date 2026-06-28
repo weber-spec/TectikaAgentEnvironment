@@ -21,6 +21,33 @@ public class ContextManagerTests
     }
 
     [Fact]
+    public void Assemble_SurfacesUpstreamDeliverableFileLinks()
+    {
+        var role = new AgentRole { Id = "r", DisplayName = "Dev", SystemPrompt = "S" };
+        var task = new AgentTask { Id = "t", Title = "Implement X" };
+        var board = new Board { Id = "b" };
+        var upstream = new List<Artifact>
+        {
+            new()
+            {
+                TaskId = "u", ContentType = ArtifactContentType.Markdown, Content = "the plan",
+                Outputs =
+                {
+                    new Output
+                    {
+                        Inline = new InlineContent { Content = "the plan" },
+                        Links = { new FileLink { Path = "docs/Plan.md", Source = FileLinkSource.Repo } },
+                    },
+                },
+            },
+        };
+
+        var text = ContextManager.Assemble(role, task, board, upstream);
+
+        Assert.Contains("docs/Plan.md", text);   // downstream is told where the deliverable file lives
+    }
+
+    [Fact]
     public void Context_InstructsAgentToDeclareOutputsAndSummarize()
     {
         var role = new AgentRole { Id = "r", DisplayName = "Dev", SystemPrompt = "SECRET-SYS-PROMPT" };
