@@ -5,6 +5,7 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using TectikaAgents.AgentRuntime.GitHub;
+using TectikaAgents.Core.Interfaces;
 using TectikaAgents.Core.Models;
 using TectikaAgents.Workflows.Services;
 
@@ -19,6 +20,7 @@ public class UpdateRunStatusActivity
     private readonly IConfiguration _config;
     private readonly IGitHubReadService _ghRead;
     private readonly IGitHubWriteService _ghWrite;
+    private readonly IWorkspaceService _workspace;
 
     public UpdateRunStatusActivity(
         WorkflowCosmosService cosmos,
@@ -27,7 +29,8 @@ public class UpdateRunStatusActivity
         IHttpClientFactory httpClientFactory,
         IConfiguration config,
         IGitHubReadService ghRead,
-        IGitHubWriteService ghWrite)
+        IGitHubWriteService ghWrite,
+        IWorkspaceService workspace)
     {
         _cosmos = cosmos;
         _events = events;
@@ -36,6 +39,7 @@ public class UpdateRunStatusActivity
         _config = config;
         _ghRead = ghRead;
         _ghWrite = ghWrite;
+        _workspace = workspace;
     }
 
     [Function(nameof(UpdateRunStatusActivity))]
@@ -209,7 +213,7 @@ public class UpdateRunStatusActivity
     /// physically see this task's deliverables. Gated by the assignee role's <c>CanPushCode</c>, the single
     /// authority for any write to origin (branch push AND merge): a task whose agent lacks the permission
     /// never reaches <c>main</c>. Returns <c>true</c> if the chain may cascade downstream; <c>false</c> only
-    /// when a merge conflict blocked integration (the task is marked Blocked and a failure is surfaced).</summary>
+    /// when a merge conflict blocked integration (the task is sent to Review with a surfaced message).</summary>
     private async Task<bool> MergeCompletedBranchToBaseAsync(
         WorkflowRun run, string boardId, string taskId, string runId, CancellationToken ct)
     {
@@ -221,8 +225,10 @@ public class UpdateRunStatusActivity
         var board = await _cosmos.GetBoardAsync(boardId, task.TenantId, ct);
         if (board?.GitHub is null)
         {
-            _logger.LogDebug("[Merge] no GitHub repo connected on board {BoardId} — nothing to merge", boardId);
-            return true;
+            // No remote: deliverable files live only in this board's LOCAL workspace git. Fold the run's
+            // branch into local /workspace/main so downstream runs (which fork from it) physically see
+            // them. No CanPushCode gate — there is no origin to write to; this is purely local.
+            return await MergeLocalNoRepoAsync(run, boardId, taskId, runId, ct);
         }
 
         // Enforcement: only a task whose agent role has CanPushCode may write to origin. A task without the
@@ -255,10 +261,9 @@ public class UpdateRunStatusActivity
                     return true;
                 case MergeOutcome.Conflict:
                 default:
-                    _logger.LogWarning("[Merge] conflict merging {Head} → {Base} for task {TaskId} — marking Blocked", head, baseBranch, taskId);
-                    await _cosmos.UpdateTaskStatusAsync(boardId, taskId, AgentTaskStatus.Blocked, runId, ct);
-                    await EmitRunFailureAsync(runId, taskId, run.CurrentStep, RunFailureClass.Unknown,
-                        $"Auto-merge of {head} into {baseBranch} hit a conflict — manual merge required before downstream tasks can run.", ct);
+                    _logger.LogWarning("[Merge] conflict merging {Head} → {Base} for task {TaskId} — sending to Review", head, baseBranch, taskId);
+                    await MarkMergeConflictReviewAsync(boardId, taskId, runId, run.CurrentStep,
+                        new[] { $"{head} ↔ {baseBranch}" }, ct);
                     return false;
             }
         }
@@ -269,6 +274,55 @@ public class UpdateRunStatusActivity
             _logger.LogError(ex, "[Merge] unexpected error merging {Head} → {Base} for task {TaskId}", head, baseBranch, taskId);
             return true;
         }
+    }
+
+    /// <summary>No-repo boards: fold the run's branch into local /workspace/main via the executor's
+    /// /worktree/merge op (the local analogue of the GitHub-API merge). Returns true to allow the downstream
+    /// cascade; false on a real conflict (task → Review, message surfaced, main untouched).</summary>
+    private async Task<bool> MergeLocalNoRepoAsync(WorkflowRun run, string boardId, string taskId, string runId, CancellationToken ct)
+    {
+        if (run.WorkspaceEndpoint is null || run.WorkspaceToken is null)
+        {
+            _logger.LogDebug("[Merge] no repo + no workspace for task {TaskId} — nothing to merge", taskId);
+            return true;   // pure-document run; nothing on disk to integrate
+        }
+        var runIdShort = runId[..Math.Min(8, runId.Length)];
+        WorkspaceMergeResult result;
+        try { result = await _workspace.MergeRunBranchAsync(run.WorkspaceEndpoint, run.WorkspaceToken, runIdShort, ct); }
+        catch (Exception ex)
+        {
+            // Best-effort, mirroring the connected path: a transient executor error must not strand the pipeline.
+            _logger.LogError(ex, "[Merge] local merge errored for task {TaskId} — allowing cascade", taskId);
+            return true;
+        }
+        if (result.Ok)
+        {
+            _logger.LogInformation("[Merge] local merge of {Head} into board main ok for task {TaskId}", runIdShort, taskId);
+            return true;
+        }
+        _logger.LogWarning("[Merge] local merge conflict for task {TaskId} in: {Files}", taskId, string.Join(", ", result.ConflictFiles));
+        await MarkMergeConflictReviewAsync(boardId, taskId, runId, run.CurrentStep, result.ConflictFiles, ct);
+        return false;
+    }
+
+    /// <summary>A merge (server-side or local) hit a conflict: route the task to Review with a clear,
+    /// user-visible message rather than silently completing. NeedsRevision → Review; an implementation task
+    /// has no outgoing QaFeedback edge, so this does not bounce the upstream QA loop.</summary>
+    private async Task MarkMergeConflictReviewAsync(string boardId, string taskId, string runId, int round,
+        IReadOnlyList<string> conflictFiles, CancellationToken ct)
+    {
+        var where = conflictFiles.Count > 0 ? string.Join(", ", conflictFiles) : "shared files";
+        var message = $"This task's changes could not be merged — they conflict with concurrent work in: {where}. " +
+                      "The task is in Review; re-run it to rebase on the latest, or resolve the conflict manually.";
+        await _cosmos.UpdateTaskStatusAsync(boardId, taskId, AgentTaskStatus.Review, runId, ct);
+        try
+        {
+            var ev = new RunEvent { TaskId = taskId, RunId = runId, Round = round,
+                Kind = RunEventKind.RevisionRequested, Title = message, Detail = message };
+            var saved = await _cosmos.CreateRunEventAsync(ev, ct);
+            await _events.PublishRunEventAsync(saved, ct);
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "[Merge] failed to surface conflict event for {TaskId}", taskId); }
     }
 
     private async Task TriggerDownstreamRunsAsync(string boardId, string taskId, CancellationToken ct)
