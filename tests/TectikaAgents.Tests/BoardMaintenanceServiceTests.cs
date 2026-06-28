@@ -93,4 +93,56 @@ public class BoardMaintenanceServiceTests
         Assert.Null((await cosmos.GetBoardAsync("t1", board.Id))!.GitHub);
         Assert.True(result.RepoDisconnected);
     }
+
+    [Fact]
+    public async Task Clone_WithoutData_CopiesStructure_ItemsToBacklog_NoArtifacts_Standalone()
+    {
+        var (svc, cosmos, _, _) = Make();
+        var src = await cosmos.CreateBoardAsync(new Board {
+            TenantId = "t1", Name = "Src", OwnerId = "u1", Columns = new() { "a", "b" },
+            GitHub = new GitHubRepoConnection { Owner = "o", Repo = "r", RepoUrl = "https://github.com/o/r", PatSecretName = "s" },
+        });
+        var t1 = await cosmos.CreateTaskAsync(new AgentTask { TenantId = "t1", BoardId = src.Id, Title = "T1", Status = AgentTaskStatus.Done });
+        var t2 = await cosmos.CreateTaskAsync(new AgentTask { TenantId = "t1", BoardId = src.Id, Title = "T2", Status = AgentTaskStatus.Review });
+        await cosmos.CreateArtifactAsync(new Artifact { TenantId = "t1", TaskId = t1.Id, Content = "x" });
+        await cosmos.CreateEdgeAsync(new TaskEdge { Id = TaskEdge.MakeId(t1.Id, t2.Id), TenantId = "t1", BoardId = src.Id, SourceTaskId = t1.Id, TargetTaskId = t2.Id });
+
+        var clone = await svc.CloneBoardAsync(src, name: null, includeData: false, ownerId: "u2");
+
+        Assert.NotEqual(src.Id, clone.Id);
+        Assert.Equal("Copy of Src", clone.Name);
+        Assert.Equal("u2", clone.OwnerId);
+        Assert.Null(clone.GitHub);
+        Assert.Equal(new[] { "a", "b" }, clone.Columns.ToArray());
+        var cloneTasks = (await cosmos.GetTasksByBoardAsync(clone.Id)).ToList();
+        Assert.Equal(2, cloneTasks.Count);
+        Assert.All(cloneTasks, t => Assert.Equal(AgentTaskStatus.Backlog, t.Status));
+        foreach (var t in cloneTasks)
+            Assert.Empty(await cosmos.GetArtifactVersionsAsync(t.Id));
+        var cloneEdges = (await cosmos.GetEdgesByBoardAsync(clone.Id)).ToList();
+        Assert.Single(cloneEdges);
+        Assert.NotEqual(TaskEdge.MakeId(t1.Id, t2.Id), cloneEdges[0].Id);
+    }
+
+    [Fact]
+    public async Task Clone_WithData_KeepsStatuses_CopiesLatestArtifact_AndSnapshot()
+    {
+        var (svc, cosmos, _, snaps) = Make();
+        var src = await cosmos.CreateBoardAsync(new Board { TenantId = "t1", Name = "Src", OwnerId = "u1" });
+        var t1 = await cosmos.CreateTaskAsync(new AgentTask { TenantId = "t1", BoardId = src.Id, Title = "T1", Status = AgentTaskStatus.Done });
+        await cosmos.CreateArtifactAsync(new Artifact { TenantId = "t1", TaskId = t1.Id, Version = 1, Content = "v1" });
+        await cosmos.CreateArtifactAsync(new Artifact { TenantId = "t1", TaskId = t1.Id, Version = 2, Content = "v2" });
+        await snaps.UploadAsync(src.Id, new byte[] { 9 });
+
+        var clone = await svc.CloneBoardAsync(src, name: "My Copy", includeData: true, ownerId: "u2");
+
+        Assert.Equal("My Copy", clone.Name);
+        var ct1 = (await cosmos.GetTasksByBoardAsync(clone.Id)).Single();
+        Assert.Equal(AgentTaskStatus.Done, ct1.Status);
+        var arts = (await cosmos.GetArtifactVersionsAsync(ct1.Id)).ToList();
+        Assert.Single(arts);
+        Assert.Equal("v2", arts[0].Content);
+        Assert.Equal(arts[0].Id, ct1.CurrentArtifactId);
+        Assert.Equal(new byte[] { 9 }, await snaps.DownloadAsync(clone.Id));
+    }
 }
