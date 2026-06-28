@@ -31,6 +31,7 @@ export function WorkspaceTab({ board, isOwner }: { board: Board; isOwner: boolea
   // Poll while the tab is open.
   useEffect(() => {
     alive.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- refresh() only setStates after an await (async), not synchronously
     void refresh();
     const t = setInterval(refresh, 5000);
     return () => { alive.current = false; clearInterval(t); };
