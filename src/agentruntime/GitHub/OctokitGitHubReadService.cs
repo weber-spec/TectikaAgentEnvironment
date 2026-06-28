@@ -5,7 +5,7 @@ using TectikaAgents.Core.Models;
 
 namespace TectikaAgents.AgentRuntime.GitHub;
 
-public sealed class OctokitGitHubReadService : IGitHubReadService
+public sealed class OctokitGitHubReadService : IGitHubReadService, IGitHubWriteService
 {
     private readonly ISecretProvider _secrets;
     public OctokitGitHubReadService(ISecretProvider secrets) => _secrets = secrets;
@@ -101,6 +101,25 @@ public sealed class OctokitGitHubReadService : IGitHubReadService
             .ToList();
         var headSha = cmp.Commits is { Count: > 0 } ? cmp.Commits[^1].Sha : head;
         return GitHubReadMapping.MapCompare(headSha, raw);
+    }
+
+    public async Task<MergeResult> MergeAsync(GitHubRepoConnection repo, string @base, string head, string message, CancellationToken ct)
+    {
+        var c = await ClientAsync(repo, ct);
+        try
+        {
+            var merge = await c.Repository.Merging.Create(repo.Owner, repo.Repo,
+                new NewMerge(@base, head) { CommitMessage = message });
+            // 204 No Content (base already contains head) → Octokit returns null.
+            return merge is null
+                ? new MergeResult(MergeOutcome.AlreadyUpToDate)
+                : new MergeResult(MergeOutcome.Merged, merge.Sha);
+        }
+        catch (ApiException ex) when ((int)ex.StatusCode == 409)
+        {
+            // Merge conflict — GitHub cannot merge automatically. Surface, don't throw.
+            return new MergeResult(MergeOutcome.Conflict);
+        }
     }
 
     private static PullRequestInfo Map(PullRequest p) => new(

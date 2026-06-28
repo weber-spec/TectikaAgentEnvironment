@@ -59,6 +59,11 @@ public class ContextManager
         sb.AppendLine("Then use `search_tasks`, `get_task`, and `get_artifact` as needed before doing any work.");
         sb.AppendLine("Do not write your final response without first calling at least `get_board_overview`.");
 
+        // Code handoff: completed upstream tasks are merged into your base branch, so their file
+        // deliverables are physically present in your working tree. Read the real files — do not assume
+        // they are missing because they aren't in the summaries below.
+        sb.AppendLine("\nDeliverables from completed upstream tasks are already merged into your branch's base and present as real files in the working tree — read them with `read_file`/`list_dir` rather than assuming they are absent.");
+
         // Direct upstream: full content within the token budget, then summaries (expandable via get_artifact).
         var used = EstimateTokens(sb.ToString());
         foreach (var art in upstream)

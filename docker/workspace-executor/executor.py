@@ -16,8 +16,10 @@ POST /list            {"path": "src/", "run_id": "..."}
                       -> {"entries": [{"name":"foo.cs","type":"file","size":1234},...], "path":"src/"}
 POST /search          {"pattern": "class Auth", "path": "src/", "glob": "*.cs", "run_id": "..."}
                       -> {"matches": [{"file":"src/Auth.cs","line":12,"text":"class AuthService"},...]}
-POST /worktree/add    {"run_id": "abc12345", "branch": "agent/abc12345", "can_push": true}
+POST /worktree/add    {"run_id": "abc12345", "branch": "agent/abc12345", "can_push": true, "base_ref": "main"}
                       -> {"created": true, "path": "/workspace/runs/abc12345", "branch": "agent/abc12345"}
+                      base_ref (optional) = branch to fork from; refreshed from origin first. Defaults to
+                      the main clone's current branch (the repo default).
 POST /worktree/remove {"run_id": "abc12345"}
                       -> {"removed": true}
 GET  /worktree/list                         -> {"worktrees": [{"run_id":"...","path":"...","branch":"..."},...]}
@@ -60,6 +62,35 @@ def _full_path(rel: str, workdir: str) -> str:
     if not os.path.abspath(full).startswith(os.path.abspath(workdir)):
         raise ValueError(f"Path '{rel}' escapes workspace")
     return full
+
+
+def _current_branch(repo_dir: str):
+    """Current branch of the main clone (the repo's default branch after a fresh clone), or None."""
+    if not os.path.isdir(repo_dir):
+        return None
+    proc = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True, cwd=repo_dir,
+    )
+    name = proc.stdout.strip()
+    return name if proc.returncode == 0 and name and name != "HEAD" else None
+
+
+def _refresh_base(base_ref: str):
+    """Fast-forward /workspace/main's local <base_ref> to origin so new worktrees fork from the latest
+    integrated state. Best-effort — a fetch failure leaves the existing local tip in place rather than
+    aborting worktree creation. Safe because /workspace/main is never edited directly."""
+    if not os.path.isdir(WORKSPACE_MAIN):
+        return
+    fetch = subprocess.run(
+        ["git", "fetch", "origin", base_ref],
+        capture_output=True, text=True, cwd=WORKSPACE_MAIN,
+    )
+    if fetch.returncode != 0:
+        print(f"[worktree] base refresh: fetch origin {base_ref} failed: {fetch.stderr.strip()}", flush=True)
+        return
+    subprocess.run(["git", "checkout", base_ref], capture_output=True, text=True, cwd=WORKSPACE_MAIN)
+    subprocess.run(["git", "reset", "--hard", f"origin/{base_ref}"], capture_output=True, text=True, cwd=WORKSPACE_MAIN)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -264,6 +295,7 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("run_id is required")
         branch = body.get("branch", f"agent/{run_id}")
         can_push = bool(body.get("can_push", True))
+        base_ref = body.get("base_ref") or _current_branch(WORKSPACE_MAIN) or "main"
 
         worktree_path = os.path.join(WORKSPACE_RUNS, run_id)
 
@@ -273,8 +305,15 @@ class Handler(BaseHTTPRequestHandler):
 
         os.makedirs(WORKSPACE_RUNS, exist_ok=True)
 
+        # Refresh the base branch from origin BEFORE forking the worktree. Completed upstream tasks are
+        # merged into the default branch server-side, but this container's local clone goes stale; without
+        # this the new worktree would fork from an outdated base and never see upstream deliverables.
+        # /workspace/main is never edited directly (all work happens in per-run worktrees), so a hard reset
+        # to origin/<base> is safe. Best-effort: a fetch blip falls back to the current local base tip.
+        _refresh_base(base_ref)
+
         proc = subprocess.run(
-            ["git", "worktree", "add", worktree_path, "-b", branch],
+            ["git", "worktree", "add", worktree_path, "-b", branch, base_ref],
             capture_output=True, text=True, cwd=WORKSPACE_MAIN,
         )
         if proc.returncode != 0:

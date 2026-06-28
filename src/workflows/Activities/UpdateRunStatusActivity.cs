@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using TectikaAgents.AgentRuntime.GitHub;
 using TectikaAgents.Core.Models;
 using TectikaAgents.Workflows.Services;
 
@@ -16,19 +17,25 @@ public class UpdateRunStatusActivity
     private readonly ILogger<UpdateRunStatusActivity> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConfiguration _config;
+    private readonly IGitHubReadService _ghRead;
+    private readonly IGitHubWriteService _ghWrite;
 
     public UpdateRunStatusActivity(
         WorkflowCosmosService cosmos,
         WorkflowEventPublisher events,
         ILogger<UpdateRunStatusActivity> logger,
         IHttpClientFactory httpClientFactory,
-        IConfiguration config)
+        IConfiguration config,
+        IGitHubReadService ghRead,
+        IGitHubWriteService ghWrite)
     {
         _cosmos = cosmos;
         _events = events;
         _logger = logger;
         _httpClientFactory = httpClientFactory;
         _config = config;
+        _ghRead = ghRead;
+        _ghWrite = ghWrite;
     }
 
     [Function(nameof(UpdateRunStatusActivity))]
@@ -83,7 +90,11 @@ public class UpdateRunStatusActivity
         if (taskStatus == AgentTaskStatus.Done)
         {
             await ResetQaEdgeIterationsAsync(input.BoardId, input.TaskId, ct);
-            await TriggerDownstreamRunsAsync(input.BoardId, input.TaskId, ct);
+            // Integrate this run's branch into the repo's default branch BEFORE cascading downstream,
+            // so the next run (which forks from the default branch) physically sees this task's work.
+            var integrated = await MergeCompletedBranchToBaseAsync(run, input.BoardId, input.TaskId, input.RunId, ct);
+            if (integrated)
+                await TriggerDownstreamRunsAsync(input.BoardId, input.TaskId, ct);
         }
         else if (taskStatus == AgentTaskStatus.Review)
             await TryTriggerQaLoopAsync(input.BoardId, input.TaskId, input.RunId, ct);
@@ -191,6 +202,73 @@ public class UpdateRunStatusActivity
             }
         }
         catch (Exception ex) { _logger.LogWarning(ex, "[QaLoop] failed to reset QA iterations on success for {TaskId}", taskId); }
+    }
+
+    /// <summary>On successful task completion, merge the run's agent branch into the repo's default branch
+    /// (server-side, via the GitHub merges API) so downstream runs — which fork from the default branch —
+    /// physically see this task's deliverables. Gated by the assignee role's <c>CanPushCode</c>, the single
+    /// authority for any write to origin (branch push AND merge): a task whose agent lacks the permission
+    /// never reaches <c>main</c>. Returns <c>true</c> if the chain may cascade downstream; <c>false</c> only
+    /// when a merge conflict blocked integration (the task is marked Blocked and a failure is surfaced).</summary>
+    private async Task<bool> MergeCompletedBranchToBaseAsync(
+        WorkflowRun run, string boardId, string taskId, string runId, CancellationToken ct)
+    {
+        AgentTask? task;
+        try { task = await _cosmos.GetTaskAsync(boardId, taskId, ct); }
+        catch (Exception ex) { _logger.LogError(ex, "[Merge] task load failed for {TaskId} — skipping merge", taskId); return true; }
+        if (task is null) return true;
+
+        var board = await _cosmos.GetBoardAsync(boardId, task.TenantId, ct);
+        if (board?.GitHub is null)
+        {
+            _logger.LogDebug("[Merge] no GitHub repo connected on board {BoardId} — nothing to merge", boardId);
+            return true;
+        }
+
+        // Enforcement: only a task whose agent role has CanPushCode may write to origin. A task without the
+        // permission never pushed a branch and must not be merged to the default branch either.
+        var role = task.Assignee.Type == AssigneeType.Agent && !string.IsNullOrEmpty(task.Assignee.Id)
+            ? await _cosmos.GetAgentRoleAsync(task.TenantId, task.Assignee.Id, ct)
+            : null;
+        if (role is null || !role.Permissions.CanPushCode)
+        {
+            _logger.LogInformation("[Merge] task {TaskId} agent lacks CanPushCode — work stays on its branch, not merged to base", taskId);
+            return true;
+        }
+
+        var head = $"agent/{runId[..Math.Min(8, runId.Length)]}";
+        string baseBranch;
+        try { baseBranch = (await _ghRead.GetRepoMetadataAsync(board.GitHub, ct)).DefaultBranch; }
+        catch (Exception ex) { _logger.LogError(ex, "[Merge] could not resolve default branch for board {BoardId} — skipping merge", boardId); return true; }
+
+        try
+        {
+            var msg = $"Merge {head} into {baseBranch} (task {taskId[..Math.Min(8, taskId.Length)]})";
+            var result = await _ghWrite.MergeAsync(board.GitHub, baseBranch, head, msg, ct);
+            switch (result.Outcome)
+            {
+                case MergeOutcome.Merged:
+                    _logger.LogInformation("[Merge] {Head} → {Base} merged ({Sha}) for task {TaskId}", head, baseBranch, result.Sha, taskId);
+                    return true;
+                case MergeOutcome.AlreadyUpToDate:
+                    _logger.LogInformation("[Merge] {Base} already contains {Head} (task {TaskId}) — nothing to merge", baseBranch, head, taskId);
+                    return true;
+                case MergeOutcome.Conflict:
+                default:
+                    _logger.LogWarning("[Merge] conflict merging {Head} → {Base} for task {TaskId} — marking Blocked", head, baseBranch, taskId);
+                    await _cosmos.UpdateTaskStatusAsync(boardId, taskId, AgentTaskStatus.Blocked, runId, ct);
+                    await EmitRunFailureAsync(runId, taskId, run.CurrentStep, RunFailureClass.Unknown,
+                        $"Auto-merge of {head} into {baseBranch} hit a conflict — manual merge required before downstream tasks can run.", ct);
+                    return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            // Best-effort: a transient GitHub error must not strand the pipeline. Log loudly and let the
+            // cascade proceed; if the work truly didn't integrate, downstream surfaces it as before.
+            _logger.LogError(ex, "[Merge] unexpected error merging {Head} → {Base} for task {TaskId}", head, baseBranch, taskId);
+            return true;
+        }
     }
 
     private async Task TriggerDownstreamRunsAsync(string boardId, string taskId, CancellationToken ct)

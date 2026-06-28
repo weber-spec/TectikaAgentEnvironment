@@ -352,6 +352,7 @@ public class RunAgentRoundActivity
         return repoConnected
             ? header +
               $"\nThe repository is ready. **Your working directory is `/workspace/runs/{branch}` and you are already on branch `{branch}`.** " +
+              "Your branch was forked from the up-to-date base branch, so file deliverables from completed upstream tasks are already present here — read them with `read_file`/`list_dir`.\n" +
               "Do NOT run `git init`, `git checkout`, `git branch`, or create new branches — the branch is already set up.\n" +
               (canPushCode
                   ? "Git is configured — you can `git commit` and `git push`."
