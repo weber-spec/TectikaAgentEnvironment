@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Modal } from '@/components/ui/overlays';
 import { Button } from '@/components/ui/primitives';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import type { Board } from '@/lib/types';
 import { toast } from '@/lib/toast';
 
@@ -26,6 +26,17 @@ function GitHubIcon({ size = 20 }: { size?: number }) {
   );
 }
 
+function extractConnectError(err: ApiError): string {
+  const brace = err.message.indexOf('{');
+  if (brace >= 0) {
+    try {
+      const body = JSON.parse(err.message.slice(brace));
+      if (body?.error) return String(body.error);
+    } catch { /* not JSON — fall through */ }
+  }
+  return 'This repository is already connected to another board.';
+}
+
 interface Props {
   board: Board;
   onClose: () => void;
@@ -38,17 +49,23 @@ export function GitHubConnectModal({ board, onClose, onUpdated }: Props) {
   const [pat, setPat] = useState('');
   const [saving, setSaving] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleConnect = async () => {
     if (!repoUrl.trim()) return;
     setSaving(true);
+    setError(null);
     try {
       const updated = await api.boards.connectGitHub(board.id, repoUrl.trim(), pat);
       onUpdated(updated);
       toast('GitHub repo connected', 'success');
       onClose();
-    } catch {
-      toast('Could not connect repo', 'error');
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        setError(extractConnectError(err));
+      } else {
+        toast('Could not connect repo', 'error');
+      }
     } finally {
       setSaving(false);
     }
@@ -98,6 +115,9 @@ export function GitHubConnectModal({ board, onClose, onUpdated }: Props) {
       }
     >
       <div className="flex flex-col gap-4">
+        {error && (
+          <div className="text-sm text-[#e2445c] bg-[#e2445c11] px-3 py-2 rounded-lg">{error}</div>
+        )}
         {connected && (
           <div className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-3 py-2 rounded-lg">
             <GitHubIcon size={14} />
@@ -113,7 +133,7 @@ export function GitHubConnectModal({ board, onClose, onUpdated }: Props) {
             className="inp mt-1 w-full"
             placeholder="https://github.com/org/repo"
             value={repoUrl}
-            onChange={e => setRepoUrl(e.target.value)}
+            onChange={e => { setRepoUrl(e.target.value); setError(null); }}
           />
         </label>
 
