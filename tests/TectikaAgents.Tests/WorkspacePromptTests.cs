@@ -43,4 +43,12 @@ public class WorkspacePromptTests
         var p = RunAgentRoundActivity.WorkspacePrompt(canUseWorkspace: true, repoConnected: true, canPushCode: true);
         Assert.Contains("full autonomy", p);
     }
+
+    // S3 — the deliverable contract: files reach downstream via declare_output's `files` links, not the repo.
+    [Fact] public void Prompt_tells_agent_to_deliver_files_via_declare_output_links()
+    {
+        var p = RunAgentRoundActivity.WorkspacePrompt(canUseWorkspace: true, repoConnected: true, canPushCode: true);
+        Assert.Contains("declare_output", p);
+        Assert.Contains("`files`", p);
+    }
 }

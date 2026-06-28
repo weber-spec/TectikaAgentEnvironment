@@ -290,9 +290,14 @@ public class RunAgentRoundActivity
     /// to use the request_revision tool, which auto-re-runs the upstream loop target.</summary>
     public const string ValidatorPrompt =
         "\n\n## You are a QA validator for this pipeline\n" +
-        "This task gates an upstream task. Review the upstream work against the requirements.\n" +
+        "This task gates an upstream task. Its deliverable is the upstream's **declared output** shown above — " +
+        "a summary plus any linked files, which are merged into your base branch (open them with `read_file` / " +
+        "`list_dir`). Review THAT against the requirements.\n" +
+        "- Judge the deliverable's substance. Do NOT request revision merely because a file isn't where you " +
+        "expected or looks 'missing from the repo' — read the declared output and its linked files first; they " +
+        "are the deliverable, and a git repo is optional.\n" +
         "- If it is acceptable, finish normally (your summary becomes the validation record).\n" +
-        "- If it needs rework, call the `request_revision` tool with a clear, specific reason. " +
+        "- If it genuinely needs rework, call the `request_revision` tool with a clear, specific reason. " +
         "That AUTOMATICALLY re-runs the upstream task with your feedback — do not ask a human, and do not " +
         "try to fix the upstream work yourself. State exactly what must change so the re-run can address it.";
 
@@ -339,8 +344,13 @@ public class RunAgentRoundActivity
             "success you did not observe in a tool result\n" +
             "- Mark the task done without having run at least one `run_command` or `write_file`\n" +
             "- Run `git init`, `git checkout`, `git branch`, or create new branches — the branch is already set up\n\n" +
-            "**`declare_output` is for documents only** (specs, ADRs, READMEs, reports).\n" +
-            "Code belongs in workspace files, not in tool call arguments.\n\n" +
+            "**Deliver your work with `declare_output`** — that record (not the git repo, which is optional " +
+            "and whose per-run branches don't carry across tasks) is how your work reaches the user and " +
+            "downstream tasks:\n" +
+            "- A document deliverable (spec, plan, report): put it in `declare_output`'s `content`.\n" +
+            "- Files/code you wrote: keep the code in workspace files (never in tool arguments) AND pass their " +
+            "paths in `declare_output`'s `files` so they're delivered as links — downstream opens them from the " +
+            "merged base branch, never from your private run branch.\n\n" +
             "| File task      | Use          | NOT               |\n" +
             "|----------------|--------------|-------------------|\n" +
             "| Read a file    | `read_file`  | `run_command cat` |\n" +
