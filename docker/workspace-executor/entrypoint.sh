@@ -38,7 +38,14 @@ if [ -n "${REPO_URL:-}" ]; then
     fi
     echo "[entrypoint] ready on $(git branch --show-current) at /workspace/main"
 else
-    echo "[entrypoint] standalone sandbox (no repo) at /workspace/main"
+    echo "[entrypoint] standalone sandbox (no repo) — initializing local git at /workspace/main"
+    git config --global user.email "agent@tectika.com"
+    git config --global user.name "Tectika Agent"
+    git config --global init.defaultBranch main
+    cd /workspace/main
+    git init -b main
+    git commit --allow-empty -m "init: standalone board workspace"
+    echo "[entrypoint] ready on $(git branch --show-current) at /workspace/main (no remote)"
 fi
 
 # Keep the raw token out of the executor's environment (and therefore out of every run_command shell):
