@@ -94,6 +94,14 @@ already shipped (commit `ea3ee69`).
 
 ## S1 — Git-always substrate + merge-back pipeline (detailed spec)
 
+> **Reconciliation (2026-06-28):** while S1 was being planned, `929c600` shipped the **connected-repo**
+> half independently — a server-side **GitHub-API merge** on completion (origin = source of truth;
+> worktrees refresh from origin), gated by `CanPushCode`. Per user decision, we keep it as-is (**hybrid**)
+> and S1 now covers only what it skips: the **no-repo** case (local `git init` + local merge) and aligning
+> **both** conflict paths to **Review** (was `Blocked`). The original loop-based mechanism below is
+> superseded — the merge lives in `UpdateRunStatusActivity.MergeCompletedBranchToBaseAsync`, which S1
+> extends. Implementation plan: `docs/superpowers/plans/2026-06-28-s1-git-substrate-merge-pipeline.md`.
+
 ### Goal
 
 The board workspace is always a git repo, and a completed run's files become visible to
