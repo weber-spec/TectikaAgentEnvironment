@@ -160,6 +160,16 @@ builder.Services.AddSingleton<CliBridgeManager>();
 // ── Workspace Service (board-level ACI containers) ───────────────────────────
 builder.Services.AddSingleton<TectikaAgents.Core.Interfaces.IWorkspaceService, TectikaAgents.Workflows.Services.WorkspaceService>();
 
+// ── Workspace snapshot store (blob in prod; in-memory in mock mode) ───────────
+if (useMockDatabase)
+    builder.Services.AddSingleton<TectikaAgents.Workflows.Services.IWorkspaceSnapshotStore, TectikaAgents.Api.Services.InMemoryWorkspaceSnapshotStore>();
+else
+    builder.Services.AddSingleton<TectikaAgents.Workflows.Services.IWorkspaceSnapshotStore, TectikaAgents.Workflows.Services.BlobWorkspaceSnapshotStore>();
+
+// ── Board maintenance (reset/clone) + workspace control ──────────────────────
+builder.Services.AddScoped<TectikaAgents.Api.Services.IBoardMaintenanceService, TectikaAgents.Api.Services.BoardMaintenanceService>();
+builder.Services.AddScoped<TectikaAgents.Api.Services.IWorkspaceControlService, TectikaAgents.Api.Services.WorkspaceControlService>();
+
 // ── HttpClientFactory (used by RunsController to call Durable Functions) ──────
 builder.Services.AddHttpClient();
 

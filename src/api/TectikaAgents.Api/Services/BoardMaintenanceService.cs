@@ -7,8 +7,14 @@ namespace TectikaAgents.Api.Services;
 
 public sealed record ResetBoardResult(int TasksReset, int RunsCancelled, bool WorkspaceTerminated, bool RepoDisconnected);
 
+public interface IBoardMaintenanceService
+{
+    Task<ResetBoardResult> ResetBoardAsync(Board board, bool clearRepo, CancellationToken ct = default);
+    Task<Board> CloneBoardAsync(Board source, string? name, bool includeData, string ownerId, CancellationToken ct = default);
+}
+
 /// <summary>Destructive board maintenance: reset (wipe produced work, keep the plan) and clone.</summary>
-public sealed class BoardMaintenanceService
+public sealed class BoardMaintenanceService : IBoardMaintenanceService
 {
     private readonly ICosmosDbService _cosmos;
     private readonly IChatService _chat;

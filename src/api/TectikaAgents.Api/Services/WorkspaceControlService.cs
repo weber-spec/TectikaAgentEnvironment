@@ -15,10 +15,18 @@ public sealed record BoardWorkspaceStatusDto(
     bool HasActiveRuns,
     string Image);
 
+public interface IWorkspaceControlService
+{
+    Task<BoardWorkspaceStatusDto> GetStatusAsync(Board board, CancellationToken ct = default);
+    Task<BoardWorkspaceStatusDto> StartAsync(Board board, CancellationToken ct = default);
+    Task<BoardWorkspaceStatusDto?> RestartAsync(Board board, CancellationToken ct = default);
+    Task<bool> TerminateAsync(Board board, CancellationToken ct = default);
+}
+
 /// <summary>Board-level workspace (ACI) control surfaced in Board Settings: status, start, restart,
 /// terminate. Start mirrors the run-attach contract exactly — it persists the executor token to the
 /// KV secret <c>workspace-token-board-{boardId}</c> so subsequent runs can attach.</summary>
-public sealed class WorkspaceControlService
+public sealed class WorkspaceControlService : IWorkspaceControlService
 {
     // Mirrors IdleWorkspaceCleanupTrigger.IdleTimeout (10 min) for the shutdown-countdown display.
     private static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(10);

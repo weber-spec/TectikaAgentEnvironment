@@ -14,13 +14,18 @@ public class BoardsController : ControllerBase
     private readonly ICosmosDbService _cosmos;
     private readonly ISecretProvider _secrets;
     private readonly IWorkspaceService _workspaceService;
+    private readonly IBoardMaintenanceService _maintenance;
+    private readonly IWorkspaceControlService _workspaceControl;
     private readonly ILogger<BoardsController> _logger;
 
-    public BoardsController(ICosmosDbService cosmos, ISecretProvider secrets, IWorkspaceService workspaceService, ILogger<BoardsController> logger)
+    public BoardsController(ICosmosDbService cosmos, ISecretProvider secrets, IWorkspaceService workspaceService,
+        IBoardMaintenanceService maintenance, IWorkspaceControlService workspaceControl, ILogger<BoardsController> logger)
     {
         _cosmos = cosmos;
         _secrets = secrets;
         _workspaceService = workspaceService;
+        _maintenance = maintenance;
+        _workspaceControl = workspaceControl;
         _logger = logger;
     }
 
@@ -178,8 +183,73 @@ public class BoardsController : ControllerBase
             throw;
         }
     }
+
+    // ── Workspace (ACI) control ──────────────────────────────────────────────
+    [HttpGet("{boardId}/workspace")]
+    public async Task<IActionResult> GetWorkspace(string boardId, CancellationToken ct)
+    {
+        var board = await _cosmos.GetBoardAsync(TenantId, boardId, ct);
+        if (board is null) return NotFound();
+        return Ok(await _workspaceControl.GetStatusAsync(board, ct));
+    }
+
+    [HttpPost("{boardId}/workspace")]
+    public async Task<IActionResult> StartWorkspace(string boardId, CancellationToken ct)
+    {
+        var board = await _cosmos.GetBoardAsync(TenantId, boardId, ct);
+        if (board is null) return NotFound();
+        if (board.OwnerId != UserId) return Forbid();
+        return Ok(await _workspaceControl.StartAsync(board, ct));
+    }
+
+    [HttpPost("{boardId}/workspace/restart")]
+    public async Task<IActionResult> RestartWorkspace(string boardId, CancellationToken ct)
+    {
+        var board = await _cosmos.GetBoardAsync(TenantId, boardId, ct);
+        if (board is null) return NotFound();
+        if (board.OwnerId != UserId) return Forbid();
+        var dto = await _workspaceControl.RestartAsync(board, ct);
+        return dto is null
+            ? Conflict(new { error = "Cannot restart while the board has active runs. Stop them first." })
+            : Ok(dto);
+    }
+
+    [HttpDelete("{boardId}/workspace")]
+    public async Task<IActionResult> TerminateWorkspace(string boardId, CancellationToken ct)
+    {
+        var board = await _cosmos.GetBoardAsync(TenantId, boardId, ct);
+        if (board is null) return NotFound();
+        if (board.OwnerId != UserId) return Forbid();
+        var ok = await _workspaceControl.TerminateAsync(board, ct);
+        return ok
+            ? Ok(await _workspaceControl.GetStatusAsync(board, ct))
+            : Conflict(new { error = "Cannot terminate while the board has active runs. Stop them first." });
+    }
+
+    // ── Reset (destructive) ──────────────────────────────────────────────────
+    [HttpPost("{boardId}/reset")]
+    public async Task<IActionResult> Reset(string boardId, [FromBody] ResetBoardRequest req, CancellationToken ct)
+    {
+        var board = await _cosmos.GetBoardAsync(TenantId, boardId, ct);
+        if (board is null) return NotFound();
+        if (board.OwnerId != UserId) return Forbid();
+        var result = await _maintenance.ResetBoardAsync(board, req.ClearRepo, ct);
+        return Ok(result);
+    }
+
+    // ── Clone ────────────────────────────────────────────────────────────────
+    [HttpPost("{boardId}/clone")]
+    public async Task<IActionResult> Clone(string boardId, [FromBody] CloneBoardRequest req, CancellationToken ct)
+    {
+        var board = await _cosmos.GetBoardAsync(TenantId, boardId, ct);
+        if (board is null) return NotFound();
+        var clone = await _maintenance.CloneBoardAsync(board, req.Name, req.IncludeData, UserId, ct);
+        return CreatedAtAction(nameof(Get), new { boardId = clone.Id }, clone);
+    }
 }
 
 public record CreateBoardRequest(string Name, string? Description);
 public record UpdateBoardRequest(string Name, string? Description);
 public record ConnectGitHubRequest(string RepoUrl, string Pat);
+public record ResetBoardRequest(bool ClearRepo);
+public record CloneBoardRequest(string? Name, bool IncludeData);
