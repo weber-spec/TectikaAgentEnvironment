@@ -15,6 +15,7 @@ public class RunFailurePresenterTests
     [InlineData(RunFailureClass.SandboxInfra, "workspace")]
     [InlineData(RunFailureClass.ModelProvider, "model service")]
     [InlineData(RunFailureClass.Exhaustion, "steps")]
+    [InlineData(RunFailureClass.ReviewNotConverged, "agree")]
     [InlineData(RunFailureClass.UserTimeout, "input")]
     [InlineData(RunFailureClass.Unknown, "unexpectedly")]
     public void UserMessage_IsClassSpecific(RunFailureClass cls, string gist)
@@ -51,7 +52,7 @@ public class RunFailurePresenterTests
     [InlineData("The workspace sandbox could not be started", RunFailureClass.SandboxInfra)]
     [InlineData("Key Vault returned 403 Forbidden", RunFailureClass.SandboxInfra)]
     [InlineData("Foundry 429 Too Many Requests: ...", RunFailureClass.ModelProvider)]
-    [InlineData("QA validation did not converge after 3 attempts", RunFailureClass.Exhaustion)]
+    [InlineData("QA validation did not converge after 3 attempts", RunFailureClass.ReviewNotConverged)]
     [InlineData("reached the maximum of 24 rounds without completing", RunFailureClass.Exhaustion)]
     [InlineData("no response received before the wait timeout", RunFailureClass.UserTimeout)]
     [InlineData("some totally novel error nobody mapped", RunFailureClass.Unknown)]

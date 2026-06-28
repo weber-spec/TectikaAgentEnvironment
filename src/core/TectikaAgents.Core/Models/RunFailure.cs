@@ -12,8 +12,11 @@ public enum RunFailureClass
     SandboxInfra,
     /// <summary>The model/Foundry service errored (HTTP failure, empty/garbled response, missing agent).</summary>
     ModelProvider,
-    /// <summary>The agent used its whole budget without converging (round cap or QA loop non-convergence).</summary>
+    /// <summary>The agent used its whole budget without converging (the per-run round cap).</summary>
     Exhaustion,
+    /// <summary>A QA validator and the work it gates couldn't agree the work was acceptable within the
+    /// allowed revision attempts — a stuck review loop that needs human attention, not a blind re-run.</summary>
+    ReviewNotConverged,
     /// <summary>The run paused for human input and no reply arrived before the wait timeout.</summary>
     UserTimeout,
     /// <summary>Anything not otherwise classified — including failures that bubbled past the orchestrator.</summary>
@@ -40,6 +43,10 @@ public static class RunFailurePresenter
         RunFailureClass.Exhaustion =>
             "The agent stopped before finishing — it used all of its allowed steps without reaching a result. " +
             "Review the partial output, refine the task, and re-run.",
+        RunFailureClass.ReviewNotConverged =>
+            "A reviewer agent and the agent doing the work couldn't agree the work met the requirements, so the " +
+            "task was paused for manual review. Re-running as-is will likely repeat the cycle — adjust the task " +
+            "or its acceptance criteria first.",
         RunFailureClass.UserTimeout =>
             "The run was waiting for your input and timed out before a reply arrived. " +
             "Re-run the task to continue.",
@@ -59,7 +66,9 @@ public static class RunFailurePresenter
         if (string.IsNullOrWhiteSpace(internalReason)) return RunFailureClass.Unknown;
         var r = internalReason.ToLowerInvariant();
 
-        if (r.Contains("did not converge") || r.Contains("maximum") || r.Contains("rounds"))
+        if (r.Contains("did not converge"))
+            return RunFailureClass.ReviewNotConverged;
+        if (r.Contains("maximum") || r.Contains("rounds"))
             return RunFailureClass.Exhaustion;
         if (r.Contains("no response received") || r.Contains("wait timeout"))
             return RunFailureClass.UserTimeout;

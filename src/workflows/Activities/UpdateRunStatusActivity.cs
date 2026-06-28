@@ -157,7 +157,7 @@ public class UpdateRunStatusActivity
             _logger.LogWarning("[QaLoop] exhausted on edge {EdgeId} after {N} iterations — marking {TaskId} Blocked",
                 edge.Id, edge.CurrentIterations, validatorTaskId);
             await _cosmos.UpdateTaskStatusAsync(boardId, validatorTaskId, AgentTaskStatus.Blocked, runId, ct);
-            await EmitRunFailureAsync(runId, validatorTaskId, round: 0, RunFailureClass.Exhaustion,
+            await EmitRunFailureAsync(runId, validatorTaskId, round: 0, RunFailureClass.ReviewNotConverged,
                 $"QA validation did not converge after {edge.MaxIterations} attempts — manual review required.", ct);
             return;
         }
