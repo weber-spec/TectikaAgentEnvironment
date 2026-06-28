@@ -31,8 +31,27 @@ public sealed class ExternalRef
     public string? PreviewUrl { get; set; }
 }
 
-/// <summary>One deliverable produced by a task. Exactly one of <see cref="Inline"/>
-/// or <see cref="External"/> is set.</summary>
+/// <summary>Where a deliverable file lives, so the UI knows what to browse: the board's connected
+/// repo, or the board workspace (no repo). Both resolve against the board main line.</summary>
+public enum FileLinkSource { Workspace, Repo }
+
+/// <summary>A pointer to a deliverable FILE the task produced (workspace-relative path, resolved
+/// against the board main line). Lets a deliverable record reference the actual files instead of
+/// inlining them; the Files tab (S4) renders these clickable via <see cref="PreviewUrl"/>.</summary>
+public sealed class FileLink
+{
+    [JsonPropertyName("path")]
+    public string Path { get; set; } = string.Empty;
+
+    [JsonPropertyName("source")]
+    public FileLinkSource Source { get; set; } = FileLinkSource.Workspace;
+
+    [JsonPropertyName("previewUrl")]
+    public string? PreviewUrl { get; set; }
+}
+
+/// <summary>One deliverable produced by a task: an optional inline description and/or a single
+/// external pointer (mutually exclusive), plus optional <see cref="Links"/> to the files it produced.</summary>
 public sealed class Output
 {
     [JsonPropertyName("id")]
@@ -50,6 +69,13 @@ public sealed class Output
     [JsonPropertyName("external")]
     public ExternalRef? External { get; set; }
 
-    /// <summary>True when exactly one of inline / external is populated.</summary>
-    public bool IsValid() => (Inline is null) ^ (External is null);
+    /// <summary>File links to the deliverable's actual files (S2). Independent of inline/external.</summary>
+    [JsonPropertyName("links")]
+    public List<FileLink> Links { get; set; } = [];
+
+    /// <summary>Valid when the deliverable carries at least one of inline / external / links, and inline
+    /// and external are not both set (a record's primary content is inline OR a single external pointer).</summary>
+    public bool IsValid() =>
+        (Inline is not null || External is not null || Links.Count > 0)
+        && !(Inline is not null && External is not null);
 }
