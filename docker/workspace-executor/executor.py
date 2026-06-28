@@ -25,6 +25,10 @@ POST /worktree/remove {"run_id": "abc12345"}
 POST /worktree/merge  {"run_id": "abc12345"}   (no-repo boards: fold the run branch into local main)
                       -> {"merged": true, "commit": "<sha>"}
                        | {"merged": false, "conflict": true, "files": ["a.cs", ...], "detail": "..."}
+POST /bundle          {}   (no-repo durable snapshot: git-bundle /workspace/main)
+                      -> {"bundle": "<base64>", "bytes": N}
+POST /restore         {"bundle": "<base64>"}   (restore /workspace/main from a bundle on provision)
+                      -> {"restored": true, "branch": "main"}
 GET  /worktree/list                         -> {"worktrees": [{"run_id":"...","path":"...","branch":"..."},...]}
 GET  /health                                -> 200 "ok"
 
@@ -36,6 +40,9 @@ import json
 import signal
 import subprocess
 import threading
+import base64
+import shutil
+import tempfile
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 TOKEN = os.environ.get("EXECUTOR_TOKEN", "")
@@ -152,6 +159,8 @@ class Handler(BaseHTTPRequestHandler):
             "/worktree/add":   self._handle_worktree_add,
             "/worktree/remove": self._handle_worktree_remove,
             "/worktree/merge": self._handle_worktree_merge,
+            "/bundle":  self._handle_bundle,
+            "/restore": self._handle_restore,
         }
         handler = dispatch.get(self.path)
         if handler is None:
@@ -375,6 +384,57 @@ class Handler(BaseHTTPRequestHandler):
                 if push.returncode != 0:
                     print(f"[worktree/merge] push failed: {push.stderr.strip()}", flush=True)
             return {"merged": True, "commit": commit}
+
+    def _handle_bundle(self, body):
+        """Durable snapshot (no-repo boards): git-bundle ALL refs of /workspace/main and return the bytes
+        (base64). A workflow activity uploads this to blob storage so the board's files survive ACI destroy."""
+        if not os.path.isdir(os.path.join(WORKSPACE_MAIN, ".git")):
+            return {"error": "no git repo at /workspace/main"}
+        fd, path = tempfile.mkstemp(suffix=".bundle")
+        os.close(fd)
+        try:
+            with _MERGE_LOCK:   # don't bundle mid-merge
+                proc = subprocess.run(["git", "bundle", "create", path, "--all"],
+                                      cwd=WORKSPACE_MAIN, capture_output=True, text=True)
+            if proc.returncode != 0:
+                return {"error": f"git bundle failed: {(proc.stderr or proc.stdout).strip()[:300]}"}
+            with open(path, "rb") as f:
+                data = f.read()
+            return {"bundle": base64.b64encode(data).decode(), "bytes": len(data)}
+        finally:
+            os.remove(path)
+
+    def _handle_restore(self, body):
+        """Restore /workspace/main from a git bundle (base64), replacing the empty init created on
+        provision. Used on a no-repo board's first run after its ACI was recycled."""
+        b64 = body.get("bundle", "")
+        if not b64:
+            return {"error": "bundle (base64) required"}
+        fd, path = tempfile.mkstemp(suffix=".bundle")
+        os.close(fd)
+        restored_dir = os.path.join(WORKSPACE_ROOT, ".restore_tmp")
+        try:
+            with open(path, "wb") as f:
+                f.write(base64.b64decode(b64))
+            # verify needs a git-repo cwd; /workspace/main is always one (entrypoint git-inits it).
+            if not os.path.isdir(os.path.join(WORKSPACE_MAIN, ".git")) or \
+               subprocess.run(["git", "bundle", "verify", path], cwd=WORKSPACE_MAIN,
+                              capture_output=True, text=True).returncode != 0:
+                return {"error": "invalid bundle"}
+            with _MERGE_LOCK:
+                shutil.rmtree(restored_dir, ignore_errors=True)
+                clone = subprocess.run(["git", "clone", path, restored_dir], capture_output=True, text=True)
+                if clone.returncode != 0:
+                    return {"error": f"git clone from bundle failed: {clone.stderr.strip()[:300]}"}
+                subprocess.run(["git", "remote", "remove", "origin"], cwd=restored_dir, capture_output=True, text=True)
+                shutil.rmtree(WORKSPACE_MAIN, ignore_errors=True)
+                shutil.move(restored_dir, WORKSPACE_MAIN)
+            branch = subprocess.run(["git", "branch", "--show-current"],
+                                    cwd=WORKSPACE_MAIN, capture_output=True, text=True).stdout.strip()
+            return {"restored": True, "branch": branch}
+        finally:
+            os.remove(path)
+            shutil.rmtree(restored_dir, ignore_errors=True)
 
     def _handle_worktree_remove(self, body):
         run_id = body.get("run_id", "")
