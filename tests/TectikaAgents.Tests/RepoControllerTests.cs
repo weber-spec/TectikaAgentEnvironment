@@ -21,7 +21,7 @@ public class RepoControllerTests
 
     private static RepoController Make(Board? board, string tenant = "default")
     {
-        var ctrl = new RepoController(new FakeCosmosForRepo(board), new FakeRead());
+        var ctrl = new RepoController(new FakeCosmosForRepo(board), new FakeRead(), new FakeWorkspaceForRepo(), new FakeSecretsForRepo());
         var identity = new System.Security.Claims.ClaimsIdentity(new[] { new System.Security.Claims.Claim("tid", tenant) }, "test");
         var http = new Microsoft.AspNetCore.Http.DefaultHttpContext { User = new System.Security.Claims.ClaimsPrincipal(identity) };
         ctrl.ControllerContext = new ControllerContext { HttpContext = http };

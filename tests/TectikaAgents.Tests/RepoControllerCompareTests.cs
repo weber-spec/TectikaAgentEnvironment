@@ -21,7 +21,7 @@ public class RepoControllerCompareTests
 
     private static RepoController Make(Board? board)
     {
-        var ctrl = new RepoController(new FakeCosmosForRepo(board), new FakeReadWithCompare());
+        var ctrl = new RepoController(new FakeCosmosForRepo(board), new FakeReadWithCompare(), new FakeWorkspaceForRepo(), new FakeSecretsForRepo());
         var identity = new System.Security.Claims.ClaimsIdentity(new[] { new System.Security.Claims.Claim("tid", "default") }, "test");
         ctrl.ControllerContext = new ControllerContext { HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext { User = new System.Security.Claims.ClaimsPrincipal(identity) } };
         return ctrl;

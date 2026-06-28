@@ -1,6 +1,34 @@
 using TectikaAgents.Api.Services;
+using TectikaAgents.Core.Interfaces;
 using TectikaAgents.Core.Models;
 using TectikaAgents.Core.Usage;
+
+/// <summary>Fake IWorkspaceService for RepoController tests — only InvokeAsync is exercised (the no-repo
+/// Files path); everything else throws since the GitHub-path tests never touch the workspace.</summary>
+public sealed class FakeWorkspaceForRepo : IWorkspaceService
+{
+    private readonly string? _invokeResponse;
+    public FakeWorkspaceForRepo(string? invokeResponse = null) => _invokeResponse = invokeResponse;
+    public Task<string> InvokeAsync(string endpoint, string token, string route, object body, CancellationToken ct = default)
+        => _invokeResponse is not null ? Task.FromResult(_invokeResponse) : throw new NotImplementedException();
+    public Task<WorkspaceInfo?> EnsureBoardContainerAsync(Board board, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task CreateWorktreeAsync(string endpoint, string token, string runId, string branch, bool canPush, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task RemoveWorktreeAsync(string endpoint, string token, string runId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<WorkspaceMergeResult> MergeRunBranchAsync(string endpoint, string token, string runId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<byte[]> BundleAsync(string endpoint, string token, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task RestoreAsync(string endpoint, string token, byte[] bundle, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task DestroyBoardContainerAsync(string containerName, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<CommandResult> RunCommandAsync(string endpoint, string token, string command, int timeoutSeconds = 60, string? runId = null, CancellationToken ct = default) => throw new NotImplementedException();
+}
+
+/// <summary>Fake ISecretProvider for RepoController tests — returns a fixed token (the board workspace token).</summary>
+public sealed class FakeSecretsForRepo : ISecretProvider
+{
+    private readonly string _token;
+    public FakeSecretsForRepo(string token = "tok") => _token = token;
+    public Task<string> GetSecretAsync(string name, CancellationToken ct) => Task.FromResult(_token);
+    public Task SetSecretAsync(string name, string value, CancellationToken ct) => Task.CompletedTask;
+}
 
 /// <summary>Shared fake ICosmosDbService for RepoController tests.</summary>
 public sealed class FakeCosmosForRepo : ICosmosDbService
