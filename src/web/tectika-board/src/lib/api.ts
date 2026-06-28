@@ -4,7 +4,7 @@ import type {
   Board, AgentTask, AgentRole, AgentUpsertResult, Artifact, WorkflowRun, AgentEvent, HumanInteraction, TaskEdge, EdgeKind, RunEvent,
   RepoMeta, BranchInfo, TreeEntry, FileContent, CommitInfo, PullRequestInfo, CompareResult,
   UsageRollup, UsageEventsPage, PricingCatalog, UsageTimePoint, AgentUsage,
-  PreviewSession,
+  PreviewSession, BoardWorkspaceStatusDto, ResetBoardResult,
 } from './types';
 import { trackEvent, trackException, redact } from './telemetry';
 
@@ -84,6 +84,20 @@ export const api = {
       }),
     disconnectGitHub: (boardId: string) =>
       fetchApi<Board>(`/api/boards/${boardId}/github`, { method: 'DELETE' }),
+    reset: (boardId: string, clearRepo: boolean) =>
+      fetchApi<ResetBoardResult>(`/api/boards/${boardId}/reset`, {
+        method: 'POST', body: JSON.stringify({ clearRepo }),
+      }),
+    clone: (boardId: string, opts: { name?: string; includeData: boolean }) =>
+      fetchApi<Board>(`/api/boards/${boardId}/clone`, {
+        method: 'POST', body: JSON.stringify({ name: opts.name, includeData: opts.includeData }),
+      }),
+    workspace: {
+      get: (boardId: string) => fetchApi<BoardWorkspaceStatusDto>(`/api/boards/${boardId}/workspace`),
+      start: (boardId: string) => fetchApi<BoardWorkspaceStatusDto>(`/api/boards/${boardId}/workspace`, { method: 'POST' }),
+      restart: (boardId: string) => fetchApi<BoardWorkspaceStatusDto>(`/api/boards/${boardId}/workspace/restart`, { method: 'POST' }),
+      terminate: (boardId: string) => fetchApi<BoardWorkspaceStatusDto>(`/api/boards/${boardId}/workspace`, { method: 'DELETE' }),
+    },
   },
 
   repo: {

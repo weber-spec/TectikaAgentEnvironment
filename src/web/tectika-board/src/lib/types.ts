@@ -69,6 +69,30 @@ export interface Board {
   columns: string[];
   createdAt: string;
   github?: GitHubRepoConnection | null;
+  workspaceContainerName?: string | null;
+  workspaceEndpoint?: string | null;
+  workspaceStatus?: 'None' | 'Provisioning' | 'Ready';
+  workspaceLastUsedAt?: string | null;
+}
+
+export type WorkspaceAzureState = 'NotFound' | 'Provisioning' | 'Running' | 'Stopped' | 'Failed' | 'Unknown';
+
+export interface BoardWorkspaceStatusDto {
+  status: 'None' | 'Provisioning' | 'Ready';
+  azureState: WorkspaceAzureState;
+  containerName?: string | null;
+  endpoint?: string | null;
+  lastUsedAt?: string | null;
+  idleShutdownAt?: string | null;
+  hasActiveRuns: boolean;
+  image: string;
+}
+
+export interface ResetBoardResult {
+  tasksReset: number;
+  runsCancelled: number;
+  workspaceTerminated: boolean;
+  repoDisconnected: boolean;
 }
 
 export interface TaskAssignee {
