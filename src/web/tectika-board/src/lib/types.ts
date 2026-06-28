@@ -22,12 +22,21 @@ export interface ExternalRef {
   previewUrl?: string;
 }
 
+export type FileLinkSource = 'Workspace' | 'Repo';
+
+export interface FileLink {
+  path: string;
+  source: FileLinkSource;
+  previewUrl?: string;
+}
+
 export interface Output {
   id: string;
   kind: OutputKind;
   label?: string;
   inline?: InlineContent;
   external?: ExternalRef;
+  links?: FileLink[];
 }
 
 export type RunStatus = 'Pending' | 'Running' | 'AwaitingInteraction' | 'NeedsRevision' | 'Completed' | 'Failed' | 'Cancelled';

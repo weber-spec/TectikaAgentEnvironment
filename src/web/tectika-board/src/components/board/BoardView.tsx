@@ -27,7 +27,7 @@ import { Menu, Modal } from '@/components/ui/overlays';
 import { Icon } from '@/components/ui/icons';
 
 export function BoardView() {
-  const { loading, error, board, activeView, automations, tasks, addTask, repoChangesTarget, clearRepoChangesTarget } = useBoard();
+  const { loading, error, board, activeView, automations, tasks, addTask, repoChangesTarget, clearRepoChangesTarget, repoFileTarget, clearRepoFileTarget } = useBoard();
   const router = useRouter();
   const [autoOpen, setAutoOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -56,6 +56,15 @@ export function BoardView() {
       return () => clearTimeout(t);
     }
   }, [repoChangesTarget, clearRepoChangesTarget]);
+
+  useEffect(() => {
+    if (repoFileTarget) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- open Repo/Files tab when a file deep-link arrives
+      setShowRepo(true);
+      const t = setTimeout(() => clearRepoFileTarget(), 0);
+      return () => clearTimeout(t);
+    }
+  }, [repoFileTarget, clearRepoFileTarget]);
 
   const openEdit = () => {
     setEditName(nameOverride ?? board?.name ?? '');
@@ -147,7 +156,7 @@ export function BoardView() {
 
       <div className="flex-1 min-h-0 relative">
         {showRepo ? (
-          board ? <RepoView boardId={board.id} onConnectGitHub={() => setGithubOpen(true)} changesTarget={repoChangesTarget} /> : null
+          board ? <RepoView boardId={board.id} onConnectGitHub={() => setGithubOpen(true)} changesTarget={repoChangesTarget} fileTarget={repoFileTarget} /> : null
         ) : loading ? <SkeletonRows rows={8} /> : tasks.length === 0 ? (
           <EmptyState icon={<Icon.board size={48} />} title="This board is empty"
             description="Add your first item to start orchestrating agents and humans."

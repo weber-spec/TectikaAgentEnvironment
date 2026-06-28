@@ -12,12 +12,13 @@ import { PreviewTab } from './PreviewTab';
 
 type Sub = 'code' | 'history' | 'pulls' | 'preview' | 'changes';
 
-export function RepoView({ boardId, onConnectGitHub, changesTarget }: { boardId: string; onConnectGitHub: () => void; changesTarget?: string }) {
+export function RepoView({ boardId, onConnectGitHub, changesTarget, fileTarget }: { boardId: string; onConnectGitHub: () => void; changesTarget?: string; fileTarget?: string }) {
   const [sub, setSub] = useState<Sub>('code');
   const [meta, setMeta] = useState<RepoMeta | null>(null);
   const [branch, setBranch] = useState<string>('');
   const [branches, setBranches] = useState<string[]>([]);
   const [changesHead, setChangesHead] = useState<string | undefined>();
+  const [codeTarget, setCodeTarget] = useState<string | undefined>();
   const [notConnected, setNotConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,6 +49,11 @@ export function RepoView({ boardId, onConnectGitHub, changesTarget }: { boardId:
     // eslint-disable-next-line react-hooks/set-state-in-effect -- deep-link: copy prop into local state on change
     if (changesTarget) { setChangesHead(changesTarget); setSub('changes'); }
   }, [changesTarget]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- deep-link: open the Code tab at a file
+    if (fileTarget) { setCodeTarget(fileTarget); setSub('code'); }
+  }, [fileTarget]);
 
   if (notConnected) {
     return (
@@ -88,7 +94,7 @@ export function RepoView({ boardId, onConnectGitHub, changesTarget }: { boardId:
         </select>
       </div>
       <div className="flex-1 min-h-0">
-        {sub === 'code' && <CodeTab boardId={boardId} branch={branch} />}
+        {sub === 'code' && <CodeTab boardId={boardId} branch={branch} targetPath={codeTarget} />}
         {sub === 'history' && <HistoryTab boardId={boardId} branch={branch} />}
         {sub === 'pulls' && <PullsTab boardId={boardId} />}
         {sub === 'preview' && <PreviewTab boardId={boardId} branch={branch} />}

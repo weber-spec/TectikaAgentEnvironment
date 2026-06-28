@@ -6,7 +6,7 @@ import type { TreeEntry, FileContent } from '@/lib/types';
 import { Icon } from '@/components/ui/icons';
 import { languageForPath, highlightToHtml } from '@/lib/highlight';
 
-export function CodeTab({ boardId, branch }: { boardId: string; branch: string }) {
+export function CodeTab({ boardId, branch, targetPath }: { boardId: string; branch: string; targetPath?: string }) {
   const [entries, setEntries] = useState<TreeEntry[]>([]);
   const [dir, setDir] = useState('');             // current directory path ('' = root)
   const [selected, setSelected] = useState<string | null>(null);
@@ -17,6 +17,14 @@ export function CodeTab({ boardId, branch }: { boardId: string; branch: string }
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reset navigation on branch change
     setDir(''); setSelected(null);
   }, [branch]);
+
+  // Deep-link: open a specific file (e.g. clicked from a deliverable's links), showing its folder.
+  useEffect(() => {
+    if (!targetPath) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- navigate to the deep-linked file
+    setDir(targetPath.includes('/') ? targetPath.slice(0, targetPath.lastIndexOf('/')) : '');
+    setSelected(targetPath);
+  }, [targetPath]);
 
   useEffect(() => {
     let live = true;

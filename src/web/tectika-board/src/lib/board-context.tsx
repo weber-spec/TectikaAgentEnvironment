@@ -191,6 +191,9 @@ interface BoardContextValue {
   repoChangesTarget?: string;            // head branch to open in the Repo "Changes" tab
   openRepoChanges: (head: string) => void;
   clearRepoChangesTarget: () => void;
+  repoFileTarget?: string;               // file path to open in the Repo/Files "Code" tab
+  openRepoFile: (path: string) => void;
+  clearRepoFileTarget: () => void;
 
   // live sync
   liveEnabled: boolean;
@@ -233,6 +236,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [openTaskId, setOpenTaskId] = useState<string>();
   const [repoChangesTarget, setRepoChangesTarget] = useState<string | undefined>();
+  const [repoFileTarget, setRepoFileTarget] = useState<string | undefined>();
   const lastSelected = useRef<string | null>(null);
   const hydrated = useRef(false);
 
@@ -821,6 +825,9 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     repoChangesTarget,
     openRepoChanges: setRepoChangesTarget,
     clearRepoChangesTarget: () => setRepoChangesTarget(undefined),
+    repoFileTarget,
+    openRepoFile: setRepoFileTarget,
+    clearRepoFileTarget: () => setRepoFileTarget(undefined),
     activity: cfg.activity, logActivity,
     automations: cfg.automations, saveAutomation, deleteAutomation, toggleAutomation,
   };

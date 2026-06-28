@@ -960,17 +960,40 @@ function ArtifactBody({ artifact }: { artifact: Artifact }) {
 }
 
 function OutputView({ output }: { output: Output }) {
-  if (output.kind === 'Document' && output.inline) {
-    return output.inline.contentType === 'Markdown'
-      ? <Markdown text={output.inline.content} />
-      : <pre className="font-mono text-[12.5px] bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 overflow-auto whitespace-pre-wrap text-[var(--foreground)]">{output.inline.content}</pre>;
-  }
-  if (output.kind === 'Code' && output.external) {
-    return <CodeOutputCard output={output} />;
-  }
+  const { openRepoFile } = useBoard();
+  const links = output.links ?? [];
+  const body =
+    output.kind === 'Document' && output.inline
+      ? (output.inline.contentType === 'Markdown'
+          ? <Markdown text={output.inline.content} />
+          : <pre className="font-mono text-[12.5px] bg-[var(--background)] border border-[var(--border)] rounded-lg p-3 overflow-auto whitespace-pre-wrap text-[var(--foreground)]">{output.inline.content}</pre>)
+      : output.kind === 'Code' && output.external
+        ? <CodeOutputCard output={output} />
+        : output.inline
+          ? <Markdown text={output.inline.content} />
+          : links.length === 0
+            ? (
+              <div className="border border-dashed border-[var(--border)] rounded-lg p-3 text-[12px] text-[var(--muted)]">
+                <span className="font-semibold text-[var(--foreground)]">{output.label ?? output.kind}</span>{' — '}{output.kind} output rendering coming soon.
+              </div>
+            )
+            : null;
+
   return (
-    <div className="border border-dashed border-[var(--border)] rounded-lg p-3 text-[12px] text-[var(--muted)]">
-      <span className="font-semibold text-[var(--foreground)]">{output.label ?? output.kind}</span>{' — '}{output.kind} output rendering coming soon.
+    <div className="flex flex-col gap-2">
+      {body}
+      {links.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="text-[11px] text-[var(--muted)] font-medium">Files</div>
+          <div className="flex flex-wrap gap-1.5">
+            {links.map(l => (
+              <button key={l.path} type="button" onClick={() => openRepoFile(l.path)}
+                className="inline-flex items-center gap-1 text-[12px] font-mono px-2 py-0.5 rounded border border-[var(--border)] text-[var(--primary)] hover:bg-[var(--surface)]"
+                title={`Open ${l.path}`}>{l.path}</button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
