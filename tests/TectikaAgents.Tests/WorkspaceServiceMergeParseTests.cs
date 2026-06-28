@@ -26,4 +26,13 @@ public class WorkspaceServiceMergeParseTests
         Assert.False(r.Ok);
         Assert.Empty(r.ConflictFiles);
     }
+
+    [Fact]
+    public void ParseBundle_DecodesBase64Payload()
+    {
+        var bytes = new byte[] { 9, 8, 7, 6, 5 };
+        var b64 = System.Convert.ToBase64String(bytes);
+        var r = WorkspaceService.ParseBundle($"{{\"bundle\":\"{b64}\",\"bytes\":5}}");
+        Assert.Equal(bytes, r);
+    }
 }

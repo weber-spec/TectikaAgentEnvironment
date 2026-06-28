@@ -202,6 +202,29 @@ public class WorkspaceService : IWorkspaceService
         return WorkspaceMergeResult.Conflict(files);
     }
 
+    public async Task<byte[]> BundleAsync(string endpoint, string token, CancellationToken ct = default)
+    {
+        _logger.LogInformation("[Workspace] bundling /workspace/main for durable snapshot");
+        var json = await InvokeAsync(endpoint, token, "/bundle", new { }, ct);
+        return ParseBundle(json);
+    }
+
+    public async Task RestoreAsync(string endpoint, string token, byte[] bundle, CancellationToken ct = default)
+    {
+        _logger.LogInformation("[Workspace] restoring /workspace/main from snapshot ({Bytes} bytes)", bundle.Length);
+        await InvokeAsync(endpoint, token, "/restore", new { bundle = Convert.ToBase64String(bundle) }, ct);
+    }
+
+    /// <summary>Decode the executor /bundle response (base64) into the raw git-bundle bytes. Public +
+    /// static so it is unit-testable without HTTP.</summary>
+    public static byte[] ParseBundle(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.TryGetProperty("bundle", out var b) && b.ValueKind == JsonValueKind.String)
+            return Convert.FromBase64String(b.GetString()!);
+        throw new InvalidOperationException($"executor /bundle returned no bundle payload: {json}");
+    }
+
     public async Task DestroyBoardContainerAsync(string containerName, CancellationToken ct = default)
     {
         _logger.LogInformation("[Workspace] destroying ACI {Name}", containerName);

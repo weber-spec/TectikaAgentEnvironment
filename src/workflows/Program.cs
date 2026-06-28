@@ -83,6 +83,7 @@ builder.Services.AddSingleton<IGitHubReadService>(sp =>
 // Writes (branch merge) go straight to the raw Octokit service — never cached.
 builder.Services.AddSingleton<IGitHubWriteService>(sp => sp.GetRequiredService<OctokitGitHubReadService>());
 builder.Services.AddSingleton<IWorkspaceService, WorkspaceService>();
+builder.Services.AddSingleton<IWorkspaceSnapshotStore, BlobWorkspaceSnapshotStore>();
 builder.Services.AddSingleton<WorkspaceToolExecutor>();
 
 // ── Agent runtime (Foundry or Mock) ──────────────────────────────────────────

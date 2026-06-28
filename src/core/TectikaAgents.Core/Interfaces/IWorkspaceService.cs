@@ -23,6 +23,14 @@ public interface IWorkspaceService
     /// conflicting files (main left untouched).</summary>
     Task<WorkspaceMergeResult> MergeRunBranchAsync(string endpoint, string token, string runId, CancellationToken ct = default);
 
+    /// <summary>No-repo durable snapshot: git-bundle /workspace/main and return the bytes, for a workflow
+    /// activity to upload to blob storage so the board's files survive ACI destroy.</summary>
+    Task<byte[]> BundleAsync(string endpoint, string token, CancellationToken ct = default);
+
+    /// <summary>Restore /workspace/main from a previously-saved bundle (downloaded from blob) — used on a
+    /// no-repo board's first run after its container was recycled.</summary>
+    Task RestoreAsync(string endpoint, string token, byte[] bundle, CancellationToken ct = default);
+
     /// <summary>Delete the ACI container group for a board.</summary>
     Task DestroyBoardContainerAsync(string containerName, CancellationToken ct = default);
 
