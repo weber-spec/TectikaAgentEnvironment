@@ -3,7 +3,9 @@ using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.DurableTask;
 using Microsoft.DurableTask.Client;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System.Text.Json;
+using TectikaAgents.Core.Configuration;
 using TectikaAgents.Core.Models;
 using TectikaAgents.Workflows.Orchestrators;
 
@@ -15,8 +17,13 @@ namespace TectikaAgents.Workflows.Triggers;
 public class HttpTrigger
 {
     private readonly ILogger<HttpTrigger> _logger;
+    private readonly FoundrySettings _foundry;
 
-    public HttpTrigger(ILogger<HttpTrigger> logger) => _logger = logger;
+    public HttpTrigger(ILogger<HttpTrigger> logger, IOptions<FoundrySettings> foundry)
+    {
+        _logger = logger;
+        _foundry = foundry.Value;
+    }
 
     [Function(nameof(StartSteerablePipeline))]
     public async Task<HttpResponseData> StartSteerablePipeline(
@@ -32,6 +39,11 @@ public class HttpTrigger
             await bad.WriteStringAsync("Invalid steerable run input");
             return bad;
         }
+
+        // Stamp the server-side context budget + round cap onto the input (the API caller does not supply
+        // these). The orchestrator must NOT read config itself — passing them here keeps replay deterministic.
+        var budget = (int)(_foundry.ContextWindowTokens * _foundry.ContextSoftLimitFraction);
+        input = input with { ContextBudgetTokens = budget, MaxRounds = _foundry.MaxRounds };
 
         // Deterministic instance id keyed on the run id: a retried/duplicate POST for the same run
         // collides on the existing instance instead of spawning a second orchestration for one run.

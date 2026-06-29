@@ -102,6 +102,7 @@ else
 }
 
 builder.Services.AddScoped<ContextManager>();
+builder.Services.AddTransient<RunCompactionService>();
 builder.Services.AddHttpClient();
 
 // ── OpenTelemetry ─────────────────────────────────────────────────────────────
