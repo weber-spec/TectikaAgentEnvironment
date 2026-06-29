@@ -80,6 +80,20 @@ export function TeamTab({ task }: { task: AgentTask }) {
     setComments(prev => prev.map(x => x.id === c.id ? { ...x, deletedAt: new Date().toISOString() } : x));
     try { await api.comments.remove(task.boardId, task.id, c.id); } catch { load(); }
   };
+  const edit = async (c: Comment, body: string, noteType?: NoteType) => {
+    const text = body.trim();
+    if (!text) return;
+    const prev = comments;
+    setComments(p => p.map(x => x.id === c.id
+      ? { ...x, body: text, noteType: noteType ?? x.noteType, updatedAt: new Date().toISOString(), editedBy: me }
+      : x));
+    try {
+      const saved = await api.comments.update(task.boardId, task.id, c.id, { body: text, noteType });
+      setComments(p => p.map(x => x.id === c.id ? saved : x));
+    } catch {
+      setComments(prev); // rollback
+    }
+  };
 
   if (!loaded) return <div className="p-4 text-[13px] text-[var(--muted)]">Loading…</div>;
 
@@ -95,7 +109,7 @@ export function TeamTab({ task }: { task: AgentTask }) {
             ? <p className="text-[12px] text-[var(--muted)]">No notes yet — capture a decision or open question.</p>
             : <div className="flex flex-col gap-2">{notes.map(n =>
                 <NoteCard key={n.id} note={n} me={me} authorName={peopleById[n.authorId]?.name ?? n.authorId}
-                  onShare={() => toggleShare(n)} onDelete={() => remove(n)} />)}</div>}
+                  onShare={() => toggleShare(n)} onEdit={(body, noteType) => edit(n, body, noteType)} onDelete={() => remove(n)} />)}</div>}
         </section>
 
         <section className="p-3.5 flex flex-col gap-3.5">
@@ -104,7 +118,7 @@ export function TeamTab({ task }: { task: AgentTask }) {
             ? <p className="text-[12px] text-[var(--muted)]">No messages yet.</p>
             : messages.map(m =>
                 <MessageRow key={m.id} comment={m} me={me} person={peopleById[m.authorId]}
-                  reactions={REACTIONS} onReact={(e) => toggleReaction(m, e)} onDelete={() => remove(m)} />)}
+                  reactions={REACTIONS} onReact={(e) => toggleReaction(m, e)} onEdit={(body) => edit(m, body)} onDelete={() => remove(m)} />)}
         </section>
       </div>
 
@@ -123,6 +137,18 @@ export function TeamTab({ task }: { task: AgentTask }) {
   );
 }
 
+function NoteTypeChips({ value, onChange }: { value: NoteType; onChange: (t: NoteType) => void }) {
+  return (
+    <div className="flex gap-1.5 mb-1.5">
+      {(['decision', 'open_question', 'note'] as NoteType[]).map(t => (
+        <button key={t} onClick={() => onChange(t)}
+          className={`text-[10px] px-2 py-0.5 rounded ${value === t ? 'text-white' : 'text-[var(--muted)] border border-[var(--border)]'}`}
+          style={value === t ? { background: NOTE_TYPE_META[t].hex } : undefined}>{NOTE_TYPE_META[t].label}</button>
+      ))}
+    </div>
+  );
+}
+
 function AddNote({ onAdd }: { onAdd: (body: string, noteType: NoteType) => void }) {
   const [open, setOpen] = useState(false);
   const [body, setBody] = useState('');
@@ -130,13 +156,7 @@ function AddNote({ onAdd }: { onAdd: (body: string, noteType: NoteType) => void 
   if (!open) return <button className="text-[11px] text-[var(--primary)]" onClick={() => setOpen(true)}>+ Add note</button>;
   return (
     <div className="w-full mt-1">
-      <div className="flex gap-1.5 mb-1.5">
-        {(['decision', 'open_question', 'note'] as NoteType[]).map(t => (
-          <button key={t} onClick={() => setNoteType(t)}
-            className={`text-[10px] px-2 py-0.5 rounded ${noteType === t ? 'text-white' : 'text-[var(--muted)] border border-[var(--border)]'}`}
-            style={noteType === t ? { background: NOTE_TYPE_META[t].hex } : undefined}>{NOTE_TYPE_META[t].label}</button>
-        ))}
-      </div>
+      <NoteTypeChips value={noteType} onChange={setNoteType} />
       <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={2} autoFocus
         className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-lg p-2 text-[13px] outline-none resize-none focus:border-[var(--primary)]" />
       <div className="flex gap-2 mt-1.5">
@@ -147,10 +167,30 @@ function AddNote({ onAdd }: { onAdd: (body: string, noteType: NoteType) => void 
   );
 }
 
-function NoteCard({ note, me, authorName, onShare, onDelete }: {
-  note: Comment; me: string; authorName: string; onShare: () => void; onDelete: () => void;
+function NoteCard({ note, me, authorName, onShare, onEdit, onDelete }: {
+  note: Comment; me: string; authorName: string;
+  onShare: () => void; onEdit: (body: string, noteType: NoteType) => void; onDelete: () => void;
 }) {
   const meta = NOTE_TYPE_META[note.noteType ?? 'note'];
+  const [editing, setEditing] = useState(false);
+  const [body, setBody] = useState(note.body);
+  const [noteType, setNoteType] = useState<NoteType>(note.noteType ?? 'note');
+  const isMine = note.authorId === me;
+
+  if (editing) {
+    return (
+      <div className="rounded-lg p-2.5" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+        <NoteTypeChips value={noteType} onChange={setNoteType} />
+        <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={2} autoFocus
+          className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-lg p-2 text-[13px] outline-none resize-none focus:border-[var(--primary)]" />
+        <div className="flex gap-2 mt-1.5">
+          <Button variant="primary" size="sm" disabled={!body.trim()} onClick={() => { onEdit(body, noteType); setEditing(false); }}>Save</Button>
+          <Button variant="ghost" size="sm" onClick={() => { setBody(note.body); setNoteType(note.noteType ?? 'note'); setEditing(false); }}>Cancel</Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-lg p-2.5" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
       <div className="flex items-center justify-between mb-1">
@@ -162,17 +202,21 @@ function NoteCard({ note, me, authorName, onShare, onDelete }: {
       <div className="text-[12px]"><Markdown text={note.body} /></div>
       <div className="text-[10px] text-[var(--muted)] mt-1.5 flex gap-2">
         <span>{note.editedBy ? `edited by ${note.editedBy}` : authorName} · {relativeTime(note.updatedAt ?? note.createdAt)}</span>
-        {note.authorId === me && <button onClick={onDelete} className="hover:text-[var(--foreground)]">delete</button>}
+        {isMine && <button onClick={() => { setBody(note.body); setNoteType(note.noteType ?? 'note'); setEditing(true); }} className="hover:text-[var(--foreground)]">edit</button>}
+        {isMine && <button onClick={onDelete} className="hover:text-[var(--foreground)]">delete</button>}
       </div>
     </div>
   );
 }
 
-function MessageRow({ comment, me, person, reactions, onReact, onDelete }: {
+function MessageRow({ comment, me, person, reactions, onReact, onEdit, onDelete }: {
   comment: Comment; me: string; person?: Person; reactions: string[];
-  onReact: (emoji: string) => void; onDelete: () => void;
+  onReact: (emoji: string) => void; onEdit: (body: string) => void; onDelete: () => void;
 }) {
   const [hover, setHover] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [body, setBody] = useState(comment.body);
+  const isMine = comment.authorId === me;
   if (comment.deletedAt) return <div className="text-[12px] text-[var(--muted)] italic pl-9">message deleted</div>;
   return (
     <div className="flex gap-2.5" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
@@ -181,14 +225,26 @@ function MessageRow({ comment, me, person, reactions, onReact, onDelete }: {
         <div className="text-[12px]">
           <strong>{person?.name ?? comment.authorId}</strong>{' '}
           <span className="text-[var(--muted)]">{relativeTime(comment.createdAt)}</span>
-          {hover && (
+          {hover && !editing && (
             <span className="ml-2">
               {reactions.map(e => <button key={e} className="opacity-60 hover:opacity-100" onClick={() => onReact(e)}>{e}</button>)}
-              {comment.authorId === me && <button className="ml-1 text-[var(--muted)] hover:text-[var(--foreground)]" onClick={onDelete}>✕</button>}
+              {isMine && <button className="ml-1 text-[var(--muted)] hover:text-[var(--foreground)]" onClick={() => { setBody(comment.body); setEditing(true); }}>edit</button>}
+              {isMine && <button className="ml-1 text-[var(--muted)] hover:text-[var(--foreground)]" onClick={onDelete}>✕</button>}
             </span>
           )}
         </div>
-        <div className="text-[12px]"><Markdown text={comment.body} /></div>
+        {editing ? (
+          <div className="mt-1">
+            <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={2} autoFocus
+              className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-lg p-2 text-[13px] outline-none resize-none focus:border-[var(--primary)]" />
+            <div className="flex gap-2 mt-1.5">
+              <Button variant="primary" size="sm" disabled={!body.trim()} onClick={() => { onEdit(body); setEditing(false); }}>Save</Button>
+              <Button variant="ghost" size="sm" onClick={() => { setBody(comment.body); setEditing(false); }}>Cancel</Button>
+            </div>
+          </div>
+        ) : (
+          <div className="text-[12px]"><Markdown text={comment.body} /></div>
+        )}
         {comment.reactions && Object.keys(comment.reactions).length > 0 && (
           <div className="flex gap-1.5 mt-1">
             {Object.entries(comment.reactions).map(([emoji, users]) => (
