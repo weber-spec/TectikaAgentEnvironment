@@ -60,6 +60,31 @@ export interface GitHubPermissions {
   canRead: boolean;
 }
 
+export type McpConnectionStatus = 'Connected' | 'Error' | 'Disconnected';
+
+/** A per-board MCP integration connection (mirrors C# McpConnection). */
+export interface McpConnection {
+  connectionId: string;
+  catalogId: string;
+  displayName: string;
+  secretName: string;
+  status: McpConnectionStatus;
+  lastValidatedAt?: string | null;
+  createdBy?: string | null;
+  createdAt: string;
+}
+
+/** GET /api/mcp/catalog item — UI projection (no endpoint/auth internals). */
+export interface McpCatalogEntry {
+  id: string;
+  displayName: string;
+  description: string;
+  tokenHint: string;
+  helpUrl?: string | null;
+  readToolCount: number;
+  writeToolCount: number;
+}
+
 export interface Board {
   id: string;
   tenantId: string;
@@ -69,6 +94,7 @@ export interface Board {
   columns: string[];
   createdAt: string;
   github?: GitHubRepoConnection | null;
+  mcpConnections?: McpConnection[];
   workspaceContainerName?: string | null;
   workspaceEndpoint?: string | null;
   workspaceStatus?: 'None' | 'Provisioning' | 'Ready';
@@ -188,6 +214,7 @@ export interface AgentRole {
   foundryAgentHash?: string | null;
   tools: string[];
   mcpServers: string[];
+  mcpWriteEnabled: string[];
   permissions: AgentPermissions;
   escalateTo?: string;
   modelOverride?: string;
