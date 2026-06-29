@@ -229,6 +229,34 @@ public class CommentsControllerTests
         Assert.Empty(notifs.Saved);
     }
 
+    [Fact]
+    public async Task Create_notifies_each_distinct_non_self_mention()
+    {
+        var cosmos = NewStore();
+        await SeedTask(cosmos, "b1", "t1");
+        var notifs = new TestNotificationRepo();
+        var ctrl = new CommentsController(cosmos, new TestUserSettingsRepo(), notifs, NullLogger<CommentsController>.Instance);
+        ctrl.ControllerContext = new()
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(new[]
+                {
+                    new Claim("tid", "default"),
+                    new Claim("preferred_username", "eli@tectika.com"),
+                }, "Test"))
+            }
+        };
+
+        await ctrl.Create("b1", "t1",
+            new CreateCommentRequest("message", null, "ping @maya and @noah",
+                new List<string> { "maya@tectika.com", "noah@tectika.com" }), default);
+
+        Assert.Equal(2, notifs.Saved.Count);
+        Assert.Contains(notifs.Saved, n => n.RecipientUserId == "maya@tectika.com");
+        Assert.Contains(notifs.Saved, n => n.RecipientUserId == "noah@tectika.com");
+    }
+
     private sealed class TestUserSettingsRepo : UserSettingsRepository
     {
         public TestUserSettingsRepo() : base(NullLogger<UserSettingsRepository>.Instance) { }

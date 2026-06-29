@@ -41,7 +41,7 @@ public class NotificationRepository
     {
         var query = new QueryDefinition(
             "SELECT TOP @limit * FROM c WHERE c.tenantId = @tenantId " +
-            "AND (NOT IS_DEFINED(c.recipientUserId) OR c.recipientUserId = null OR c.recipientUserId = @userId) " +
+            "AND (NOT IS_DEFINED(c.recipientUserId) OR IS_NULL(c.recipientUserId) OR c.recipientUserId = @userId) " +
             "ORDER BY c.timestamp DESC")
             .WithParameter("@limit", limit)
             .WithParameter("@tenantId", tenantId)
