@@ -30,6 +30,7 @@ public class CosmosDbService : ICosmosDbService
     public const string UsageEventsContainer = "usageEvents";
     public const string UsageRollupsContainer = "usageRollups";
     public const string PreviewSessionsContainer = "previewSessions";
+    public const string TaskCommentsContainer = "taskComments";
 
     /// <summary>Authoritative list of Cosmos containers this app requires (name + partition key).
     /// Source of truth for <see cref="EnsureInfrastructureAsync"/> and kept in sync with infra/modules/data.bicep.</summary>
@@ -49,6 +50,7 @@ public class CosmosDbService : ICosmosDbService
         (UsageEventsContainer,       "/taskId"),
         (UsageRollupsContainer,      "/tenantId"),
         (PreviewSessionsContainer,   "/boardId"),
+        (TaskCommentsContainer,      "/taskId"),
     };
 
     public CosmosDbService(CosmosClient client, IOptions<CosmosDbSettings> settings, ILogger<CosmosDbService> logger)
