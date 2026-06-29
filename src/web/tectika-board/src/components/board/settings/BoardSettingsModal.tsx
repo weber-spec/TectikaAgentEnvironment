@@ -10,10 +10,11 @@ import { toast } from '@/lib/toast';
 import type { Board } from '@/lib/types';
 import { GitHubConnectModal } from '@/components/board/GitHubConnectModal';
 import { WorkspaceTab } from './WorkspaceTab';
+import { McpIntegrationsTab } from './McpIntegrationsTab';
 import { ResetBoardDialog } from './ResetBoardDialog';
 import { CloneBoardDialog } from './CloneBoardDialog';
 
-type TabId = 'general' | 'repository' | 'workspace' | 'danger';
+type TabId = 'general' | 'repository' | 'workspace' | 'integrations' | 'danger';
 
 export function BoardSettingsModal({
   board, isOwner, onClose, onBoardUpdated,
@@ -38,8 +39,9 @@ export function BoardSettingsModal({
   const tabs: { id: TabId; label: string; icon: React.ReactNode; show: boolean }[] = [
     { id: 'general'    as const, label: 'General',     icon: <Icon.edit size={15} />,     show: true },
     { id: 'repository' as const, label: 'Repository',  icon: <Icon.flow size={15} />,     show: true },
-    { id: 'workspace'  as const, label: 'Workspace',   icon: <Icon.terminal size={15} />, show: true },
-    { id: 'danger'     as const, label: 'Danger Zone', icon: <Icon.warning size={15} />,  show: isOwner },
+    { id: 'workspace'     as const, label: 'Workspace',    icon: <Icon.terminal size={15} />, show: true },
+    { id: 'integrations' as const, label: 'Integrations', icon: <Icon.bolt size={15} />,    show: true },
+    { id: 'danger'        as const, label: 'Danger Zone',  icon: <Icon.warning size={15} />,  show: isOwner },
   ].filter(t => t.show);
 
   const saveGeneral = async () => {
@@ -113,6 +115,8 @@ export function BoardSettingsModal({
             )}
 
             {tab === 'workspace' && <WorkspaceTab board={board} isOwner={isOwner} />}
+
+            {tab === 'integrations' && <McpIntegrationsTab boardId={board.id} />}
 
             {tab === 'danger' && isOwner && (
               <div className="flex flex-col gap-5">
