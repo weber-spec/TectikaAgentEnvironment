@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using TectikaAgents.AgentRuntime.Mcp;
 using TectikaAgents.Core.Models;
 
 namespace TectikaAgents.AgentRuntime;
@@ -168,7 +169,8 @@ public static class TectikaToolSchema
     /// <summary>Project the catalog into the Foundry flat function-tool array (definition.tools).
     /// Workspace permission (layer 1) controls run_command and cascades GitHub read access.
     /// GitHub permissions (layer 2) are honoured only for agents without workspace access.</summary>
-    public static IReadOnlyList<object> ToFoundryToolsJson(AgentPermissions permissions, GitHubPermissions? github = null)
+    public static IReadOnlyList<object> ToFoundryToolsJson(AgentPermissions permissions, GitHubPermissions? github = null,
+        IReadOnlyList<string>? mcpEnabled = null, IReadOnlyList<string>? mcpWriteEnabled = null)
     {
         var tools = Definitions.Select(d => (object)ToFoundryTool(d)).ToList();
 
@@ -185,6 +187,24 @@ public static class TectikaToolSchema
         {
             tools.Add(ToFoundryTool(RunCommandTool));
             tools.AddRange(FileTools.Select(d => (object)ToFoundryTool(d)));
+        }
+        // MCP integration tools (layer 3): read tools whenever the role enables the integration;
+        // write tools only when its catalog id is also write-opted-in.
+        if (mcpEnabled is not null)
+        {
+            var writeSet = new HashSet<string>(mcpWriteEnabled ?? Array.Empty<string>(), StringComparer.Ordinal);
+            foreach (var catalogId in mcpEnabled)
+            {
+                var entry = McpCatalog.Find(catalogId);
+                if (entry is null) continue;
+                var allowWrite = writeSet.Contains(catalogId);
+                foreach (var t in entry.Tools)
+                {
+                    if (t.IsWrite && !allowWrite) continue;
+                    tools.Add(ToFoundryTool(new ToolDef(
+                        McpToolNaming.Qualify(catalogId, t.Name), t.Description, t.Properties, t.Required)));
+                }
+            }
         }
         return tools;
     }
