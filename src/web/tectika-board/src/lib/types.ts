@@ -514,14 +514,26 @@ export interface Person {
   title?: string;
 }
 
+export type CommentKind = 'note' | 'message';
+export type NoteType = 'decision' | 'open_question' | 'note';
+
 export interface Comment {
   id: string;
   taskId: string;
+  boardId: string;
+  kind: CommentKind;
+  noteType?: NoteType;          // notes only
   authorId: string;
   body: string;
   mentions: string[];
+  reactions?: Record<string, string[]>;   // emoji -> userIds
   createdAt: string;
-  reactions?: Record<string, string[]>; // emoji -> userIds
+  updatedAt?: string;
+  editedBy?: string;
+  deletedAt?: string;
+  sharedWithAgent?: boolean;
+  sharedAt?: string;
+  sharedBy?: string;
 }
 
 export type ActivityKind =

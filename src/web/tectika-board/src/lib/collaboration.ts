@@ -46,7 +46,6 @@ export function uid(prefix = 'c'): string {
 export function seedCollaboration(tasks: AgentTask[]): { comments: Comment[]; activity: ActivityEntry[] } {
   const comments: Comment[] = [];
   const activity: ActivityEntry[] = [];
-  const now = Date.now();
 
   for (const t of tasks) {
     const created = new Date(t.createdAt).getTime();
@@ -61,21 +60,6 @@ export function seedCollaboration(tasks: AgentTask[]): { comments: Comment[]; ac
         id: uid('a'), taskId: t.id, kind: 'status', actorId: 'noah@tectika.com',
         from: 'Backlog', to: STATUS_CONFIG[t.status].label,
         createdAt: new Date(created + 3600_000).toISOString(),
-      });
-      comments.push({
-        id: uid('c'), taskId: t.id, authorId: 'maya@tectika.com',
-        body: 'Kicking this off — flagging @noah@tectika.com to review the approach before we go deep.',
-        mentions: ['noah@tectika.com'],
-        createdAt: new Date(now - 2 * 3600_000).toISOString(),
-        reactions: { '👍': ['noah@tectika.com'] },
-      });
-    }
-    if (t.status === 'Blocked' || t.status === 'Failed') {
-      comments.push({
-        id: uid('c'), taskId: t.id, authorId: 'lena@tectika.com',
-        body: 'Hit a blocker here — leaving notes in the artifact. Will pick back up once unblocked.',
-        mentions: [],
-        createdAt: new Date(now - 5 * 3600_000).toISOString(),
       });
     }
   }
