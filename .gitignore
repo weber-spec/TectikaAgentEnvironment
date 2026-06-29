@@ -7,6 +7,9 @@ obj/
 appsettings.Development.json
 appsettings.Local.json
 
+# Local dev stack runtime (logs, pids, azurite data) — see docs/local-dev.md
+.dev-local/
+
 # NuGet
 *.nupkg
 .nuget/
@@ -41,3 +44,8 @@ Thumbs.db
 # Workflows publish output (build artifacts, not source)
 publish-workflows/
 publish-workflows*.zip
+
+.claire/
+QA_FIX_PLAN.md
+QA_REPORT.md
+

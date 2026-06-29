@@ -65,6 +65,10 @@ npm run dev          # Turbopack dev server on http://localhost:3000
 
 Point the front-end at a different API with `NEXT_PUBLIC_API_URL`.
 
+To run the **whole stack locally against the real Azure resources** (real Cosmos
+data + real Foundry agents, no deployment), see [docs/local-dev.md](../../../docs/local-dev.md):
+`scripts/dev-local-setup.sh` once, then `scripts/dev-local.sh up`.
+
 ## QA
 
 Playwright smoke + interaction suites live in `qa/`:
