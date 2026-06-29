@@ -339,6 +339,30 @@ public class InMemoryCosmosDbService : ICosmosDbService
         return Task.FromResult(byAgent.Values.OrderByDescending(a => a.Tokens.Total).ToList());
     }
 
+    // ── Task comments ────────────────────────────────────────────────────────────
+    private readonly ConcurrentDictionary<string, TaskComment> _comments = new();
+
+    public Task<TaskComment> CreateCommentAsync(TaskComment comment, CancellationToken ct = default)
+    {
+        _comments[comment.Id] = comment;
+        return Task.FromResult(comment);
+    }
+
+    public Task<IReadOnlyList<TaskComment>> GetCommentsByTaskAsync(string taskId, CancellationToken ct = default) =>
+        Task.FromResult((IReadOnlyList<TaskComment>)_comments.Values
+            .Where(c => c.TaskId == taskId)
+            .OrderBy(c => c.CreatedAt)
+            .ToList());
+
+    public Task<TaskComment?> GetCommentAsync(string taskId, string commentId, CancellationToken ct = default) =>
+        Task.FromResult(_comments.TryGetValue(commentId, out var c) && c.TaskId == taskId ? c : null);
+
+    public Task<TaskComment> UpsertCommentAsync(TaskComment comment, CancellationToken ct = default)
+    {
+        _comments[comment.Id] = comment;
+        return Task.FromResult(comment);
+    }
+
     // ── Preview Sessions ──────────────────────────────────────────────────────────
     private readonly List<PreviewSession> _previews = new();
 

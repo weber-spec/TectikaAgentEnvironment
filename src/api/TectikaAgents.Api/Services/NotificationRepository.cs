@@ -37,12 +37,15 @@ public class NotificationRepository
         _logger.LogDebug("[NotificationRepo] saved id={Id} type={Type}", doc.Id, doc.Type);
     }
 
-    public virtual async Task<IReadOnlyList<NotificationDocument>> GetRecentAsync(string tenantId, int limit = 50, CancellationToken ct = default)
+    public virtual async Task<IReadOnlyList<NotificationDocument>> GetRecentAsync(string tenantId, string userId, int limit = 50, CancellationToken ct = default)
     {
         var query = new QueryDefinition(
-            "SELECT TOP @limit * FROM c WHERE c.tenantId = @tenantId ORDER BY c.timestamp DESC")
+            "SELECT TOP @limit * FROM c WHERE c.tenantId = @tenantId " +
+            "AND (NOT IS_DEFINED(c.recipientUserId) OR IS_NULL(c.recipientUserId) OR c.recipientUserId = @userId) " +
+            "ORDER BY c.timestamp DESC")
             .WithParameter("@limit", limit)
-            .WithParameter("@tenantId", tenantId);
+            .WithParameter("@tenantId", tenantId)
+            .WithParameter("@userId", userId);
 
         var options = new QueryRequestOptions { PartitionKey = new PartitionKey(tenantId) };
         var iterator = Container.GetItemQueryIterator<NotificationDocument>(query, requestOptions: options);

@@ -17,6 +17,8 @@ public class RoundExecutorTests
             => Task.FromResult<TaskDetail?>(null);
         public Task<ArtifactView?> GetArtifactAsync(string id, int? v, CancellationToken ct = default)
             => Task.FromResult<ArtifactView?>(new ArtifactView(id, 1, "Markdown", "C"));
+        public Task<IReadOnlyList<SharedNote>> GetSharedNotesAsync(string taskId, CancellationToken ct = default)
+            => Task.FromResult((IReadOnlyList<SharedNote>)Array.Empty<SharedNote>());
     }
 
     /// <summary>Explorer whose get_artifact returns a configurable body or throws — for the cap/scrub/error paths.</summary>
@@ -32,6 +34,8 @@ public class RoundExecutorTests
             => Task.FromResult<TaskDetail?>(null);
         public Task<ArtifactView?> GetArtifactAsync(string id, int? v, CancellationToken ct = default)
             => Task.FromResult(_artifact());   // may throw
+        public Task<IReadOnlyList<SharedNote>> GetSharedNotesAsync(string taskId, CancellationToken ct = default)
+            => Task.FromResult((IReadOnlyList<SharedNote>)Array.Empty<SharedNote>());
     }
 
     private static ToolCall FC(string name, object args) => new(name, JsonSerializer.Serialize(args), $"call_{name}");

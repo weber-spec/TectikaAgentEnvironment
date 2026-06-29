@@ -8,7 +8,7 @@ namespace TectikaAgents.AgentRuntime;
 /// whenever the toolset changes so AgentInstructionsHash republishes agent versions.</summary>
 public static class TectikaToolSchema
 {
-    public const string Version = "tools-v10";
+    public const string Version = "tools-v11";  // was tools-v10 — added read_team_notes
 
     public sealed record ToolProp(string Type, string? Description = null, string[]? Enum = null);
     public sealed record ToolDef(
@@ -28,6 +28,10 @@ public static class TectikaToolSchema
             new Dictionary<string, ToolProp> {
                 ["taskId"] = new("string", "The task whose artifact to read."),
                 ["version"] = new("integer", "Optional specific version; omit for latest.") }, ["taskId"]),
+        new("read_team_notes",
+            "Read notes the human team has explicitly shared with you on a task (decisions, open questions, context). Use before major decisions or when you need the team's standing guidance.",
+            new Dictionary<string, ToolProp> { ["taskId"] = new("string", "The task id.") },
+            ["taskId"]),
         // ── Control (signal the orchestrator) ──────────────────────────────────
         new("round_intent", "Announce, in one short line, what you are about to do this round. Call this at the START of each round. " +
             "You have a LIMITED number of rounds, so make each one count: a round can carry MANY tool calls at once — " +

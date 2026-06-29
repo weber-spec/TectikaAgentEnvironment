@@ -11,4 +11,6 @@ internal sealed class NullProjectExplorer : IProjectExplorer
         => Task.FromResult<TaskDetail?>(null);
     public Task<ArtifactView?> GetArtifactAsync(string taskId, int? version, CancellationToken ct = default)
         => Task.FromResult<ArtifactView?>(null);
+    public Task<IReadOnlyList<SharedNote>> GetSharedNotesAsync(string taskId, CancellationToken ct = default)
+        => Task.FromResult((IReadOnlyList<SharedNote>)Array.Empty<SharedNote>());
 }

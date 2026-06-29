@@ -30,6 +30,7 @@ public class CosmosDbService : ICosmosDbService
     public const string UsageEventsContainer = "usageEvents";
     public const string UsageRollupsContainer = "usageRollups";
     public const string PreviewSessionsContainer = "previewSessions";
+    public const string TaskCommentsContainer = "taskComments";
 
     /// <summary>Authoritative list of Cosmos containers this app requires (name + partition key).
     /// Source of truth for <see cref="EnsureInfrastructureAsync"/> and kept in sync with infra/modules/data.bicep.</summary>
@@ -49,6 +50,7 @@ public class CosmosDbService : ICosmosDbService
         (UsageEventsContainer,       "/taskId"),
         (UsageRollupsContainer,      "/tenantId"),
         (PreviewSessionsContainer,   "/boardId"),
+        (TaskCommentsContainer,      "/taskId"),
     };
 
     public CosmosDbService(CosmosClient client, IOptions<CosmosDbSettings> settings, ILogger<CosmosDbService> logger)
@@ -643,6 +645,40 @@ public class CosmosDbService : ICosmosDbService
             // treat as "no active previews" instead of throwing a 404 on every 60s reaper sweep (QA S2 §3.4).
         }
         return list;
+    }
+
+    // ── Task comments ────────────────────────────────────────────────────────────
+
+    public async Task<TaskComment> CreateCommentAsync(TaskComment comment, CancellationToken ct = default)
+    {
+        var res = await GetContainer(TaskCommentsContainer)
+            .CreateItemAsync(comment, new PartitionKey(comment.TaskId), cancellationToken: ct);
+        return res.Resource;
+    }
+
+    public async Task<IReadOnlyList<TaskComment>> GetCommentsByTaskAsync(string taskId, CancellationToken ct = default)
+    {
+        var query = new QueryDefinition("SELECT * FROM c WHERE c.taskId = @taskId ORDER BY c.createdAt ASC")
+            .WithParameter("@taskId", taskId);
+        return (await QueryAsync<TaskComment>(TaskCommentsContainer, query, taskId, ct)).ToList();
+    }
+
+    public async Task<TaskComment?> GetCommentAsync(string taskId, string commentId, CancellationToken ct = default)
+    {
+        try
+        {
+            var res = await GetContainer(TaskCommentsContainer)
+                .ReadItemAsync<TaskComment>(commentId, new PartitionKey(taskId), cancellationToken: ct);
+            return res.Resource;
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
+    }
+
+    public async Task<TaskComment> UpsertCommentAsync(TaskComment comment, CancellationToken ct = default)
+    {
+        var res = await GetContainer(TaskCommentsContainer)
+            .UpsertItemAsync(comment, new PartitionKey(comment.TaskId), cancellationToken: ct);
+        return res.Resource;
     }
 
     // ── Generic query helper ──────────────────────────────────────────────────

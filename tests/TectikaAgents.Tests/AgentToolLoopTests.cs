@@ -19,6 +19,8 @@ public class AgentToolLoopTests
             => Task.FromResult<TaskDetail?>(null);
         public Task<ArtifactView?> GetArtifactAsync(string id, int? v, CancellationToken ct = default)
             => Task.FromResult<ArtifactView?>(new ArtifactView(id, 1, "Markdown", "UPSTREAM-CONTENT"));
+        public Task<IReadOnlyList<SharedNote>> GetSharedNotesAsync(string taskId, CancellationToken ct = default)
+            => Task.FromResult((IReadOnlyList<SharedNote>)Array.Empty<SharedNote>());
     }
 
     private static ToolCall FC(string name, object args) =>

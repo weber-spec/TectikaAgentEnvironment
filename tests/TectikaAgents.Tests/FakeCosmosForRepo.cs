@@ -107,4 +107,10 @@ public sealed class FakeCosmosForRepo : ICosmosDbService
     public Task UpsertPreviewAsync(PreviewSession session, CancellationToken ct = default) => throw new NotImplementedException();
     public Task DeletePreviewAsync(string boardId, string id, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<IReadOnlyList<PreviewSession>> ListActivePreviewsAsync(CancellationToken ct = default) => throw new NotImplementedException();
+
+    // ── Task comments ────────────────────────────────────────────────────────
+    public Task<TectikaAgents.Core.Models.TaskComment> CreateCommentAsync(TectikaAgents.Core.Models.TaskComment comment, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<IReadOnlyList<TectikaAgents.Core.Models.TaskComment>> GetCommentsByTaskAsync(string taskId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<TectikaAgents.Core.Models.TaskComment?> GetCommentAsync(string taskId, string commentId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<TectikaAgents.Core.Models.TaskComment> UpsertCommentAsync(TectikaAgents.Core.Models.TaskComment comment, CancellationToken ct = default) => throw new NotImplementedException();
 }

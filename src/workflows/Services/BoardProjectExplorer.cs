@@ -63,4 +63,15 @@ public sealed class BoardProjectExplorer : IProjectExplorer
         return art is null ? null
             : new ArtifactView(art.TaskId, art.Version, art.ContentType.ToString(), art.Content);
     }
+
+    public async Task<IReadOnlyList<SharedNote>> GetSharedNotesAsync(string taskId, CancellationToken ct = default)
+    {
+        // Scope guard: taskComments is partitioned by /taskId; confirm the task belongs to THIS board
+        // before returning its notes, so a prompt-injected taskId cannot read across board boundaries.
+        var task = await _cosmos.GetTaskAsync(_boardId, taskId, ct);
+        if (task is null) return [];
+        var notes = await _cosmos.GetSharedTaskNotesAsync(taskId, ct);
+        return notes.Select(n => new SharedNote(
+            n.NoteType ?? "note", n.Body, n.AuthorId, n.UpdatedAt ?? n.CreatedAt)).ToList();
+    }
 }

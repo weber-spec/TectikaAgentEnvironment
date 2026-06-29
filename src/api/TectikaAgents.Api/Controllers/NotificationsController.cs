@@ -34,7 +34,7 @@ public class NotificationsController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetNotifications([FromQuery] int limit = 50, CancellationToken ct = default)
     {
-        var notifications = await _notificationRepo.GetRecentAsync(TenantId, limit, ct);
+        var notifications = await _notificationRepo.GetRecentAsync(TenantId, UserId, limit, ct);
         return Ok(notifications);
     }
 
