@@ -74,6 +74,41 @@ public class CommentsController : ControllerBase
         return Ok(created);
     }
 
+    [HttpPut("{commentId}")]
+    public async Task<IActionResult> Update(string boardId, string taskId, string commentId, [FromBody] UpdateCommentRequest req, CancellationToken ct)
+    {
+        if (await AuthorizedTaskAsync(boardId, taskId, ct) is null) return NotFound("Task not found.");
+        var comment = await _cosmos.GetCommentAsync(taskId, commentId, ct);
+        if (comment is null || comment.DeletedAt is not null) return NotFound("Comment not found.");
+        if (comment.AuthorId != UserId) return Forbid();
+
+        var body = (req.Body ?? string.Empty).Trim();
+        if (body.Length == 0) return BadRequest("Comment body is required.");
+        if (comment.Kind == CommentKinds.Note && req.NoteType is not null && !NoteTypes.All.Contains(req.NoteType))
+            return BadRequest("Invalid noteType.");
+
+        comment.Body = body;
+        if (comment.Kind == CommentKinds.Note && req.NoteType is not null) comment.NoteType = req.NoteType;
+        comment.UpdatedAt = DateTimeOffset.UtcNow;
+        comment.EditedBy = UserId;
+
+        var saved = await _cosmos.UpsertCommentAsync(comment, ct);
+        return Ok(saved);
+    }
+
+    [HttpDelete("{commentId}")]
+    public async Task<IActionResult> Delete(string boardId, string taskId, string commentId, CancellationToken ct)
+    {
+        if (await AuthorizedTaskAsync(boardId, taskId, ct) is null) return NotFound("Task not found.");
+        var comment = await _cosmos.GetCommentAsync(taskId, commentId, ct);
+        if (comment is null || comment.DeletedAt is not null) return NotFound("Comment not found.");
+        if (comment.AuthorId != UserId) return Forbid();
+
+        comment.DeletedAt = DateTimeOffset.UtcNow;
+        await _cosmos.UpsertCommentAsync(comment, ct);
+        return Ok(new { deleted = true });
+    }
+
     // Replaced with real implementation in a later task (Task 9). No-op for now.
     private Task NotifyMentionsAsync(TaskComment comment, CancellationToken ct) => Task.CompletedTask;
 }

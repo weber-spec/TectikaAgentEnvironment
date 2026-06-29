@@ -78,6 +78,49 @@ public class CommentsControllerTests
         Assert.IsType<NotFoundObjectResult>(await ctrl.List("b1", "t1", default));
     }
 
+    [Fact]
+    public async Task Update_by_author_edits_body_and_stamps_editedBy()
+    {
+        var cosmos = NewStore();
+        await SeedTask(cosmos, "b1", "t1");
+        var ctrl = NewController(cosmos, user: "eli@tectika.com");
+        var created = (TaskComment)((OkObjectResult)await ctrl.Create("b1", "t1",
+            new CreateCommentRequest("message", null, "v1", null), default)).Value!;
+
+        var res = await ctrl.Update("b1", "t1", created.Id, new UpdateCommentRequest("v2", null), default);
+        var updated = (TaskComment)Assert.IsType<OkObjectResult>(res).Value!;
+        Assert.Equal("v2", updated.Body);
+        Assert.Equal("eli@tectika.com", updated.EditedBy);
+        Assert.NotNull(updated.UpdatedAt);
+    }
+
+    [Fact]
+    public async Task Update_by_non_author_is_forbidden()
+    {
+        var cosmos = NewStore();
+        await SeedTask(cosmos, "b1", "t1");
+        var author = NewController(cosmos, user: "eli@tectika.com");
+        var created = (TaskComment)((OkObjectResult)await author.Create("b1", "t1",
+            new CreateCommentRequest("message", null, "v1", null), default)).Value!;
+
+        var other = NewController(cosmos, user: "maya@tectika.com");
+        Assert.IsType<ForbidResult>(await other.Update("b1", "t1", created.Id, new UpdateCommentRequest("hack", null), default));
+    }
+
+    [Fact]
+    public async Task Delete_by_author_soft_deletes()
+    {
+        var cosmos = NewStore();
+        await SeedTask(cosmos, "b1", "t1");
+        var ctrl = NewController(cosmos, user: "eli@tectika.com");
+        var created = (TaskComment)((OkObjectResult)await ctrl.Create("b1", "t1",
+            new CreateCommentRequest("message", null, "bye", null), default)).Value!;
+
+        Assert.IsType<OkObjectResult>(await ctrl.Delete("b1", "t1", created.Id, default));
+        var reloaded = await cosmos.GetCommentAsync("t1", created.Id);
+        Assert.NotNull(reloaded!.DeletedAt);
+    }
+
     private sealed class TestUserSettingsRepo : UserSettingsRepository
     {
         public TestUserSettingsRepo() : base(NullLogger<UserSettingsRepository>.Instance) { }
