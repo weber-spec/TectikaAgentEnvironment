@@ -130,6 +130,7 @@ public class RunAgentRoundActivity
             new RoundRequest(role, task, threadId, userInput, input.PendingToolOutputs, _maxCompletionTokens, input.RunId, input.Round)
             {
                 BoardGitHub = board.GitHub,
+                BoardMcp = board.McpConnections,
                 Workspace = role.Permissions.CanUseWorkspace
                     ? new RunWorkspaceProvider(_cosmos, _workspace, _snapshots, _secrets, board, input.RunId, input.TaskId, role.Permissions.CanPushCode, _logger)
                     : null,
