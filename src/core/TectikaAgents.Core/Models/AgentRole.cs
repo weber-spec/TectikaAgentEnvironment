@@ -16,6 +16,16 @@ public class AgentRole
     [JsonPropertyName("systemPrompt")]
     public string SystemPrompt { get; set; } = string.Empty;
 
+    /// <summary>Which engine runs this role. Foundry (default — server-side REST to Azure AI Foundry) or
+    /// ClaudeCode (the Claude Code CLI run inside the per-board ACI workspace container).</summary>
+    [JsonPropertyName("executionEngine")]
+    public ExecutionEngine ExecutionEngine { get; set; } = ExecutionEngine.Foundry;
+
+    /// <summary>Key Vault secret NAME holding the Anthropic API key for a ClaudeCode role (the secret
+    /// VALUE never lives on this model). Mirrors GitHubRepoConnection.PatSecretName. Null for Foundry.</summary>
+    [JsonPropertyName("apiKeySecretName")]
+    public string? ApiKeySecretName { get; set; }
+
     [JsonPropertyName("foundryAgentId")]
     public string? FoundryAgentId { get; set; }
 
@@ -47,6 +57,8 @@ public class AgentRole
     [JsonPropertyName("updatedAt")]
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
+
+public enum ExecutionEngine { Foundry, ClaudeCode }
 
 public class GitHubPermissions
 {

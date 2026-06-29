@@ -20,9 +20,9 @@ export default function AgentsPage() {
 
   useEffect(() => { api.agentRoles.list().then(setRoles).catch(() => setRoles([])); }, []);
 
-  const save = async (role: AgentRole) => {
+  const save = async (role: AgentRole, anthropicApiKey?: string) => {
     try {
-      const result = await api.agentRoles.upsertFull(role);
+      const result = await api.agentRoles.upsertFull(role, anthropicApiKey);
       const saved = result.role;
       setRoles(prev => { const list = prev ?? []; return list.some(r => r.id === saved.id) ? list.map(r => r.id === saved.id ? saved : r) : [...list, saved]; });
       setSyncStates(prev => ({ ...prev, [saved.id]: { synced: result.synced, error: result.error } }));
@@ -64,11 +64,13 @@ export default function AgentsPage() {
 }
 
 function RoleCard({ role, syncState, onEdit }: { role: AgentRole; syncState?: SyncState; onEdit: () => void }) {
-  // Derive a synced indicator: explicit syncState from last save takes priority,
-  // otherwise fall back to presence of foundryAgentId as a passive indicator.
-  const isSynced = syncState ? syncState.synced : !!role.foundryAgentId;
+  // Derive a synced indicator: explicit syncState from last save takes priority, otherwise fall back to
+  // a passive indicator — foundryAgentId (Foundry) or apiKeySecretName (Claude Code, = key stored).
+  const engine = role.executionEngine ?? 'Foundry';
+  const passiveSynced = engine === 'ClaudeCode' ? !!role.apiKeySecretName : !!role.foundryAgentId;
+  const isSynced = syncState ? syncState.synced : passiveSynced;
   const syncError = syncState?.error;
-  const showSyncBadge = syncState !== undefined || !!role.foundryAgentId;
+  const showSyncBadge = syncState !== undefined || passiveSynced;
 
   return (
     <div className="bg-[var(--background)] rounded-xl border border-[var(--border)] p-4 hover:shadow-md transition-shadow flex flex-col">
@@ -107,11 +109,16 @@ function RoleCard({ role, syncState, onEdit }: { role: AgentRole; syncState?: Sy
   );
 }
 
-function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: AgentRole) => void | Promise<void>; onClose: () => void }) {
+function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: AgentRole, apiKey?: string) => void | Promise<void>; onClose: () => void }) {
   const [r, setR] = useState<AgentRole>(role);
+  // Anthropic API key (ClaudeCode engine) — kept local, never on the role object, sent only on save.
+  const [apiKey, setApiKey] = useState('');
   const set = (p: Partial<AgentRole>) => setR(prev => ({ ...prev, ...p }));
   const setPerms = (p: Partial<typeof r.permissions>) =>
     setR(prev => ({ ...prev, permissions: { ...prev.permissions, ...p } }));
+
+  const engine = r.executionEngine ?? 'Foundry';
+  const isClaude = engine === 'ClaudeCode';
 
   const wsEnabled = r.permissions.canUseWorkspace;
   // When workspace is enabled, GitHub read is auto-granted via cascade — the checkbox is locked.
@@ -125,7 +132,7 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
     if (savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
-    try { await onSave(r); }
+    try { await onSave(r, isClaude ? (apiKey || undefined) : undefined); }
     finally { savingRef.current = false; setSaving(false); }
   };
   return (
@@ -135,6 +142,28 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
         <L label="Display name"><input value={r.displayName} onChange={e => set({ displayName: e.target.value })} className="inp" /></L>
         <L label="System prompt"><textarea value={r.systemPrompt} onChange={e => set({ systemPrompt: e.target.value })} rows={4} className="inp resize-none" /></L>
         <L label="Model"><ModelSelect value={r.modelOverride} onChange={v => set({ modelOverride: v || undefined })} selectClassName="inp" /></L>
+
+        {/* Execution engine: Foundry (server-side) vs Claude Code (CLI in the sandbox container) */}
+        <L label="Execution engine">
+          <select value={engine}
+            onChange={e => set({ executionEngine: e.target.value as AgentRole['executionEngine'] })}
+            className="inp">
+            <option value="Foundry">Azure Foundry</option>
+            <option value="ClaudeCode">Claude Code</option>
+          </select>
+        </L>
+
+        {isClaude && (
+          <L label="Anthropic API key">
+            <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)}
+              placeholder={r.apiKeySecretName ? 'Leave blank to keep existing key' : 'sk-ant-…'}
+              className="inp" autoComplete="off" />
+            <span className="text-[11px] text-[var(--muted)] block mt-1">
+              Stored securely in Azure Key Vault — never shown again. Claude Code runs in the board&apos;s
+              sandbox container with the full CLI toolset.
+            </span>
+          </L>
+        )}
 
         {/* Layer 1: Workspace */}
         <div className="rounded-lg border border-[var(--border)] p-3">

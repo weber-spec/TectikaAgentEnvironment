@@ -76,6 +76,11 @@ public class AgentTask
     [JsonPropertyName("foundryThreadId")]
     public string? FoundryThreadId { get; set; }
 
+    /// <summary>Claude Code session id (from the first `claude -p` envelope) for a ClaudeCode-engine task.
+    /// Reused via `--resume` on follow-up rounds — the Claude analogue of FoundryThreadId.</summary>
+    [JsonPropertyName("claudeSessionId")]
+    public string? ClaudeSessionId { get; set; }
+
     /// <summary>Identifies the current usage session for the task. Reset (new GUID) on /clear ONLY.
     /// New usage events accrue to the task rollup's currentSession bucket keyed by this id.</summary>
     [JsonPropertyName("usageSessionId")]

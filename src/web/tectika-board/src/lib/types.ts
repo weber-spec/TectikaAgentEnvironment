@@ -184,6 +184,9 @@ export interface AgentRole {
   tenantId: string;
   displayName: string;
   systemPrompt: string;
+  executionEngine?: ExecutionEngine;
+  /** Key Vault secret name for the Anthropic API key (ClaudeCode engine). The key value is never returned. */
+  apiKeySecretName?: string | null;
   foundryAgentId?: string | null;
   foundryAgentHash?: string | null;
   tools: string[];
@@ -195,6 +198,8 @@ export interface AgentRole {
   createdAt?: string;
   updatedAt?: string;
 }
+
+export type ExecutionEngine = 'Foundry' | 'ClaudeCode';
 
 /** Response shape from POST /api/agentroles (upsert). */
 export interface AgentUpsertResult {

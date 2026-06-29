@@ -322,6 +322,14 @@ public class WorkflowCosmosService
         await C("tasks").PatchItemAsync<AgentTask>(taskId, new PartitionKey(boardId), patchOps, cancellationToken: ct);
     }
 
+    /// <summary>Persist the Claude Code session id for a task (captured from the first `claude -p` envelope,
+    /// reused via `--resume`). The ClaudeCode-engine analogue of PatchTaskThreadIdAsync.</summary>
+    public async Task PatchTaskClaudeSessionIdAsync(string boardId, string taskId, string sessionId, CancellationToken ct = default)
+    {
+        var patchOps = new List<PatchOperation> { PatchOperation.Set("/claudeSessionId", sessionId) };
+        await C("tasks").PatchItemAsync<AgentTask>(taskId, new PartitionKey(boardId), patchOps, cancellationToken: ct);
+    }
+
     /// <summary>Persist the running count of request_human_input pauses for a task (repeat-ask guard, QA S1 §2.2).</summary>
     public async Task PatchTaskHumanAskCountAsync(string boardId, string taskId, int count, CancellationToken ct = default)
     {

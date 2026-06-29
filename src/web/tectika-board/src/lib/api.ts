@@ -176,14 +176,15 @@ export const api = {
   agentRoles: {
     list: () => fetchApi<AgentRole[]>('/api/agentroles'),
     get: (roleId: string) => fetchApi<AgentRole>(`/api/agentroles/${roleId}`),
-    /** Upserts an agent role. Returns the saved AgentRole directly (unwraps the wrapper). */
-    upsert: async (role: AgentRole): Promise<AgentRole> => {
-      const result = await fetchApi<AgentUpsertResult>('/api/agentroles', { method: 'POST', body: JSON.stringify(role) });
+    /** Upserts an agent role. Returns the saved AgentRole directly (unwraps the wrapper).
+     *  anthropicApiKey (ClaudeCode engine) is sent transiently and stored server-side in Key Vault. */
+    upsert: async (role: AgentRole, anthropicApiKey?: string): Promise<AgentRole> => {
+      const result = await fetchApi<AgentUpsertResult>('/api/agentroles', { method: 'POST', body: JSON.stringify({ role, anthropicApiKey }) });
       return result.role;
     },
     /** Upserts an agent role and returns the full {role, synced, error} response. */
-    upsertFull: (role: AgentRole): Promise<AgentUpsertResult> =>
-      fetchApi<AgentUpsertResult>('/api/agentroles', { method: 'POST', body: JSON.stringify(role) }),
+    upsertFull: (role: AgentRole, anthropicApiKey?: string): Promise<AgentUpsertResult> =>
+      fetchApi<AgentUpsertResult>('/api/agentroles', { method: 'POST', body: JSON.stringify({ role, anthropicApiKey }) }),
   },
 
   models: {

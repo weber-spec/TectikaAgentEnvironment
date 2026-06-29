@@ -20,7 +20,7 @@ namespace TectikaAgents.Workflows.Activities;
 public class RunAgentRoundActivity
 {
     private readonly WorkflowCosmosService _cosmos;
-    private readonly IAgentRuntime _runtime;
+    private readonly IAgentRuntimeFactory _runtimeFactory;
     private readonly IAgentProvisioner _provisioner;
     private readonly ContextManager _contextManager;
     private readonly WorkflowEventPublisher _events;
@@ -36,7 +36,7 @@ public class RunAgentRoundActivity
 
     public RunAgentRoundActivity(
         WorkflowCosmosService cosmos,
-        IAgentRuntime runtime,
+        IAgentRuntimeFactory runtimeFactory,
         IAgentProvisioner provisioner,
         ContextManager contextManager,
         WorkflowEventPublisher events,
@@ -49,7 +49,7 @@ public class RunAgentRoundActivity
         ILogger<RunAgentRoundActivity> logger)
     {
         _cosmos = cosmos;
-        _runtime = runtime;
+        _runtimeFactory = runtimeFactory;
         _provisioner = provisioner;
         _contextManager = contextManager;
         _events = events;
@@ -79,12 +79,20 @@ public class RunAgentRoundActivity
         _logger.LogInformation("[RunAgentRound] board={Board} hasGitHub={HasGitHub} owner={Owner}",
             input.BoardId, board.GitHub != null, board.GitHub?.Owner ?? "(null)");
 
+        var runtime = _runtimeFactory.ForRole(role);
+        var isClaudeCode = role.ExecutionEngine == ExecutionEngine.ClaudeCode;
+
         // EnsureThreadAsync mutates task.FoundryThreadId in place, so capture whether it existed
         // BEFORE the call. Otherwise the guard never fires, the thread is never persisted, and every
         // round creates a fresh Foundry conversation (orphaning the prior round's tool calls).
-        var hadThread = !string.IsNullOrEmpty(task.FoundryThreadId);
-        var threadId = await _runtime.EnsureThreadAsync(task, ct);
-        if (!hadThread)
+        // For Claude Code there is no thread to mint up front — the session id is only known after the
+        // first run (returned in outcome.CompletionId), persisted below. EnsureThreadAsync returns the
+        // stored session id ("" on first run), so we must NOT persist that empty value as a thread id.
+        var hadThread = isClaudeCode
+            ? !string.IsNullOrEmpty(task.ClaudeSessionId)
+            : !string.IsNullOrEmpty(task.FoundryThreadId);
+        var threadId = await runtime.EnsureThreadAsync(task, ct);
+        if (!hadThread && !isClaudeCode)
             await _cosmos.PatchTaskThreadIdAsync(input.BoardId, input.TaskId, threadId, ct);
 
         // Round 0 seeds the conversation with assembled task context (+ any user/chat message).
@@ -121,20 +129,35 @@ public class RunAgentRoundActivity
             //   - On existing threads when there is no user seed message (button re-trigger reminder).
             // NOT sent on chat continuations on existing threads (agent already knows the workspace from history).
             if (!hadThread || string.IsNullOrEmpty(input.UserInput))
-                userInput += WorkspacePrompt(role.Permissions.CanUseWorkspace, board.GitHub is not null, role.Permissions.CanPushCode,
-                    $"agent/{input.RunId[..Math.Min(8, input.RunId.Length)]}");
+            {
+                var branch = $"agent/{input.RunId[..Math.Min(8, input.RunId.Length)]}";
+                // Claude Code brings its own tools (Edit/Bash/Read/…), so the Foundry tool-table prompt
+                // would be wrong for it — give it a concise, Claude-appropriate sandbox note instead.
+                userInput += isClaudeCode
+                    ? ClaudeWorkspacePrompt(board.GitHub is not null, role.Permissions.CanPushCode, branch)
+                    : WorkspacePrompt(role.Permissions.CanUseWorkspace, board.GitHub is not null, role.Permissions.CanPushCode, branch);
+            }
         }
 
+        // Claude Code always needs the worktree (it runs `claude` there), regardless of the legacy
+        // CanUseWorkspace flag, so old roles flipped to Claude still get a sandbox.
+        var useWorkspace = role.Permissions.CanUseWorkspace || isClaudeCode;
         var explorer = new BoardProjectExplorer(_cosmos, input.BoardId, input.TenantId);
-        var outcome = await _runtime.RunRoundAsync(
+        var outcome = await runtime.RunRoundAsync(
             new RoundRequest(role, task, threadId, userInput, input.PendingToolOutputs, _maxCompletionTokens, input.RunId, input.Round)
             {
                 BoardGitHub = board.GitHub,
-                Workspace = role.Permissions.CanUseWorkspace
+                Workspace = useWorkspace
                     ? new RunWorkspaceProvider(_cosmos, _workspace, _snapshots, _secrets, board, input.RunId, input.TaskId, role.Permissions.CanPushCode, _logger)
                     : null,
             },
             explorer, ct);
+
+        // Persist the Claude session id captured from the first run (carried in CompletionId) so follow-up
+        // rounds can `--resume`. Skip synthetic ids (Fail/parse fallbacks use a "round-…" placeholder).
+        if (isClaudeCode && !string.IsNullOrEmpty(outcome.CompletionId)
+            && outcome.CompletionId != task.ClaudeSessionId && !outcome.CompletionId.StartsWith("round-"))
+            await _cosmos.PatchTaskClaudeSessionIdAsync(input.BoardId, input.TaskId, outcome.CompletionId, ct);
 
         // Fold a tool-driven brief update into the task brief.
         if (!string.IsNullOrEmpty(outcome.BriefUpdate))
@@ -303,6 +326,26 @@ public class RunAgentRoundActivity
         "- If it genuinely needs rework, call the `request_revision` tool with a clear, specific reason. " +
         "That AUTOMATICALLY re-runs the upstream task with your feedback — do not ask a human, and do not " +
         "try to fix the upstream work yourself. State exactly what must change so the re-run can address it.";
+
+    /// <summary>Sandbox instructions for a Claude Code role. Claude already has its own file/shell tools,
+    /// so this only orients it: working directory, branch policy, and how to deliver its result.</summary>
+    public static string ClaudeWorkspacePrompt(bool repoConnected, bool canPushCode, string branch)
+    {
+        var dir = $"/workspace/runs/{branch}";
+        var git = repoConnected
+            ? (canPushCode
+                ? $"A git repo is checked out and you are already on branch `{branch}` (forked from the up-to-date base). " +
+                  "Commit your work; pushing is allowed. Do NOT create new branches or run `git checkout`/`git init`."
+                : $"A git repo is checked out and you are already on branch `{branch}`. Commit locally; pushing is disabled for your role.")
+            : "There is no git repo — just create and run files in the working directory.";
+
+        return
+            "\n\n## Sandbox\n" +
+            $"Your working directory is `{dir}` and it is already your current directory. {git}\n" +
+            "Implement the task directly using your tools (edit files, run commands, run tests). The sandbox is " +
+            "non-interactive (no TTY/stdin). End your run with a concise summary of what you did and what you " +
+            "delivered — that summary becomes the task's artifact handed downstream.";
+    }
 
     public static string WorkspacePrompt(bool canUseWorkspace, bool repoConnected, bool canPushCode, string? branchName = null)
     {
