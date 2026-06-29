@@ -13,6 +13,10 @@ public class UserSettingsDocument
 
     public DateTimeOffset NotificationsLastReadAt { get; set; } = DateTimeOffset.MinValue;
 
+    /// <summary>Per-task "Team tab last read at" markers for the unread badge. taskId -> timestamp.</summary>
+    [JsonPropertyName("taskReadMarkers")]
+    public Dictionary<string, DateTimeOffset> TaskReadMarkers { get; set; } = [];
+
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
