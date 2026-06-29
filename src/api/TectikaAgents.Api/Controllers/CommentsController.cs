@@ -109,6 +109,41 @@ public class CommentsController : ControllerBase
         return Ok(new { deleted = true });
     }
 
+    [HttpPost("{commentId}/reactions")]
+    public async Task<IActionResult> React(string boardId, string taskId, string commentId, [FromBody] ReactionRequest req, CancellationToken ct)
+    {
+        if (await AuthorizedTaskAsync(boardId, taskId, ct) is null) return NotFound("Task not found.");
+        if (string.IsNullOrWhiteSpace(req.Emoji)) return BadRequest("Emoji is required.");
+        var comment = await _cosmos.GetCommentAsync(taskId, commentId, ct);
+        if (comment is null || comment.DeletedAt is not null) return NotFound("Comment not found.");
+
+        var users = comment.Reactions.TryGetValue(req.Emoji, out var list) ? list : new List<string>();
+        if (users.Contains(UserId)) users.Remove(UserId);
+        else users.Add(UserId);
+
+        if (users.Count == 0) comment.Reactions.Remove(req.Emoji);
+        else comment.Reactions[req.Emoji] = users;
+
+        return Ok(await _cosmos.UpsertCommentAsync(comment, ct));
+    }
+
+    [HttpPost("{commentId}/share")]
+    public async Task<IActionResult> Share(string boardId, string taskId, string commentId, [FromBody] ShareRequest req, CancellationToken ct)
+    {
+        if (await AuthorizedTaskAsync(boardId, taskId, ct) is null) return NotFound("Task not found.");
+        var comment = await _cosmos.GetCommentAsync(taskId, commentId, ct);
+        if (comment is null || comment.DeletedAt is not null) return NotFound("Comment not found.");
+        if (comment.Kind != CommentKinds.Note) return BadRequest("Only notes can be shared with the agent.");
+
+        comment.SharedWithAgent = req.Shared;
+        if (req.Shared)
+        {
+            comment.SharedAt = DateTimeOffset.UtcNow;
+            comment.SharedBy = UserId;
+        }
+        return Ok(await _cosmos.UpsertCommentAsync(comment, ct));
+    }
+
     // Replaced with real implementation in a later task (Task 9). No-op for now.
     private Task NotifyMentionsAsync(TaskComment comment, CancellationToken ct) => Task.CompletedTask;
 }

@@ -121,6 +121,49 @@ public class CommentsControllerTests
         Assert.NotNull(reloaded!.DeletedAt);
     }
 
+    [Fact]
+    public async Task React_toggles_user_under_emoji()
+    {
+        var cosmos = NewStore();
+        await SeedTask(cosmos, "b1", "t1");
+        var ctrl = NewController(cosmos, user: "eli@tectika.com");
+        var c = (TaskComment)((OkObjectResult)await ctrl.Create("b1", "t1",
+            new CreateCommentRequest("message", null, "x", null), default)).Value!;
+
+        var on = (TaskComment)((OkObjectResult)await ctrl.React("b1", "t1", c.Id, new ReactionRequest("👍"), default)).Value!;
+        Assert.Contains("eli@tectika.com", on.Reactions["👍"]);
+
+        var off = (TaskComment)((OkObjectResult)await ctrl.React("b1", "t1", c.Id, new ReactionRequest("👍"), default)).Value!;
+        Assert.False(off.Reactions.ContainsKey("👍") && off.Reactions["👍"].Contains("eli@tectika.com"));
+    }
+
+    [Fact]
+    public async Task Share_sets_flag_and_stamps_on_notes_only()
+    {
+        var cosmos = NewStore();
+        await SeedTask(cosmos, "b1", "t1");
+        var ctrl = NewController(cosmos, user: "eli@tectika.com");
+        var note = (TaskComment)((OkObjectResult)await ctrl.Create("b1", "t1",
+            new CreateCommentRequest("note", "decision", "ship it", null), default)).Value!;
+
+        var shared = (TaskComment)((OkObjectResult)await ctrl.Share("b1", "t1", note.Id, new ShareRequest(true), default)).Value!;
+        Assert.True(shared.SharedWithAgent);
+        Assert.Equal("eli@tectika.com", shared.SharedBy);
+        Assert.NotNull(shared.SharedAt);
+    }
+
+    [Fact]
+    public async Task Share_rejected_for_message_kind()
+    {
+        var cosmos = NewStore();
+        await SeedTask(cosmos, "b1", "t1");
+        var ctrl = NewController(cosmos, user: "eli@tectika.com");
+        var msg = (TaskComment)((OkObjectResult)await ctrl.Create("b1", "t1",
+            new CreateCommentRequest("message", null, "not a note", null), default)).Value!;
+
+        Assert.IsType<BadRequestObjectResult>(await ctrl.Share("b1", "t1", msg.Id, new ShareRequest(true), default));
+    }
+
     private sealed class TestUserSettingsRepo : UserSettingsRepository
     {
         public TestUserSettingsRepo() : base(NullLogger<UserSettingsRepository>.Instance) { }
