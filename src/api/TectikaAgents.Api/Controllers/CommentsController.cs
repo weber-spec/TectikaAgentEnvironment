@@ -155,6 +155,23 @@ public class CommentsController : ControllerBase
         return Ok(new { lastReadAt = now });
     }
 
-    // Replaced with real implementation in a later task (Task 9). No-op for now.
-    private Task NotifyMentionsAsync(TaskComment comment, CancellationToken ct) => Task.CompletedTask;
+    private static string Truncate(string s, int max) => s.Length <= max ? s : s[..max] + "…";
+
+    private async Task NotifyMentionsAsync(TaskComment comment, CancellationToken ct)
+    {
+        foreach (var recipient in comment.Mentions.Distinct().Where(m => m != comment.AuthorId))
+        {
+            await _notifications.SaveAsync(new NotificationDocument
+            {
+                TenantId = comment.TenantId,
+                RecipientUserId = recipient,
+                Type = "mention",
+                Title = $"{comment.AuthorId} mentioned you",
+                Subtitle = Truncate(comment.Body, 120),
+                BoardId = comment.BoardId,
+                TaskId = comment.TaskId,
+                SourceEventType = "team_comment_mention",
+            }, ct);
+        }
+    }
 }

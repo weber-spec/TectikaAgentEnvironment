@@ -175,6 +175,60 @@ public class CommentsControllerTests
         Assert.NotNull(res.Value);
     }
 
+    [Fact]
+    public async Task Create_with_mentions_saves_targeted_notifications()
+    {
+        var cosmos = NewStore();
+        await SeedTask(cosmos, "b1", "t1");
+        var notifs = new TestNotificationRepo();
+        var ctrl = new CommentsController(cosmos, new TestUserSettingsRepo(), notifs, NullLogger<CommentsController>.Instance);
+        ctrl.ControllerContext = new()
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(new[]
+                {
+                    new Claim("tid", "default"),
+                    new Claim("preferred_username", "eli@tectika.com"),
+                }, "Test"))
+            }
+        };
+
+        await ctrl.Create("b1", "t1",
+            new CreateCommentRequest("message", null, "ping @maya", new List<string> { "maya@tectika.com" }), default);
+
+        var n = Assert.Single(notifs.Saved);
+        Assert.Equal("maya@tectika.com", n.RecipientUserId);
+        Assert.Equal("default", n.TenantId);
+        Assert.Equal("t1", n.TaskId);
+        Assert.Equal("mention", n.Type);
+    }
+
+    [Fact]
+    public async Task Create_does_not_notify_self_mention()
+    {
+        var cosmos = NewStore();
+        await SeedTask(cosmos, "b1", "t1");
+        var notifs = new TestNotificationRepo();
+        var ctrl = new CommentsController(cosmos, new TestUserSettingsRepo(), notifs, NullLogger<CommentsController>.Instance);
+        ctrl.ControllerContext = new()
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(new[]
+                {
+                    new Claim("tid", "default"),
+                    new Claim("preferred_username", "eli@tectika.com"),
+                }, "Test"))
+            }
+        };
+
+        await ctrl.Create("b1", "t1",
+            new CreateCommentRequest("message", null, "note to self @eli", new List<string> { "eli@tectika.com" }), default);
+
+        Assert.Empty(notifs.Saved);
+    }
+
     private sealed class TestUserSettingsRepo : UserSettingsRepository
     {
         public TestUserSettingsRepo() : base(NullLogger<UserSettingsRepository>.Instance) { }
