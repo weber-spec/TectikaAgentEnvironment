@@ -6,6 +6,7 @@ import type {
   UsageRollup, UsageEventsPage, PricingCatalog, UsageTimePoint, AgentUsage,
   PreviewSession, BoardWorkspaceStatusDto, ResetBoardResult,
   Comment, CommentKind, NoteType,
+  McpConnection, McpCatalogEntry,
 } from './types';
 import { trackEvent, trackException, redact } from './telemetry';
 
@@ -202,6 +203,17 @@ export const api = {
     /** Upserts an agent role and returns the full {role, synced, error} response. */
     upsertFull: (role: AgentRole): Promise<AgentUpsertResult> =>
       fetchApi<AgentUpsertResult>('/api/agentroles', { method: 'POST', body: JSON.stringify(role) }),
+  },
+
+  mcp: {
+    catalog: () => fetchApi<McpCatalogEntry[]>('/api/mcp/catalog'),
+    connections: (boardId: string) => fetchApi<McpConnection[]>(`/api/boards/${boardId}/mcp`),
+    connect: (boardId: string, input: { catalogId: string; displayName?: string; token: string }) =>
+      fetchApi<McpConnection>(`/api/boards/${boardId}/mcp/connect`, { method: 'POST', body: JSON.stringify(input) }),
+    validate: (boardId: string, connectionId: string) =>
+      fetchApi<McpConnection>(`/api/boards/${boardId}/mcp/${connectionId}/validate`, { method: 'POST' }),
+    disconnect: (boardId: string, connectionId: string) =>
+      fetchApi<void>(`/api/boards/${boardId}/mcp/${connectionId}`, { method: 'DELETE' }),
   },
 
   models: {
