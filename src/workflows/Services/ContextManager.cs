@@ -58,6 +58,7 @@ public class ContextManager
         // Exploration nudge — mandatory: the agent must call get_board_overview before any significant work.
         sb.AppendLine("\n**Your first action must be to call `get_board_overview`** to see the full project.");
         sb.AppendLine("Then use `search_tasks`, `get_task`, and `get_artifact` as needed before doing any work.");
+        sb.AppendLine("If the team has shared notes on this task (decisions, open questions), call `read_team_notes` to read their current guidance before making significant changes.");
         sb.AppendLine("Do not write your final response without first calling at least `get_board_overview`.");
 
         // Code handoff: completed upstream tasks are merged into your base branch, so their file
