@@ -15,6 +15,7 @@ function extractError(err: ApiError): string {
       const body = JSON.parse(err.message.slice(brace));
       if (body?.detail) return String(body.detail);
       if (body?.error === 'ValidationFailed') return 'That credential was rejected by the service. Check the token and try again.';
+      if (body?.error === 'UnknownIntegration') return 'This integration is not recognized. Please try again.';
       if (body?.error) return String(body.error);
     } catch { /* not JSON */ }
   }
