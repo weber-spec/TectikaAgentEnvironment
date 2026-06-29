@@ -144,6 +144,17 @@ public class CommentsController : ControllerBase
         return Ok(await _cosmos.UpsertCommentAsync(comment, ct));
     }
 
+    [HttpPost("read")]
+    public async Task<IActionResult> MarkRead(string boardId, string taskId, CancellationToken ct)
+    {
+        if (await AuthorizedTaskAsync(boardId, taskId, ct) is null) return NotFound("Task not found.");
+        var settings = await _userSettings.GetOrCreateAsync(UserId, ct);
+        var now = DateTimeOffset.UtcNow;
+        settings.TaskReadMarkers[taskId] = now;
+        await _userSettings.UpsertAsync(settings, ct);
+        return Ok(new { lastReadAt = now });
+    }
+
     // Replaced with real implementation in a later task (Task 9). No-op for now.
     private Task NotifyMentionsAsync(TaskComment comment, CancellationToken ct) => Task.CompletedTask;
 }

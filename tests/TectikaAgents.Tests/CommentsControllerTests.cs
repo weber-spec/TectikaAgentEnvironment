@@ -164,6 +164,17 @@ public class CommentsControllerTests
         Assert.IsType<BadRequestObjectResult>(await ctrl.Share("b1", "t1", msg.Id, new ShareRequest(true), default));
     }
 
+    [Fact]
+    public async Task MarkRead_records_marker_for_task()
+    {
+        var cosmos = NewStore();
+        await SeedTask(cosmos, "b1", "t1");
+        var ctrl = NewController(cosmos, user: "eli@tectika.com");
+
+        var res = Assert.IsType<OkObjectResult>(await ctrl.MarkRead("b1", "t1", default));
+        Assert.NotNull(res.Value);
+    }
+
     private sealed class TestUserSettingsRepo : UserSettingsRepository
     {
         public TestUserSettingsRepo() : base(NullLogger<UserSettingsRepository>.Instance) { }
