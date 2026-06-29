@@ -22,6 +22,8 @@ import { InteractionCard } from '@/components/InteractionCard';
 import { ModelSelect } from '@/components/ModelSelect';
 import { Markdown } from '../../lib/markdown';
 import { TeamTab } from './TeamTab';
+import { countUnread } from '@/lib/team-notes';
+import { CURRENT_USER } from '@/lib/collaboration';
 
 type Tab = 'chat' | 'activity' | 'details' | 'bridge' | 'team';
 
@@ -44,6 +46,27 @@ export function ItemPanel() {
 function PanelInner({ task }: { task: AgentTask }) {
   const { openTask, roles, runsById, updateTask, setStatus, peopleById, people } = useBoard();
   const [tab, setTab] = useState<Tab>('chat');
+  const [teamUnread, setTeamUnread] = useState(0);
+  const lastTeamViewRef = useRef(new Date().toISOString());
+
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const list = await api.comments.list(task.boardId, task.id);
+        if (!alive) return;
+        if (tab === 'team') {
+          lastTeamViewRef.current = new Date().toISOString();
+          setTeamUnread(0);
+        } else {
+          setTeamUnread(countUnread(list, lastTeamViewRef.current, CURRENT_USER.id));
+        }
+      } catch { /* ignore; keep last count */ }
+    };
+    tick();
+    const iv = setInterval(() => { if (document.visibilityState !== 'hidden') tick(); }, 4000);
+    return () => { alive = false; clearInterval(iv); };
+  }, [task.boardId, task.id, tab]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') openTask(undefined); };
@@ -84,7 +107,14 @@ function PanelInner({ task }: { task: AgentTask }) {
         <div className="w-[420px] shrink-0 border-r border-[var(--border)] flex flex-col min-h-0">
           <div className="flex border-b border-[var(--border)] px-2 overflow-x-auto whitespace-nowrap">
             {(['chat', 'activity', 'details', 'bridge', 'team'] as Tab[]).map(t => (
-              <button key={t} onClick={() => setTab(t)} className={`px-3 py-2.5 text-[13px] font-medium capitalize border-b-2 -mb-px transition-colors shrink-0 ${tab === t ? 'border-[var(--primary)] text-[var(--primary)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'}`}>{t === 'chat' ? 'Chat' : t === 'bridge' ? 'CLI Bridge' : t === 'team' ? 'Team' : t}</button>
+              <button key={t} onClick={() => { if (t === 'team') { lastTeamViewRef.current = new Date().toISOString(); setTeamUnread(0); } setTab(t); }} className={`px-3 py-2.5 text-[13px] font-medium capitalize border-b-2 -mb-px transition-colors shrink-0 ${tab === t ? 'border-[var(--primary)] text-[var(--primary)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'}`}>
+                <>
+                  {t === 'chat' ? 'Chat' : t === 'bridge' ? 'CLI Bridge' : t === 'team' ? 'Team' : t}
+                  {t === 'team' && tab !== 'team' && teamUnread > 0 && (
+                    <span className="ml-1.5 bg-[#e2445c] text-white text-[10px] rounded-full px-1.5 align-middle">{teamUnread}</span>
+                  )}
+                </>
+              </button>
             ))}
           </div>
           <div className="flex-1 overflow-auto flex flex-col min-h-0">
