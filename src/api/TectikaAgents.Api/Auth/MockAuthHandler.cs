@@ -17,7 +17,9 @@ public class MockAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions
     public const string SchemeName = "Mock";
 
     private const string DevTenantId = "default";
-    private const string DevUser = "dev@tectika.com";
+    // Local DevAuth identity. Set to eli@tectika.com so the dev login matches the boards
+    // you own in the local Cosmos, making owner-gated actions (reset / workspace control) work.
+    private const string DevUser = "eli@tectika.com";
 
     public MockAuthHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
