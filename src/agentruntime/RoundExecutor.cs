@@ -136,6 +136,9 @@ public static class RoundExecutor
                 case "get_artifact":
                     outputs.Add(new(call.CallId, await Serialize(explorer.GetArtifactAsync(Str(args, "taskId"), IntOrNull(args, "version"), ct))));
                     traced.Add(new("get_artifact", Str(args, "taskId"), Summarize(outputs[^1].Output))); break;
+                case "read_team_notes":
+                    outputs.Add(new(call.CallId, await Serialize(explorer.GetSharedNotesAsync(Str(args, "taskId"), ct))));
+                    traced.Add(new("read_team_notes", Str(args, "taskId"), Summarize(outputs[^1].Output))); break;
                 default:
                     if (workspace is not null && workspace.CanHandle(call.Name))
                     {
