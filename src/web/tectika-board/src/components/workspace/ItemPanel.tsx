@@ -21,8 +21,9 @@ import { contextFromEvents, sumTokens } from '@/lib/thinking-phrases';
 import { InteractionCard } from '@/components/InteractionCard';
 import { ModelSelect } from '@/components/ModelSelect';
 import { Markdown } from '../../lib/markdown';
+import { TeamTab } from './TeamTab';
 
-type Tab = 'chat' | 'activity' | 'details' | 'bridge';
+type Tab = 'chat' | 'activity' | 'details' | 'bridge' | 'team';
 
 const TOOL_LIBRARY = ['search', 'read_repo', 'write_code', 'run_tests', 'deploy', 'browser', 'sql', 'http'];
 
@@ -82,8 +83,8 @@ function PanelInner({ task }: { task: AgentTask }) {
         {/* left: execution thread / config */}
         <div className="w-[420px] shrink-0 border-r border-[var(--border)] flex flex-col min-h-0">
           <div className="flex border-b border-[var(--border)] px-2 overflow-x-auto whitespace-nowrap">
-            {(['chat', 'activity', 'details', 'bridge'] as Tab[]).map(t => (
-              <button key={t} onClick={() => setTab(t)} className={`px-3 py-2.5 text-[13px] font-medium capitalize border-b-2 -mb-px transition-colors shrink-0 ${tab === t ? 'border-[var(--primary)] text-[var(--primary)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'}`}>{t === 'chat' ? 'Chat' : t === 'bridge' ? 'CLI Bridge' : t}</button>
+            {(['chat', 'activity', 'details', 'bridge', 'team'] as Tab[]).map(t => (
+              <button key={t} onClick={() => setTab(t)} className={`px-3 py-2.5 text-[13px] font-medium capitalize border-b-2 -mb-px transition-colors shrink-0 ${tab === t ? 'border-[var(--primary)] text-[var(--primary)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'}`}>{t === 'chat' ? 'Chat' : t === 'bridge' ? 'CLI Bridge' : t === 'team' ? 'Team' : t}</button>
             ))}
           </div>
           <div className="flex-1 overflow-auto flex flex-col min-h-0">
@@ -91,6 +92,7 @@ function PanelInner({ task }: { task: AgentTask }) {
             {tab === 'activity' && <ActivityTab task={task} />}
             {tab === 'details' && <DetailsTab task={task} role={role} run={run} people={people} onAssign={(id, kind) => updateTask(task.id, { assignee: { type: kind, id } })} />}
             {tab === 'bridge' && <CliBridgeTab task={task} />}
+            {tab === 'team' && <TeamTab task={task} />}
           </div>
         </div>
         {/* right: evolving artifact */}
