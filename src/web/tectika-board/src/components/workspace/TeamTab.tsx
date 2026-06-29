@@ -80,10 +80,9 @@ export function TeamTab({ task }: { task: AgentTask }) {
     setComments(prev => prev.map(x => x.id === c.id ? { ...x, deletedAt: new Date().toISOString() } : x));
     try { await api.comments.remove(task.boardId, task.id, c.id); } catch { load(); }
   };
-  const edit = async (c: Comment, body: string, noteType?: NoteType) => {
+  const edit = useCallback(async (c: Comment, body: string, noteType?: NoteType) => {
     const text = body.trim();
     if (!text) return;
-    const prev = comments;
     setComments(p => p.map(x => x.id === c.id
       ? { ...x, body: text, noteType: noteType ?? x.noteType, updatedAt: new Date().toISOString(), editedBy: me }
       : x));
@@ -91,9 +90,9 @@ export function TeamTab({ task }: { task: AgentTask }) {
       const saved = await api.comments.update(task.boardId, task.id, c.id, { body: text, noteType });
       setComments(p => p.map(x => x.id === c.id ? saved : x));
     } catch {
-      setComments(prev); // rollback
+      setComments(p => p.map(x => x.id === c.id ? c : x)); // surgical rollback to the original comment
     }
-  };
+  }, [task.boardId, task.id, me]);
 
   if (!loaded) return <div className="p-4 text-[13px] text-[var(--muted)]">Loading…</div>;
 
