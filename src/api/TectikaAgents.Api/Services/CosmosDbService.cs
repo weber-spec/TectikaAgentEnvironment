@@ -647,6 +647,40 @@ public class CosmosDbService : ICosmosDbService
         return list;
     }
 
+    // ── Task comments ────────────────────────────────────────────────────────────
+
+    public async Task<TaskComment> CreateCommentAsync(TaskComment comment, CancellationToken ct = default)
+    {
+        var res = await GetContainer(TaskCommentsContainer)
+            .CreateItemAsync(comment, new PartitionKey(comment.TaskId), cancellationToken: ct);
+        return res.Resource;
+    }
+
+    public async Task<IReadOnlyList<TaskComment>> GetCommentsByTaskAsync(string taskId, CancellationToken ct = default)
+    {
+        var query = new QueryDefinition("SELECT * FROM c WHERE c.taskId = @taskId ORDER BY c.createdAt ASC")
+            .WithParameter("@taskId", taskId);
+        return (await QueryAsync<TaskComment>(TaskCommentsContainer, query, taskId, ct)).ToList();
+    }
+
+    public async Task<TaskComment?> GetCommentAsync(string taskId, string commentId, CancellationToken ct = default)
+    {
+        try
+        {
+            var res = await GetContainer(TaskCommentsContainer)
+                .ReadItemAsync<TaskComment>(commentId, new PartitionKey(taskId), cancellationToken: ct);
+            return res.Resource;
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
+    }
+
+    public async Task<TaskComment> UpsertCommentAsync(TaskComment comment, CancellationToken ct = default)
+    {
+        var res = await GetContainer(TaskCommentsContainer)
+            .UpsertItemAsync(comment, new PartitionKey(comment.TaskId), cancellationToken: ct);
+        return res.Resource;
+    }
+
     // ── Generic query helper ──────────────────────────────────────────────────
 
     private async Task<IEnumerable<T>> QueryAsync<T>(string containerName, QueryDefinition query, string? partitionKey, CancellationToken ct)

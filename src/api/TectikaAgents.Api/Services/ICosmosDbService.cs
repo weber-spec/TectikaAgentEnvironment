@@ -91,4 +91,10 @@ public interface ICosmosDbService
     Task UpsertPreviewAsync(PreviewSession session, CancellationToken ct = default);
     Task DeletePreviewAsync(string boardId, string id, CancellationToken ct = default);
     Task<IReadOnlyList<PreviewSession>> ListActivePreviewsAsync(CancellationToken ct = default);
+
+    // ── Task comments ────────────────────────────────────────────────────────────
+    Task<TaskComment> CreateCommentAsync(TaskComment comment, CancellationToken ct = default);
+    Task<IReadOnlyList<TaskComment>> GetCommentsByTaskAsync(string taskId, CancellationToken ct = default);
+    Task<TaskComment?> GetCommentAsync(string taskId, string commentId, CancellationToken ct = default);
+    Task<TaskComment> UpsertCommentAsync(TaskComment comment, CancellationToken ct = default);
 }
