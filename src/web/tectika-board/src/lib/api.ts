@@ -5,6 +5,7 @@ import type {
   RepoMeta, BranchInfo, TreeEntry, FileContent, CommitInfo, PullRequestInfo, CompareResult,
   UsageRollup, UsageEventsPage, PricingCatalog, UsageTimePoint, AgentUsage,
   PreviewSession, BoardWorkspaceStatusDto, ResetBoardResult,
+  Comment, CommentKind, NoteType,
 } from './types';
 import { trackEvent, trackException, redact } from './telemetry';
 
@@ -161,6 +162,23 @@ export const api = {
       fetchApi<void>(`/api/boards/${boardId}/tasks/${taskId}/stop`, { method: 'POST' }),
     compact: (boardId: string, taskId: string) =>
       fetchApi<{ summarized: boolean }>(`/api/boards/${boardId}/tasks/${taskId}/compact`, { method: 'POST' }),
+  },
+
+  comments: {
+    list: (boardId: string, taskId: string) =>
+      fetchApi<Comment[]>(`/api/boards/${boardId}/tasks/${taskId}/comments`),
+    create: (boardId: string, taskId: string, input: { kind: CommentKind; noteType?: NoteType; body: string; mentions: string[] }) =>
+      fetchApi<Comment>(`/api/boards/${boardId}/tasks/${taskId}/comments`, { method: 'POST', body: JSON.stringify(input) }),
+    update: (boardId: string, taskId: string, commentId: string, input: { body: string; noteType?: NoteType }) =>
+      fetchApi<Comment>(`/api/boards/${boardId}/tasks/${taskId}/comments/${commentId}`, { method: 'PUT', body: JSON.stringify(input) }),
+    remove: (boardId: string, taskId: string, commentId: string) =>
+      fetchApi<{ deleted: boolean }>(`/api/boards/${boardId}/tasks/${taskId}/comments/${commentId}`, { method: 'DELETE' }),
+    react: (boardId: string, taskId: string, commentId: string, emoji: string) =>
+      fetchApi<Comment>(`/api/boards/${boardId}/tasks/${taskId}/comments/${commentId}/reactions`, { method: 'POST', body: JSON.stringify({ emoji }) }),
+    share: (boardId: string, taskId: string, commentId: string, shared: boolean) =>
+      fetchApi<Comment>(`/api/boards/${boardId}/tasks/${taskId}/comments/${commentId}/share`, { method: 'POST', body: JSON.stringify({ shared }) }),
+    markRead: (boardId: string, taskId: string) =>
+      fetchApi<{ lastReadAt: string }>(`/api/boards/${boardId}/tasks/${taskId}/comments/read`, { method: 'POST' }),
   },
 
   edges: {
