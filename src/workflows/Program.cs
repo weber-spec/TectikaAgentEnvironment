@@ -85,6 +85,8 @@ builder.Services.AddSingleton<IGitHubWriteService>(sp => sp.GetRequiredService<O
 builder.Services.AddSingleton<IWorkspaceService, WorkspaceService>();
 builder.Services.AddSingleton<IWorkspaceSnapshotStore, BlobWorkspaceSnapshotStore>();
 builder.Services.AddSingleton<WorkspaceToolExecutor>();
+builder.Services.AddSingleton<TectikaAgents.Core.Interfaces.IMcpGateway, TectikaAgents.AgentRuntime.Mcp.McpGateway>();
+builder.Services.AddSingleton<TectikaAgents.AgentRuntime.Mcp.McpToolExecutor>();
 
 // ── Agent runtime (Foundry or Mock) ──────────────────────────────────────────
 var useMockAgents = builder.Configuration.GetValue<bool>("Foundry:UseMock", useMockDatabase);
