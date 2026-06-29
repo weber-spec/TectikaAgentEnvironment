@@ -166,7 +166,7 @@ export const api = {
 
   comments: {
     list: (boardId: string, taskId: string) =>
-      fetchApi<Comment[]>(`/api/boards/${boardId}/tasks/${taskId}/comments`),
+      fetchApi<{ comments: Comment[]; lastReadAt: string | null }>(`/api/boards/${boardId}/tasks/${taskId}/comments`),
     create: (boardId: string, taskId: string, input: { kind: CommentKind; noteType?: NoteType; body: string; mentions: string[] }) =>
       fetchApi<Comment>(`/api/boards/${boardId}/tasks/${taskId}/comments`, { method: 'POST', body: JSON.stringify(input) }),
     update: (boardId: string, taskId: string, commentId: string, input: { body: string; noteType?: NoteType }) =>

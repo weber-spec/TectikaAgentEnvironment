@@ -28,8 +28,8 @@ export function TeamTab({ task }: { task: AgentTask }) {
   const load = useCallback(async () => {
     const id = ++seq.current;
     try {
-      const list = await api.comments.list(task.boardId, task.id);
-      if (id === seq.current) { setComments(list); setLoaded(true); }
+      const res = await api.comments.list(task.boardId, task.id);
+      if (id === seq.current) { setComments(res.comments); setLoaded(true); }
     } catch { /* keep last good state; polling retries */ }
   }, [task.boardId, task.id]);
 

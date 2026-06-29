@@ -42,11 +42,26 @@ public class CommentsControllerTests
         Assert.IsType<OkObjectResult>(created);
 
         var list = Assert.IsType<OkObjectResult>(await ctrl.List("b1", "t1", default));
-        var comments = Assert.IsAssignableFrom<IReadOnlyList<TaskComment>>(list.Value);
-        Assert.Single(comments);
-        Assert.Equal("hello team", comments[0].Body);
-        Assert.Equal("eli@tectika.com", comments[0].AuthorId);
-        Assert.Equal("default", comments[0].TenantId);
+        var resp = Assert.IsType<CommentsListResponse>(list.Value);
+        Assert.Single(resp.Comments);
+        Assert.Equal("hello team", resp.Comments[0].Body);
+        Assert.Equal("eli@tectika.com", resp.Comments[0].AuthorId);
+        Assert.Equal("default", resp.Comments[0].TenantId);
+        Assert.Null(resp.LastReadAt);   // never marked read
+    }
+
+    [Fact]
+    public async Task List_returns_lastReadAt_after_MarkRead()
+    {
+        var cosmos = NewStore();
+        await SeedTask(cosmos, "b1", "t1");
+        var ctrl = NewController(cosmos, user: "eli@tectika.com");
+
+        await ctrl.MarkRead("b1", "t1", default);
+
+        var list = Assert.IsType<OkObjectResult>(await ctrl.List("b1", "t1", default));
+        var resp = Assert.IsType<CommentsListResponse>(list.Value);
+        Assert.NotNull(resp.LastReadAt);
     }
 
     [Fact]

@@ -47,20 +47,18 @@ function PanelInner({ task }: { task: AgentTask }) {
   const { openTask, roles, runsById, updateTask, setStatus, peopleById, people } = useBoard();
   const [tab, setTab] = useState<Tab>('chat');
   const [teamUnread, setTeamUnread] = useState(0);
-  const lastTeamViewRef = useRef(new Date().toISOString());
 
+  // Team-tab unread badge: count others' comments since the caller's persisted last-read marker
+  // (server-side, cross-session). Viewing the Team tab calls markRead, which advances the marker.
   useEffect(() => {
     let alive = true;
     const tick = async () => {
       try {
-        const list = await api.comments.list(task.boardId, task.id);
+        const res = await api.comments.list(task.boardId, task.id);
         if (!alive) return;
-        if (tab === 'team') {
-          lastTeamViewRef.current = new Date().toISOString();
-          setTeamUnread(0);
-        } else {
-          setTeamUnread(countUnread(list, lastTeamViewRef.current, CURRENT_USER.id));
-        }
+        setTeamUnread(tab === 'team'
+          ? 0
+          : countUnread(res.comments, res.lastReadAt ?? undefined, CURRENT_USER.id));
       } catch { /* ignore; keep last count */ }
     };
     tick();
@@ -107,7 +105,7 @@ function PanelInner({ task }: { task: AgentTask }) {
         <div className="w-[420px] shrink-0 border-r border-[var(--border)] flex flex-col min-h-0">
           <div className="flex border-b border-[var(--border)] px-2 overflow-x-auto whitespace-nowrap">
             {(['chat', 'activity', 'details', 'bridge', 'team'] as Tab[]).map(t => (
-              <button key={t} onClick={() => { if (t === 'team') { lastTeamViewRef.current = new Date().toISOString(); setTeamUnread(0); } setTab(t); }} className={`px-3 py-2.5 text-[13px] font-medium capitalize border-b-2 -mb-px transition-colors shrink-0 ${tab === t ? 'border-[var(--primary)] text-[var(--primary)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'}`}>
+              <button key={t} onClick={() => { if (t === 'team') setTeamUnread(0); setTab(t); }} className={`px-3 py-2.5 text-[13px] font-medium capitalize border-b-2 -mb-px transition-colors shrink-0 ${tab === t ? 'border-[var(--primary)] text-[var(--primary)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'}`}>
                 <>
                   {t === 'chat' ? 'Chat' : t === 'bridge' ? 'CLI Bridge' : t === 'team' ? 'Team' : t}
                   {t === 'team' && tab !== 'team' && teamUnread > 0 && (

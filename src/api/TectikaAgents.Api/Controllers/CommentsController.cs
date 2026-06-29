@@ -42,7 +42,10 @@ public class CommentsController : ControllerBase
     {
         if (await AuthorizedTaskAsync(boardId, taskId, ct) is null)
             return NotFound("Task not found.");
-        return Ok(await _cosmos.GetCommentsByTaskAsync(taskId, ct));
+        var comments = await _cosmos.GetCommentsByTaskAsync(taskId, ct);
+        var settings = await _userSettings.GetOrCreateAsync(UserId, ct);
+        DateTimeOffset? lastReadAt = settings.TaskReadMarkers.TryGetValue(taskId, out var ts) ? ts : null;
+        return Ok(new CommentsListResponse(comments, lastReadAt));
     }
 
     [HttpPost]
@@ -140,6 +143,11 @@ public class CommentsController : ControllerBase
         {
             comment.SharedAt = DateTimeOffset.UtcNow;
             comment.SharedBy = UserId;
+        }
+        else
+        {
+            comment.SharedAt = null;
+            comment.SharedBy = null;
         }
         return Ok(await _cosmos.UpsertCommentAsync(comment, ct));
     }
