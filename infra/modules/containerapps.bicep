@@ -35,6 +35,8 @@ param platformClientId string
 param previewResourceGroup string
 @description('User-assigned MI resource id the preview ACI uses to pull from ACR (same MI the agent workspaces use).')
 param previewMiResourceId string
+@description('Storage account name holding the workspace-snapshots blob container — the API reads/writes it for board reset (delete), clone (copy), and manual workspace Start (restore).')
+param snapshotStorageName string
 
 var apiAudience = empty(apiClientId) ? '' : 'api://${apiClientId}'
 var sfx = empty(nameSuffix) ? '' : '-${nameSuffix}'
@@ -125,6 +127,13 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'Preview__MiResourceId', value: previewMiResourceId }
             { name: 'Preview__IdleMinutes', value: '15' }
             { name: 'Preview__CapMinutes', value: '45' }
+            // ── Agent workspace (API provisions/destroys the board ACI for manual Start/Restart/
+            //    Terminate). Reuses the same RG + workspace MI the preview ACI uses for ACR pull. ──
+            { name: 'Workspace__ResourceGroup', value: previewResourceGroup }
+            { name: 'Workspace__Image', value: '${acrLoginServer}/agent-workspace:latest' }
+            { name: 'Workspace__MiResourceId', value: previewMiResourceId }
+            // Durable per-board snapshot store: board reset deletes it, clone copies it, Start restores it.
+            { name: 'WorkspaceSnapshots__AccountName', value: snapshotStorageName }
           ]
         }
       ]

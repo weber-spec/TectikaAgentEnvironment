@@ -159,6 +159,9 @@ module containerApps 'modules/containerapps.bicep' = {
     previewResourceGroup: resourceGroupName
     // Preview ACI pulls the preview-runner image with the same UAMI the agent workspaces use.
     previewMiResourceId: identities.outputs.workflowsMiId
+    // Same storage account that holds the workspace-snapshots blob container (workflows host storage),
+    // so the API's reset/clone/Start snapshot ops target the same blobs the workflows runs write.
+    snapshotStorageName: data.outputs.storageName
   }
 }
 

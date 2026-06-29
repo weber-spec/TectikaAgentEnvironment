@@ -26,6 +26,7 @@ var roles = {
   // the agents/write data action (caused 401 PermissionDenied on POST /assistants).
   foundryUser: '53ca6127-db72-4b80-b1b0-d745d6d5456d'
   storageBlobDataOwner: 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
+  storageBlobDataContributor: 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
   storageQueueDataContributor: '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
   storageTableDataContributor: '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
 }
@@ -141,10 +142,26 @@ resource aciContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 // ── Contributor on RG: api (for live-preview ACI create/delete) ──────────────
 // The API process provisions/destroys preview Container Instances; mirrors the
 // workflows grant above (RG-scoped Contributor) so re-deploy is idempotent.
+// NOTE: this same Contributor grant also covers the API's manual board-workspace ACI
+// Start/Restart/Terminate (Microsoft.ContainerInstance/* + assigning the workspace UAMI).
 resource apiAciContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(resourceGroup().id, apiMiPrincipalId, roles.contributor)
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.contributor)
+    principalId: apiMiPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// ── Storage Blob Data Contributor on the project storage: api ────────────────
+// The API's BlobWorkspaceSnapshotStore deletes (board reset), copies (board clone), and
+// restores (manual workspace Start) per-board git-bundle snapshots in the workspace-snapshots
+// container. Workflows already holds Blob Data Owner here; the API needs blob data read/write/delete.
+resource apiStorageBlob 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storage.id, apiMiPrincipalId, roles.storageBlobDataContributor)
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.storageBlobDataContributor)
     principalId: apiMiPrincipalId
     principalType: 'ServicePrincipal'
   }
