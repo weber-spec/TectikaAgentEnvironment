@@ -136,4 +136,30 @@ public class RoundExecutorTests
         // explore + the round_intent ack are still submitted alongside the control on resume
         Assert.Contains(r.ToolOutputs, o => o.CallId == "call_get_board_overview");
     }
+
+    [Fact]
+    public async Task Routes_mcp_tool_call_to_executor()
+    {
+        var gw = new FakeMcpGateway { Result = "{\"channels\":[]}" };
+        var secrets = new FakeSecretProvider();
+        secrets.Store["s1"] = "xoxb-abc";
+        var mcp = new TectikaAgents.AgentRuntime.Mcp.McpToolExecutor(gw, secrets);
+        var conns = new System.Collections.Generic.List<TectikaAgents.Core.Models.McpConnection>
+        {
+            new() { CatalogId = "slack", SecretName = "s1", Status = TectikaAgents.Core.Models.McpConnectionStatus.Connected }
+        };
+        var role = new TectikaAgents.Core.Models.AgentRole { McpServers = { "slack" } };
+        var resp = RoundResponse.Tools(new[] { new ToolCall("slack__list_channels", "{}", "call-1") });
+
+        var result = await RoundExecutor.ExecuteOneRoundAsync(
+            resp, new NullProjectExplorer(), (_, _) => { },
+            gitHub: null, boardRepo: null, role: role,
+            workspace: null, workspaceProvider: null,
+            ct: System.Threading.CancellationToken.None,
+            mcp: mcp, boardMcp: conns);
+
+        Assert.Single(result.ToolOutputs);
+        Assert.Contains("channels", result.ToolOutputs[0].Output);
+        Assert.Equal("list_channels", gw.LastTool);
+    }
 }

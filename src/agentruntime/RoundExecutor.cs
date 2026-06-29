@@ -1,5 +1,6 @@
 using System.Text.Json;
 using TectikaAgents.AgentRuntime.GitHub;
+using TectikaAgents.AgentRuntime.Mcp;
 using TectikaAgents.AgentRuntime.Workspace;
 using TectikaAgents.Core.Interfaces;
 using TectikaAgents.Core.Models;
@@ -28,7 +29,8 @@ public static class RoundExecutor
         RoundResponse resp, IProjectExplorer explorer, Action<string, string> onToolCall,
         IGitHubToolExecutor? gitHub, GitHubRepoConnection? boardRepo, AgentRole? role,
         WorkspaceToolExecutor? workspace, TectikaAgents.Core.Interfaces.IWorkspaceProvider? workspaceProvider,
-        CancellationToken ct)
+        CancellationToken ct,
+        McpToolExecutor? mcp = null, IReadOnlyList<McpConnection>? boardMcp = null)
     {
         if (resp.ToolCalls is null || resp.ToolCalls.Count == 0)
             return new RoundProcessResult(true, resp.FinalText ?? "", [], null, null, null, null, [], []);
@@ -170,6 +172,13 @@ public static class RoundExecutor
                             outputs.Add(new(call.CallId, """{"error":"No workspace is available for this run."}"""));
                             traced.Add(new(call.Name, WorkspaceArgSummary(call.Name, args), "no workspace"));
                         }
+                        break;
+                    }
+                    if (mcp is not null && mcp.CanHandle(call.Name))
+                    {
+                        var mcpResult = await mcp.ExecuteAsync(call.Name, args, boardMcp, role, ct);
+                        outputs.Add(new(call.CallId, mcpResult));
+                        traced.Add(new(call.Name, call.ArgumentsJson, Summarize(mcpResult)));
                         break;
                     }
                     if (gitHub is not null && role is not null && gitHub.CanHandle(call.Name))
