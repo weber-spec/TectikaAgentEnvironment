@@ -157,4 +157,4 @@ Top → bottom in the 420px left pane: **Notes** zone (header with "+ Add note";
 2. `Markdown()` renderer HTML-injection safety (§7) — audit + harden if needed.
 3. Web app test framework/setup (§8) — confirm before writing frontend tests.
 4. Exact `userSettings` doc shape and update method on `ICosmosDbService` (§4).
-5. State of the steerable-loop rework and how a new board/task-scoped tool (`read_team_notes`) is registered on the agent definition — plus the `TectikaToolSchema.Version` bump it requires (§5). The human-facing tab does not block on this.
+5. State of the steerable-loop rework and how a new board/task-scoped tool (`read_team_notes`) is registered on the agent definition — plus the `TectikaToolSchema.Version` bump it requires (§5). The human-facing tab does not block on this. **Resolved during planning:** the tool-loop is live and stable (`tools-v10`); `read_team_notes` fits the existing board-scoped Explore pattern (`IProjectExplorer`/`BoardProjectExplorer`/`RoundExecutor`) — ~4 files + a `tools-v11` bump. Not blocked. See the plan, Phase 7.
