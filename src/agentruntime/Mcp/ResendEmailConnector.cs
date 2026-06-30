@@ -50,14 +50,17 @@ public sealed class ResendEmailConnector : IFirstPartyConnector
         if (toolName != "send_email")
             return Err($"Unknown email tool '{toolName}'.");
 
-        var from = Str(args, "from");
         var to = Str(args, "to");
         var subject = Str(args, "subject");
         var body = Str(args, "body");
-        // All four are catalog-Required and we only ever send `text`, so enforce body here too (an empty
-        // body would otherwise reach Resend as text:"" and 422 with a confusing remote error).
-        if (from.Length == 0 || to.Length == 0 || subject.Length == 0 || body.Length == 0)
-            return Err("send_email requires 'from', 'to', 'subject', and 'body'.");
+        // `from` is optional; fall back to the connection's configured default sender.
+        var from = Str(args, "from");
+        if (from.Length == 0) from = connection.DefaultFrom ?? string.Empty;
+
+        if (from.Length == 0)
+            return Err("No sender address is configured. Set a default From in Board Settings → Integrations → Email, or pass 'from'.");
+        if (to.Length == 0 || subject.Length == 0 || body.Length == 0)
+            return Err("send_email requires 'to', 'subject', and 'body'.");
 
         var payload = JsonSerializer.Serialize(new { from, to, subject, text = body });
 

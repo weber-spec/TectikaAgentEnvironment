@@ -17,7 +17,7 @@ public enum McpBackend
 /// whenever the catalog changes so AgentInstructionsHash republishes affected agents.</summary>
 public static class McpCatalog
 {
-    public const string Version = "mcp-catalog-v2";  // was v1 — added the Email (Resend) first-party integration
+    public const string Version = "mcp-catalog-v3";  // was v2 — send_email 'from' optional (defaults to the connection's From)
 
     /// <summary>Reuses TectikaToolSchema.ToolProp for property shapes so projection stays consistent.</summary>
     public sealed record CatalogTool(
@@ -64,12 +64,12 @@ public static class McpCatalog
                 new("send_email", "Send an email through the connected Resend account.",
                     new Dictionary<string, TectikaToolSchema.ToolProp>
                     {
-                        ["from"]    = new("string", "Sender address, e.g. 'Acme <noreply@yourdomain.com>'. Must be a verified sender on the connected Resend account; for testing use 'onboarding@resend.dev'."),
+                        ["from"]    = new("string", "Optional sender override, e.g. 'Acme <noreply@yourdomain.com>'. Defaults to the board's configured sender; must be on a domain verified in the connected Resend account."),
                         ["to"]      = new("string", "Recipient email address."),
                         ["subject"] = new("string", "Email subject line."),
                         ["body"]    = new("string", "Plain-text body of the email."),
                     },
-                    ["from", "to", "subject", "body"], IsWrite: true),
+                    ["to", "subject", "body"], IsWrite: true),
             },
             Backend: McpBackend.FirstParty),
     };

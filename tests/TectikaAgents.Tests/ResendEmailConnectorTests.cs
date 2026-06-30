@@ -139,6 +139,42 @@ public class ResendEmailConnectorTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => conn.ValidateAsync("", CancellationToken.None));
     }
 
+    private static TectikaAgents.Core.Models.McpConnection Conn(string? defaultFrom = null) =>
+        new() { CatalogId = "email", DefaultFrom = defaultFrom };
+
+    [Fact]
+    public async Task Uses_connection_default_from_when_arg_omitted()
+    {
+        var (conn, handler) = Build(Ok("{\"id\":\"x\"}"));
+        var args = Args("{\"to\":\"x@y.com\",\"subject\":\"Hi\",\"body\":\"Hello\"}"); // no from
+        var result = await conn.CallAsync("send_email", args, "re_k", Conn("Agents <a@acme.com>"), CancellationToken.None);
+
+        using var sent = JsonDocument.Parse(handler.RequestBody!);
+        Assert.Equal("Agents <a@acme.com>", sent.RootElement.GetProperty("from").GetString());
+        using var res = JsonDocument.Parse(result);
+        Assert.Equal("sent", res.RootElement.GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task Arg_from_overrides_connection_default()
+    {
+        var (conn, handler) = Build(Ok());
+        var args = Args("{\"from\":\"b@acme.com\",\"to\":\"x@y.com\",\"subject\":\"Hi\",\"body\":\"Hello\"}");
+        await conn.CallAsync("send_email", args, "re_k", Conn("a@acme.com"), CancellationToken.None);
+        using var sent = JsonDocument.Parse(handler.RequestBody!);
+        Assert.Equal("b@acme.com", sent.RootElement.GetProperty("from").GetString());
+    }
+
+    [Fact]
+    public async Task No_from_and_no_default_is_rejected_before_http()
+    {
+        var (conn, handler) = Build(Ok());
+        var args = Args("{\"to\":\"x@y.com\",\"subject\":\"Hi\",\"body\":\"Hello\"}");
+        var result = await conn.CallAsync("send_email", args, "re_k", Conn(null), CancellationToken.None);
+        Assert.Contains("sender", result);
+        Assert.Null(handler.Request);
+    }
+
     private static HttpResponseMessage Ok(string body = "{\"id\":\"id-1\"}") =>
         new(HttpStatusCode.OK) { Content = new StringContent(body) };
 
