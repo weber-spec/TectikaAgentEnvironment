@@ -52,9 +52,18 @@ public class ServiceBusListenerService : BackgroundService
         _processor.ProcessMessageAsync += OnMessageAsync;
         _processor.ProcessErrorAsync += OnErrorAsync;
 
-        await _processor.StartProcessingAsync(stoppingToken);
-        _logger.LogInformation("[ServiceBusListener] started topic={Topic} subscription={Subscription}", _settings.AgentEventsTopic, _settings.AgentEventsSubscription);
-        await Task.Delay(Timeout.Infinite, stoppingToken);
+        try
+        {
+            await _processor.StartProcessingAsync(stoppingToken);
+            _logger.LogInformation("[ServiceBusListener] started topic={Topic} subscription={Subscription}", _settings.AgentEventsTopic, _settings.AgentEventsSubscription);
+            await Task.Delay(Timeout.Infinite, stoppingToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal shutdown / hot-reload: the host cancelled stoppingToken. Complete gracefully —
+            // letting this propagate trips the default BackgroundServiceExceptionBehavior=StopHost,
+            // which tears the whole API down (and the restart then races the port).
+        }
     }
 
     private async Task OnMessageAsync(ProcessMessageEventArgs args)
