@@ -78,6 +78,18 @@ public class ResendEmailConnectorTests
     }
 
     [Fact]
+    public async Task Empty_body_is_rejected_before_any_http_call()
+    {
+        var (conn, handler) = Build(Ok());
+
+        var result = await conn.CallAsync("send_email",
+            Args("{\"from\":\"a@b.com\",\"to\":\"c@d.com\",\"subject\":\"Hi\",\"body\":\"\"}"), "re_secret", CancellationToken.None);
+
+        Assert.Contains("requires", result);
+        Assert.Null(handler.Request); // never reached the network — body is required (catalog + runtime agree)
+    }
+
+    [Fact]
     public async Task Unknown_tool_is_rejected()
     {
         var (conn, handler) = Build(Ok());
@@ -106,13 +118,25 @@ public class ResendEmailConnectorTests
     }
 
     [Fact]
-    public async Task Validate_rejects_an_invalid_key_401()
+    public async Task Validate_rejects_an_invalid_key_403()
     {
-        var (conn, _) = Build(new HttpResponseMessage(HttpStatusCode.Unauthorized)
+        // Resend's real response for a wrong key is 403 invalid_api_key (NOT 401) — must be rejected so it is never stored.
+        var (conn, _) = Build(new HttpResponseMessage(HttpStatusCode.Forbidden)
         {
-            Content = new StringContent("{\"name\":\"validation_error\",\"message\":\"API key is invalid\"}"),
+            Content = new StringContent("{\"name\":\"invalid_api_key\",\"message\":\"API key is invalid\"}"),
         });
         await Assert.ThrowsAsync<InvalidOperationException>(() => conn.ValidateAsync("nope", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Validate_rejects_a_missing_or_blank_key_401()
+    {
+        // 401 without "restricted" (e.g. missing_api_key) is an invalid credential — reject.
+        var (conn, _) = Build(new HttpResponseMessage(HttpStatusCode.Unauthorized)
+        {
+            Content = new StringContent("{\"name\":\"missing_api_key\",\"message\":\"Missing API key in the authorization header\"}"),
+        });
+        await Assert.ThrowsAsync<InvalidOperationException>(() => conn.ValidateAsync("", CancellationToken.None));
     }
 
     private static HttpResponseMessage Ok(string body = "{\"id\":\"id-1\"}") =>

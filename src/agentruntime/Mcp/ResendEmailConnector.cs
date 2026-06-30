@@ -19,25 +19,28 @@ public sealed class ResendEmailConnector : IFirstPartyConnector
 
     public string CatalogId => "email";
 
-    /// <summary>Validate the Resend API key without sending mail by making an authenticated read request.
-    /// A wrong key returns 401; a VALID but send-only ("restricted") key also returns 401 on a read endpoint,
-    /// so we accept those (and any 2xx/403) and reject only an unrestricted 401 — never false-rejecting a real key.</summary>
+    /// <summary>Validate the Resend API key at connect time without sending mail, via an authenticated read.
+    /// Resend's real contract on a read endpoint: 2xx = valid full-access key; 401 <c>restricted_api_key</c> =
+    /// valid send-only key; 403 <c>invalid_api_key</c> = wrong key; 401 <c>missing_api_key</c> = blank/absent key.
+    /// Accept only the first two and reject everything else, so an invalid key is never stored. THROWS on reject.</summary>
     public async Task ValidateAsync(string token, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, ResendDomainsEndpoint);
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         var http = _httpFactory.CreateClient();
+        http.Timeout = TimeSpan.FromSeconds(30);
         using var resp = await http.SendAsync(req, ct);
-        if (resp.IsSuccessStatusCode || resp.StatusCode == HttpStatusCode.Forbidden)
-            return; // authenticated (full-access, or scoped but real)
 
+        if (resp.IsSuccessStatusCode)
+            return; // valid full-access key
         if (resp.StatusCode == HttpStatusCode.Unauthorized)
         {
             var body = await resp.Content.ReadAsStringAsync(ct);
             if (body.Contains("restricted", StringComparison.OrdinalIgnoreCase))
-                return; // valid send-only key — Resend 401s read endpoints for restricted keys
+                return; // valid send-only key (Resend 401s read endpoints for restricted keys)
         }
+        // 403 invalid_api_key, 401 missing_api_key, and any other non-2xx → invalid; do not store.
         throw new InvalidOperationException($"Resend rejected the API key (HTTP {(int)resp.StatusCode}).");
     }
 
@@ -50,10 +53,11 @@ public sealed class ResendEmailConnector : IFirstPartyConnector
         var to = Str(args, "to");
         var subject = Str(args, "subject");
         var body = Str(args, "body");
-        if (from.Length == 0 || to.Length == 0 || subject.Length == 0)
-            return Err("send_email requires 'from', 'to', and 'subject'.");
+        // All four are catalog-Required and we only ever send `text`, so enforce body here too (an empty
+        // body would otherwise reach Resend as text:"" and 422 with a confusing remote error).
+        if (from.Length == 0 || to.Length == 0 || subject.Length == 0 || body.Length == 0)
+            return Err("send_email requires 'from', 'to', 'subject', and 'body'.");
 
-        // Resend requires at least one of text/html/react; we send plain text.
         var payload = JsonSerializer.Serialize(new { from, to, subject, text = body });
 
         using var req = new HttpRequestMessage(HttpMethod.Post, ResendEndpoint)
@@ -63,6 +67,7 @@ public sealed class ResendEmailConnector : IFirstPartyConnector
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         var http = _httpFactory.CreateClient();
+        http.Timeout = TimeSpan.FromSeconds(30);
         using var resp = await http.SendAsync(req, ct);
         var respBody = await resp.Content.ReadAsStringAsync(ct);
 
