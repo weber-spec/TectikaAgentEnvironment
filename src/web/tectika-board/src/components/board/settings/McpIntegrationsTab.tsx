@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import type { McpCatalogEntry, McpConnection } from '@/lib/types';
 import { McpConnectModal } from './McpConnectModal';
+import { EmailDomainsPanel } from './EmailDomainsPanel';
 
 export function McpIntegrationsTab({ boardId }: { boardId: string }) {
   const [catalog, setCatalog] = useState<McpCatalogEntry[] | null>(null);
@@ -46,30 +47,35 @@ export function McpIntegrationsTab({ boardId }: { boardId: string }) {
         {catalog.map(entry => {
           const conn = connections.find(c => c.catalogId === entry.id);
           return (
-            <div key={entry.id} className="flex items-start justify-between gap-3 border border-[var(--border)] rounded-lg p-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-[var(--foreground)]">{entry.displayName}</span>
-                  {conn && (
-                    conn.status === 'Connected'
-                      ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">connected</span>
-                      : <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-600 dark:text-red-400">error</span>
+            <div key={entry.id} className="border border-[var(--border)] rounded-lg p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-[var(--foreground)]">{entry.displayName}</span>
+                    {conn && (
+                      conn.status === 'Connected'
+                        ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">connected</span>
+                        : <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-600 dark:text-red-400">error</span>
+                    )}
+                  </div>
+                  <div className="text-xs text-[var(--muted)] mt-0.5">{entry.description}</div>
+                  <div className="text-[11px] text-[var(--muted)] mt-0.5">
+                    {entry.readToolCount} read · {entry.writeToolCount} write {conn ? `· "${conn.displayName}"` : ''}
+                  </div>
+                </div>
+                <div className="shrink-0">
+                  {conn ? (
+                    <Button variant="danger" onClick={() => disconnect(conn)} disabled={busyId === conn.connectionId}>
+                      {busyId === conn.connectionId ? 'Disconnecting…' : 'Disconnect'}
+                    </Button>
+                  ) : (
+                    <Button variant="primary" onClick={() => setConnecting(entry)}>Connect</Button>
                   )}
                 </div>
-                <div className="text-xs text-[var(--muted)] mt-0.5">{entry.description}</div>
-                <div className="text-[11px] text-[var(--muted)] mt-0.5">
-                  {entry.readToolCount} read · {entry.writeToolCount} write {conn ? `· "${conn.displayName}"` : ''}
-                </div>
               </div>
-              <div className="shrink-0">
-                {conn ? (
-                  <Button variant="danger" onClick={() => disconnect(conn)} disabled={busyId === conn.connectionId}>
-                    {busyId === conn.connectionId ? 'Disconnecting…' : 'Disconnect'}
-                  </Button>
-                ) : (
-                  <Button variant="primary" onClick={() => setConnecting(entry)}>Connect</Button>
-                )}
-              </div>
+              {entry.id === 'email' && conn?.status === 'Connected' && (
+                <EmailDomainsPanel boardId={boardId} defaultFrom={conn.defaultFrom} />
+              )}
             </div>
           );
         })}

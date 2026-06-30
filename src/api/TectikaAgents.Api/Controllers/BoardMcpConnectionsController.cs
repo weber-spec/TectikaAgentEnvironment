@@ -17,12 +17,33 @@ public class BoardMcpConnectionsController : ControllerBase
     private readonly ICosmosDbService _cosmos;
     private readonly IMcpGateway _gateway;
     private readonly ISecretProvider _secrets;
+    private readonly IReadOnlyDictionary<string, IFirstPartyConnector> _connectors;
 
-    public BoardMcpConnectionsController(ICosmosDbService cosmos, IMcpGateway gateway, ISecretProvider secrets)
+    public BoardMcpConnectionsController(ICosmosDbService cosmos, IMcpGateway gateway, ISecretProvider secrets,
+        IEnumerable<IFirstPartyConnector>? connectors = null)
     {
         _cosmos = cosmos;
         _gateway = gateway;
         _secrets = secrets;
+        _connectors = (connectors ?? Array.Empty<IFirstPartyConnector>())
+            .ToDictionary(c => c.CatalogId, StringComparer.Ordinal);
+    }
+
+    /// <summary>Validate a credential before storing it. Throws if the token is rejected. Routes by backend:
+    /// remote MCP entries connect + list tools; first-party entries validate through their connector.</summary>
+    private async Task ValidateCredentialAsync(McpCatalog.CatalogEntry entry, string token, CancellationToken ct)
+    {
+        if (entry.Backend == McpBackend.FirstParty)
+        {
+            if (!_connectors.TryGetValue(entry.Id, out var connector))
+                throw new InvalidOperationException("No connector is configured for this integration.");
+            await connector.ValidateAsync(token, ct);
+        }
+        else
+        {
+            await _gateway.ListToolsAsync(
+                new McpServerTarget(entry.Endpoint, entry.AuthHeader, entry.AuthScheme, token), ct);
+        }
     }
 
     private string TenantId => User.FindFirst("tid")?.Value ?? "default";
@@ -45,11 +66,10 @@ public class BoardMcpConnectionsController : ControllerBase
         var entry = McpCatalog.Find(req.CatalogId);
         if (entry is null) return BadRequest(new { error = "UnknownIntegration" });
 
-        // Validate the credential by connecting + listing tools BEFORE storing anything.
+        // Validate the credential BEFORE storing anything (backend-aware: MCP server vs first-party connector).
         try
         {
-            await _gateway.ListToolsAsync(
-                new McpServerTarget(entry.Endpoint, entry.AuthHeader, entry.AuthScheme, req.Token), ct);
+            await ValidateCredentialAsync(entry, req.Token, ct);
         }
         catch (Exception ex)
         {
@@ -89,7 +109,7 @@ public class BoardMcpConnectionsController : ControllerBase
         try
         {
             if (string.IsNullOrEmpty(token)) throw new InvalidOperationException("Credential missing.");
-            await _gateway.ListToolsAsync(new McpServerTarget(entry.Endpoint, entry.AuthHeader, entry.AuthScheme, token), ct);
+            await ValidateCredentialAsync(entry, token, ct);
             conn.Status = McpConnectionStatus.Connected;
         }
         catch

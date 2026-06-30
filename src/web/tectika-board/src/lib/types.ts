@@ -72,7 +72,11 @@ export interface McpConnection {
   lastValidatedAt?: string | null;
   createdBy?: string | null;
   createdAt: string;
+  defaultFrom?: string;
 }
+
+export interface ResendDnsRecord { record?: string; name: string; type: string; ttl?: string; status?: string; value: string; priority?: number; }
+export interface ResendDomain { id: string; name: string; status: string; records?: ResendDnsRecord[]; }
 
 /** GET /api/mcp/catalog item — UI projection (no endpoint/auth internals). */
 export interface McpCatalogEntry {

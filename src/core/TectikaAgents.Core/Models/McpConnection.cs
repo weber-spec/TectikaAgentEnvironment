@@ -16,4 +16,7 @@ public sealed class McpConnection
     [JsonPropertyName("lastValidatedAt")] public DateTimeOffset? LastValidatedAt { get; set; }
     [JsonPropertyName("createdBy")]    public string? CreatedBy { get; set; }
     [JsonPropertyName("createdAt")]    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    /// <summary>Default sender address for first-party email integrations (e.g. "Agents <agents@acme.com>").
+    /// Used by send_email when the agent omits `from`. Must be on a domain verified in the provider account.</summary>
+    [JsonPropertyName("defaultFrom")] public string? DefaultFrom { get; set; }
 }

@@ -14,6 +14,19 @@ public class McpCatalogTests
     }
 
     [Fact]
+    public void Email_entry_is_first_party_with_a_write_send_tool()
+    {
+        var email = McpCatalog.Find("email");
+        Assert.NotNull(email);
+        Assert.Equal(McpBackend.FirstParty, email!.Backend);
+        Assert.Contains(email.Tools, t => t.Name == "send_email" && t.IsWrite);
+    }
+
+    [Fact]
+    public void Slack_entry_is_a_remote_mcp_backend()
+        => Assert.Equal(McpBackend.Mcp, McpCatalog.Find("slack")!.Backend);
+
+    [Fact]
     public void Find_returns_null_for_unknown_id()
         => Assert.Null(McpCatalog.Find("does-not-exist"));
 

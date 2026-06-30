@@ -4,18 +4,23 @@ using TectikaAgents.Core.Models;
 
 namespace TectikaAgents.AgentRuntime.Mcp;
 
-/// <summary>Dispatches namespaced MCP tool calls (`{catalogId}__{tool}`) to the connected board server.
-/// Resolves the board's connection + Key Vault token, enforces the write opt-in, and forwards through
-/// IMcpGateway. Plugs into RoundExecutor via CanHandle/ExecuteAsync (same shape as the GitHub executor).</summary>
+/// <summary>Dispatches namespaced catalog tool calls (`{catalogId}__{tool}`) for a board. Resolves the
+/// board's connection + Key Vault token and enforces the write opt-in, then routes by the catalog entry's
+/// backend: remote MCP servers go through IMcpGateway, first-party integrations through an IFirstPartyConnector.
+/// Plugs into RoundExecutor via CanHandle/ExecuteAsync (same shape as the GitHub executor).</summary>
 public sealed class McpToolExecutor
 {
     private readonly IMcpGateway _gateway;
     private readonly ISecretProvider _secrets;
+    private readonly IReadOnlyDictionary<string, IFirstPartyConnector> _connectors;
 
-    public McpToolExecutor(IMcpGateway gateway, ISecretProvider secrets)
+    public McpToolExecutor(IMcpGateway gateway, ISecretProvider secrets,
+        IEnumerable<IFirstPartyConnector>? connectors = null)
     {
         _gateway = gateway;
         _secrets = secrets;
+        _connectors = (connectors ?? Array.Empty<IFirstPartyConnector>())
+            .ToDictionary(c => c.CatalogId, StringComparer.Ordinal);
     }
 
     public bool CanHandle(string toolName) =>
@@ -46,6 +51,13 @@ public sealed class McpToolExecutor
             var token = await _secrets.GetSecretAsync(conn.SecretName, ct);
             if (string.IsNullOrEmpty(token))
                 return Err($"{entry.DisplayName} credential is missing or expired. Reconnect it in Board Settings.");
+
+            if (entry.Backend == McpBackend.FirstParty)
+            {
+                if (!_connectors.TryGetValue(catalogId, out var connector))
+                    return Err($"{entry.DisplayName} is unavailable (no connector is configured). Please contact support.");
+                return await connector.CallAsync(tool, args, token, conn, ct);
+            }
 
             var target = new McpServerTarget(entry.Endpoint, entry.AuthHeader, entry.AuthScheme, token);
             return await _gateway.CallToolAsync(target, tool, args.GetRawText(), ct);

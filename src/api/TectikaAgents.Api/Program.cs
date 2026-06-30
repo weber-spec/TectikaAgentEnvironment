@@ -97,6 +97,8 @@ else
 // ── GitHub Tool Executor ──────────────────────────────────────────────────
 builder.Services.AddSingleton<IGitHubToolExecutor, OctokitGitHubToolExecutor>();
 builder.Services.AddSingleton<TectikaAgents.Core.Interfaces.IMcpGateway, TectikaAgents.AgentRuntime.Mcp.McpGateway>();
+builder.Services.AddSingleton<TectikaAgents.AgentRuntime.Mcp.IFirstPartyConnector, TectikaAgents.AgentRuntime.Mcp.ResendEmailConnector>();
+builder.Services.AddSingleton<TectikaAgents.AgentRuntime.Mcp.IResendDomainsClient, TectikaAgents.AgentRuntime.Mcp.ResendDomainsClient>();
 builder.Services.AddSingleton<TectikaAgents.AgentRuntime.Mcp.McpToolExecutor>();
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<OctokitGitHubReadService>();
