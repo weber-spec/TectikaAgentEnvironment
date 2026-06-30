@@ -2,22 +2,34 @@ using TectikaAgents.AgentRuntime;
 
 namespace TectikaAgents.AgentRuntime.Mcp;
 
-/// <summary>Curated registry of connectable MCP integrations. Each entry pins the exact tool surface we
+/// <summary>How a catalog integration's tool calls are executed.</summary>
+public enum McpBackend
+{
+    /// <summary>Reached through IMcpGateway as a remote MCP server (uses Endpoint/AuthHeader/AuthScheme).</summary>
+    Mcp,
+    /// <summary>Executed in-process by an IFirstPartyConnector against the provider's API (Endpoint unused).
+    /// Mirrors the first-party GitHub executor; the path for providers with no token-auth remote MCP server.</summary>
+    FirstParty,
+}
+
+/// <summary>Curated registry of connectable integrations. Each entry pins the exact tool surface we
 /// expose (read/write flagged) so the per-role agent definition is board-independent. Bump <see cref="Version"/>
 /// whenever the catalog changes so AgentInstructionsHash republishes affected agents.</summary>
 public static class McpCatalog
 {
-    public const string Version = "mcp-catalog-v1";
+    public const string Version = "mcp-catalog-v2";  // was v1 — added the Email (Resend) first-party integration
 
     /// <summary>Reuses TectikaToolSchema.ToolProp for property shapes so projection stays consistent.</summary>
     public sealed record CatalogTool(
         string Name, string Description,
         IReadOnlyDictionary<string, TectikaToolSchema.ToolProp> Properties, string[] Required, bool IsWrite);
 
+    /// <summary><see cref="Backend"/> selects the execution path. For <see cref="McpBackend.FirstParty"/> entries
+    /// Endpoint/AuthHeader/AuthScheme are unused (pass empty strings).</summary>
     public sealed record CatalogEntry(
         string Id, string DisplayName, string Description,
         string Endpoint, string AuthHeader, string AuthScheme, string TokenHint, string? HelpUrl,
-        IReadOnlyList<CatalogTool> Tools);
+        IReadOnlyList<CatalogTool> Tools, McpBackend Backend = McpBackend.Mcp);
 
     private static readonly Dictionary<string, TectikaToolSchema.ToolProp> NoProps = new();
 
@@ -40,6 +52,26 @@ public static class McpCatalog
                     },
                     ["channel", "text"], IsWrite: true),
             }),
+
+        // Email (Resend) — first-party: executed in-process by ResendEmailConnector against the Resend
+        // REST API. No token-auth remote MCP server exists for Resend, so we connect first-party (like GitHub)
+        // rather than self-host one. The board's Resend API key is the connection credential.
+        new("email", "Email", "Send emails from your agents through a connected Resend account.",
+            Endpoint: "", AuthHeader: "", AuthScheme: "",
+            TokenHint: "Resend API key (re_…)", HelpUrl: "https://resend.com/api-keys",
+            Tools: new CatalogTool[]
+            {
+                new("send_email", "Send an email through the connected Resend account.",
+                    new Dictionary<string, TectikaToolSchema.ToolProp>
+                    {
+                        ["from"]    = new("string", "Sender address, e.g. 'Acme <noreply@yourdomain.com>'. Must be a verified sender on the connected Resend account; for testing use 'onboarding@resend.dev'."),
+                        ["to"]      = new("string", "Recipient email address."),
+                        ["subject"] = new("string", "Email subject line."),
+                        ["body"]    = new("string", "Plain-text body of the email."),
+                    },
+                    ["from", "to", "subject", "body"], IsWrite: true),
+            },
+            Backend: McpBackend.FirstParty),
     };
 
     public static CatalogEntry? Find(string id) => Entries.FirstOrDefault(e => e.Id == id);

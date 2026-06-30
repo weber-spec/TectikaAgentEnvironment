@@ -86,6 +86,7 @@ builder.Services.AddSingleton<IWorkspaceService, WorkspaceService>();
 builder.Services.AddSingleton<IWorkspaceSnapshotStore, BlobWorkspaceSnapshotStore>();
 builder.Services.AddSingleton<WorkspaceToolExecutor>();
 builder.Services.AddSingleton<TectikaAgents.Core.Interfaces.IMcpGateway, TectikaAgents.AgentRuntime.Mcp.McpGateway>();
+builder.Services.AddSingleton<TectikaAgents.AgentRuntime.Mcp.IFirstPartyConnector, TectikaAgents.AgentRuntime.Mcp.ResendEmailConnector>();
 builder.Services.AddSingleton<TectikaAgents.AgentRuntime.Mcp.McpToolExecutor>();
 
 // ── Agent runtime (Foundry or Mock) ──────────────────────────────────────────
