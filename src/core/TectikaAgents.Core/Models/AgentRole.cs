@@ -21,10 +21,16 @@ public class AgentRole
     [JsonPropertyName("executionEngine")]
     public ExecutionEngine ExecutionEngine { get; set; } = ExecutionEngine.Foundry;
 
-    /// <summary>Key Vault secret NAME holding the Anthropic API key for a ClaudeCode role (the secret
+    /// <summary>Key Vault secret NAME holding the Claude credential for a ClaudeCode role (the secret
     /// VALUE never lives on this model). Mirrors GitHubRepoConnection.PatSecretName. Null for Foundry.</summary>
     [JsonPropertyName("apiKeySecretName")]
     public string? ApiKeySecretName { get; set; }
+
+    /// <summary>How a ClaudeCode role authenticates to Anthropic. ApiKey → pay-as-you-go API key
+    /// (ANTHROPIC_API_KEY); OAuthToken → a Pro/Max subscription token from `claude setup-token`
+    /// (CLAUDE_CODE_OAUTH_TOKEN). Determines which env var the runtime injects. Ignored for Foundry.</summary>
+    [JsonPropertyName("claudeAuth")]
+    public ClaudeAuthMode ClaudeAuth { get; set; } = ClaudeAuthMode.ApiKey;
 
     [JsonPropertyName("foundryAgentId")]
     public string? FoundryAgentId { get; set; }
@@ -66,6 +72,10 @@ public class AgentRole
 }
 
 public enum ExecutionEngine { Foundry, ClaudeCode }
+
+/// <summary>How a ClaudeCode role authenticates: a pay-as-you-go API key, or a Pro/Max subscription
+/// OAuth token (from `claude setup-token`).</summary>
+public enum ClaudeAuthMode { ApiKey, OAuthToken }
 
 public class GitHubPermissions
 {

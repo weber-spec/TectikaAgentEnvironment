@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
-import type { AgentRole, McpCatalogEntry } from '@/lib/types';
+import type { AgentRole, ClaudeAuthMode, ExecutionEngine, McpCatalogEntry } from '@/lib/types';
 import { colorFor } from '@/lib/palette';
 import { Avatar, Button, Skeleton, EmptyState, Tag } from '@/components/ui/primitives';
 import { Modal } from '@/components/ui/overlays';
@@ -12,6 +12,15 @@ import { toast } from '@/lib/toast';
 
 /** Per-role sync state set after a successful upsert. */
 type SyncState = { synced: boolean; error?: string | null };
+
+/** Claude Code model choices (CLI `--model`). The default for a new Claude agent is Opus 4.8. */
+const CLAUDE_MODELS: { id: string; label: string }[] = [
+  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+];
+const DEFAULT_CLAUDE_MODEL = 'claude-opus-4-8';
+const CLAUDE_MODEL_IDS = CLAUDE_MODELS.map(m => m.id);
 
 export default function AgentsPage() {
   const [roles, setRoles] = useState<AgentRole[] | null>(null);
@@ -119,6 +128,17 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
 
   const engine = r.executionEngine ?? 'Foundry';
   const isClaude = engine === 'ClaudeCode';
+  const claudeAuth: ClaudeAuthMode = r.claudeAuth ?? 'ApiKey';
+  const isOAuth = claudeAuth === 'OAuthToken';
+
+  // Switching provider also swaps the model so the field never keeps a value from the other provider:
+  // → Claude Code: default to Opus 4.8 unless it's already a Claude id. → Foundry: clear a Claude id to Default.
+  const onEngineChange = (next: ExecutionEngine) => setR(prev => {
+    let model = prev.modelOverride;
+    if (next === 'ClaudeCode') model = model && CLAUDE_MODEL_IDS.includes(model) ? model : DEFAULT_CLAUDE_MODEL;
+    else if (model && CLAUDE_MODEL_IDS.includes(model)) model = undefined;
+    return { ...prev, executionEngine: next, modelOverride: model };
+  });
 
   const [catalog, setCatalog] = useState<McpCatalogEntry[]>([]);
   useEffect(() => { api.mcp.catalog().then(setCatalog).catch(() => setCatalog([])); }, []);
@@ -158,28 +178,52 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
       <div className="flex flex-col gap-3">
         <L label="Display name"><input value={r.displayName} onChange={e => set({ displayName: e.target.value })} className="inp" /></L>
         <L label="System prompt"><textarea value={r.systemPrompt} onChange={e => set({ systemPrompt: e.target.value })} rows={4} className="inp resize-none" /></L>
-        <L label="Model"><ModelSelect value={r.modelOverride} onChange={v => set({ modelOverride: v || undefined })} selectClassName="inp" /></L>
 
-        {/* Execution engine: Foundry (server-side) vs Claude Code (CLI in the sandbox container) */}
-        <L label="Execution engine">
+        {/* Provider first — it determines which model list the field below shows. */}
+        <L label="Provider">
           <select value={engine}
-            onChange={e => set({ executionEngine: e.target.value as AgentRole['executionEngine'] })}
+            onChange={e => onEngineChange(e.target.value as ExecutionEngine)}
             className="inp">
             <option value="Foundry">Azure Foundry</option>
             <option value="ClaudeCode">Claude Code</option>
           </select>
         </L>
 
+        {/* Model — provider-dependent: Foundry's live catalog, or the Claude Code model list. */}
+        <L label="Model">
+          {isClaude ? (
+            <select value={r.modelOverride ?? DEFAULT_CLAUDE_MODEL}
+              onChange={e => set({ modelOverride: e.target.value })}
+              className="inp" aria-label="Model">
+              {CLAUDE_MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+          ) : (
+            <ModelSelect value={r.modelOverride} onChange={v => set({ modelOverride: v || undefined })} selectClassName="inp" />
+          )}
+        </L>
+
         {isClaude && (
-          <L label="Anthropic API key">
-            <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)}
-              placeholder={r.apiKeySecretName ? 'Leave blank to keep existing key' : 'sk-ant-…'}
-              className="inp" autoComplete="off" />
-            <span className="text-[11px] text-[var(--muted)] block mt-1">
-              Stored securely in Azure Key Vault — never shown again. Claude Code runs in the board&apos;s
-              sandbox container with the full CLI toolset.
-            </span>
-          </L>
+          <>
+            <L label="Authentication">
+              <select value={claudeAuth}
+                onChange={e => set({ claudeAuth: e.target.value as ClaudeAuthMode })}
+                className="inp">
+                <option value="ApiKey">API key (pay-as-you-go)</option>
+                <option value="OAuthToken">Pro / Max subscription token</option>
+              </select>
+            </L>
+            <L label={isOAuth ? 'Claude subscription token' : 'Anthropic API key'}>
+              <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)}
+                placeholder={r.apiKeySecretName ? 'Leave blank to keep existing' : (isOAuth ? 'sk-ant-oat…' : 'sk-ant-api…')}
+                className="inp" autoComplete="off" />
+              <span className="text-[11px] text-[var(--muted)] block mt-1">
+                {isOAuth
+                  ? <>Generate it with <code>claude setup-token</code> while logged into your Pro/Max account. Billed to your subscription, not the API.</>
+                  : <>From platform.claude.com → API keys. Billed pay-as-you-go, separately from any subscription.</>}
+                {' '}Stored securely in Azure Key Vault — never shown again.
+              </span>
+            </L>
+          </>
         )}
 
         {/* Layer 1: Workspace */}

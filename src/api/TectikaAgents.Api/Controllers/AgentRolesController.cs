@@ -73,7 +73,7 @@ public class AgentRolesController : ControllerBase
                 role.ApiKeySecretName = existing?.ApiKeySecretName;  // carry forward; blank means "keep existing"
             }
             synced = !string.IsNullOrEmpty(role.ApiKeySecretName);
-            syncError = synced ? null : "An Anthropic API key is required for a Claude Code agent.";
+            syncError = synced ? null : "An Anthropic credential (API key or subscription token) is required for a Claude Code agent.";
         }
         else
         {

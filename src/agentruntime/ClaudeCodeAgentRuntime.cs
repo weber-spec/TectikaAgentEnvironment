@@ -68,19 +68,22 @@ public sealed class ClaudeCodeAgentRuntime : IAgentRuntime
         if (req.Workspace is null)
             return Fail(id, "Claude Code requires a workspace, but none was provided.", RunFailureClass.SandboxInfra);
 
-        string apiKey;
+        // ApiKey → ANTHROPIC_API_KEY (pay-as-you-go); OAuthToken → CLAUDE_CODE_OAUTH_TOKEN (Pro/Max
+        // subscription, from `claude setup-token`). Only the chosen var is injected, so they can't clash.
+        var authEnvVar = req.Role.ClaudeAuth == ClaudeAuthMode.OAuthToken ? "CLAUDE_CODE_OAUTH_TOKEN" : "ANTHROPIC_API_KEY";
+        string credential;
         try
         {
             if (string.IsNullOrEmpty(req.Role.ApiKeySecretName))
-                return Fail(id, "Claude Code role has no Anthropic API key configured.", RunFailureClass.ModelProvider);
-            apiKey = await _secrets.GetSecretAsync(req.Role.ApiKeySecretName, ct).ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(apiKey))
-                return Fail(id, "Anthropic API key secret was empty.", RunFailureClass.ModelProvider);
+                return Fail(id, "Claude Code role has no Anthropic credential configured.", RunFailureClass.ModelProvider);
+            credential = await _secrets.GetSecretAsync(req.Role.ApiKeySecretName, ct).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(credential))
+                return Fail(id, "Anthropic credential secret was empty.", RunFailureClass.ModelProvider);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[ClaudeCode] failed to read API key secret for role {Role}", req.Role.Id);
-            return Fail(id, "Could not read the Anthropic API key from Key Vault.", RunFailureClass.SandboxInfra);
+            _logger.LogError(ex, "[ClaudeCode] failed to read credential secret for role {Role}", req.Role.Id);
+            return Fail(id, "Could not read the Anthropic credential from Key Vault.", RunFailureClass.SandboxInfra);
         }
 
         WorkspaceConnection? conn;
@@ -119,10 +122,12 @@ public sealed class ClaudeCodeAgentRuntime : IAgentRuntime
             _logger.LogInformation("[ClaudeCode] starting job {JobId} model={Model} resume={Resume}",
                 jobId, model, !string.IsNullOrEmpty(req.ThreadId));
 
-            // The API key is delivered per-invocation in the job env (NOT a container env var: the ACI is
-            // per-board/shared, the key is per-agent). The executor injects it into the spawned process only.
+            // The credential is delivered per-invocation in the job env (NOT a container env var: the ACI is
+            // per-board/shared, the credential is per-agent). The executor injects it into the spawned process only.
+            // IS_SANDBOX=1: the executor runs claude as root, and Claude Code refuses --dangerously-skip-permissions
+            // under root unless it detects a sandbox via this env var (otherwise it exits with empty stdout).
             await _workspace.InvokeAsync(conn.Endpoint, conn.Token, "/job/start",
-                new { cmd, run_id = runIdShort, job_id = jobId, env = new Dictionary<string, string> { ["ANTHROPIC_API_KEY"] = apiKey } },
+                new { cmd, run_id = runIdShort, job_id = jobId, env = new Dictionary<string, string> { [authEnvVar] = credential, ["IS_SANDBOX"] = "1" } },
                 ct).ConfigureAwait(false);
 
             var resultJson = await PollJobAsync(conn, runIdShort, jobId, ct).ConfigureAwait(false);
@@ -130,7 +135,7 @@ public sealed class ClaudeCodeAgentRuntime : IAgentRuntime
                 return Fail(id, "Claude Code run exceeded the time limit.", RunFailureClass.Exhaustion);
 
             var (stdout, exitCode) = resultJson.Value;
-            return ParseEnvelope(stdout, exitCode, id, apiKey);
+            return ParseEnvelope(stdout, exitCode, id, credential);
         }
         catch (Exception ex)
         {
@@ -165,7 +170,7 @@ public sealed class ClaudeCodeAgentRuntime : IAgentRuntime
     }
 
     /// <summary>Map the `claude -p --output-format json` result envelope onto a RoundOutcome.</summary>
-    private RoundOutcome ParseEnvelope(string stdout, int exitCode, string id, string apiKey)
+    private RoundOutcome ParseEnvelope(string stdout, int exitCode, string id, string credential)
     {
         ClaudeResult? env = null;
         try { env = JsonSerializer.Deserialize<ClaudeResult>(stdout, Json); }
@@ -181,7 +186,7 @@ public sealed class ClaudeCodeAgentRuntime : IAgentRuntime
             Output = env.Usage?.OutputTokens ?? 0,
         };
         var sessionId = string.IsNullOrEmpty(env.SessionId) ? id : env.SessionId!;
-        var finalText = Scrub(env.Result ?? "", apiKey);
+        var finalText = Scrub(env.Result ?? "", credential);
 
         if (exitCode != 0 || env.IsError || (env.Subtype is not null && env.Subtype != "success"))
         {
@@ -200,10 +205,10 @@ public sealed class ClaudeCodeAgentRuntime : IAgentRuntime
 
     /// <summary>Redact the API key value and any sk-ant- token so a secret never lands in an artifact,
     /// RunEvent, or log line.</summary>
-    private static string Scrub(string text, string? apiKey)
+    private static string Scrub(string text, string? secret)
     {
         if (string.IsNullOrEmpty(text)) return text;
-        if (!string.IsNullOrEmpty(apiKey)) text = text.Replace(apiKey, "***");
+        if (!string.IsNullOrEmpty(secret)) text = text.Replace(secret, "***");
         return ApiKeyPattern.Replace(text, "***");
     }
 

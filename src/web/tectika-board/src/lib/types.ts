@@ -211,7 +211,9 @@ export interface AgentRole {
   displayName: string;
   systemPrompt: string;
   executionEngine?: ExecutionEngine;
-  /** Key Vault secret name for the Anthropic API key (ClaudeCode engine). The key value is never returned. */
+  /** How a ClaudeCode role authenticates: pay-as-you-go API key, or a Pro/Max subscription OAuth token. */
+  claudeAuth?: ClaudeAuthMode;
+  /** Key Vault secret name for the Claude credential (ClaudeCode engine). The value is never returned. */
   apiKeySecretName?: string | null;
   foundryAgentId?: string | null;
   foundryAgentHash?: string | null;
@@ -227,6 +229,7 @@ export interface AgentRole {
 }
 
 export type ExecutionEngine = 'Foundry' | 'ClaudeCode';
+export type ClaudeAuthMode = 'ApiKey' | 'OAuthToken';
 
 /** Response shape from POST /api/agentroles (upsert). */
 export interface AgentUpsertResult {
