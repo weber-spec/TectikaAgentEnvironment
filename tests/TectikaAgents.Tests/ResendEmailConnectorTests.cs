@@ -86,6 +86,35 @@ public class ResendEmailConnectorTests
         Assert.Null(handler.Request);
     }
 
+    [Fact]
+    public async Task Validate_accepts_a_full_access_key_2xx()
+    {
+        var (conn, handler) = Build(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"data\":[]}") });
+        await conn.ValidateAsync("re_full", CancellationToken.None); // must not throw
+        Assert.Equal("https://api.resend.com/domains", handler.Request!.RequestUri!.ToString());
+        Assert.Equal("re_full", handler.Request.Headers.Authorization!.Parameter);
+    }
+
+    [Fact]
+    public async Task Validate_accepts_a_restricted_send_only_key_401()
+    {
+        var (conn, _) = Build(new HttpResponseMessage(HttpStatusCode.Unauthorized)
+        {
+            Content = new StringContent("{\"name\":\"restricted_api_key\",\"message\":\"This API key is restricted to only send emails\"}"),
+        });
+        await conn.ValidateAsync("re_send_only", CancellationToken.None); // must not throw
+    }
+
+    [Fact]
+    public async Task Validate_rejects_an_invalid_key_401()
+    {
+        var (conn, _) = Build(new HttpResponseMessage(HttpStatusCode.Unauthorized)
+        {
+            Content = new StringContent("{\"name\":\"validation_error\",\"message\":\"API key is invalid\"}"),
+        });
+        await Assert.ThrowsAsync<InvalidOperationException>(() => conn.ValidateAsync("nope", CancellationToken.None));
+    }
+
     private static HttpResponseMessage Ok(string body = "{\"id\":\"id-1\"}") =>
         new(HttpStatusCode.OK) { Content = new StringContent(body) };
 

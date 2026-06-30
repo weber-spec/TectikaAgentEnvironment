@@ -11,6 +11,11 @@ public interface IFirstPartyConnector
     /// <summary>The <see cref="McpCatalog"/> entry id this connector backs (e.g. "email").</summary>
     string CatalogId { get; }
 
+    /// <summary>Validate a credential at connect time, BEFORE it is stored. Returns normally if the token
+    /// authenticates; THROWS if it is rejected. This mirrors the remote-MCP path's gateway.ListToolsAsync,
+    /// so the connect controller's try/catch handling is identical for both backends.</summary>
+    Task ValidateAsync(string token, CancellationToken ct);
+
     /// <summary>Execute one of the entry's tools. <paramref name="token"/> is the board's resolved secret value.
     /// The write opt-in and connection resolution are enforced by the caller (McpToolExecutor) before this runs.
     /// Returns the tool result serialized as a JSON string.</summary>

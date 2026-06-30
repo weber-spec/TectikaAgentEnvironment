@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -10,12 +11,35 @@ namespace TectikaAgents.AgentRuntime.Mcp;
 public sealed class ResendEmailConnector : IFirstPartyConnector
 {
     public const string ResendEndpoint = "https://api.resend.com/emails";
+    public const string ResendDomainsEndpoint = "https://api.resend.com/domains";
 
     private readonly IHttpClientFactory _httpFactory;
 
     public ResendEmailConnector(IHttpClientFactory httpFactory) => _httpFactory = httpFactory;
 
     public string CatalogId => "email";
+
+    /// <summary>Validate the Resend API key without sending mail by making an authenticated read request.
+    /// A wrong key returns 401; a VALID but send-only ("restricted") key also returns 401 on a read endpoint,
+    /// so we accept those (and any 2xx/403) and reject only an unrestricted 401 — never false-rejecting a real key.</summary>
+    public async Task ValidateAsync(string token, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, ResendDomainsEndpoint);
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var http = _httpFactory.CreateClient();
+        using var resp = await http.SendAsync(req, ct);
+        if (resp.IsSuccessStatusCode || resp.StatusCode == HttpStatusCode.Forbidden)
+            return; // authenticated (full-access, or scoped but real)
+
+        if (resp.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            if (body.Contains("restricted", StringComparison.OrdinalIgnoreCase))
+                return; // valid send-only key — Resend 401s read endpoints for restricted keys
+        }
+        throw new InvalidOperationException($"Resend rejected the API key (HTTP {(int)resp.StatusCode}).");
+    }
 
     public async Task<string> CallAsync(string toolName, JsonElement args, string token, CancellationToken ct)
     {

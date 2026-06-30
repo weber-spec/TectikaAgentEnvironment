@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using TectikaAgents.AgentRuntime.Mcp;
 using TectikaAgents.Api.Controllers;
 using TectikaAgents.Api.Services;
 using TectikaAgents.Core.Models;
@@ -88,9 +89,10 @@ internal sealed class FakeCosmosForBoardMcp : ICosmosDbService
 
 public class BoardMcpConnectionsControllerTests
 {
-    private static BoardMcpConnectionsController Build(ICosmosDbService cosmos, FakeMcpGateway gw, FakeSecretProvider secrets)
+    private static BoardMcpConnectionsController Build(ICosmosDbService cosmos, FakeMcpGateway gw, FakeSecretProvider secrets,
+        params IFirstPartyConnector[] connectors)
     {
-        var ctrl = new BoardMcpConnectionsController(cosmos, gw, secrets);
+        var ctrl = new BoardMcpConnectionsController(cosmos, gw, secrets, connectors);
         var user = new ClaimsPrincipal(new ClaimsIdentity(new[]
         {
             new Claim("tid", "t1"),
@@ -135,6 +137,43 @@ public class BoardMcpConnectionsControllerTests
         var ctrl = Build(cosmos, gw, secrets);
 
         var res = await ctrl.Connect(boardId, new BoardMcpConnectionsController.ConnectRequest("slack", "My Slack", "bad"), CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(res);
+        Assert.Empty(secrets.Store);
+        var board = await cosmos.GetBoardAsync("t1", boardId, CancellationToken.None);
+        Assert.Empty(board!.McpConnections);
+    }
+
+    [Fact]
+    public async Task Connect_first_party_email_validates_via_connector_not_gateway()
+    {
+        var (cosmos, boardId) = await SeedBoardAsync();
+        var gw = new FakeMcpGateway();
+        var secrets = new FakeSecretProvider();
+        var connector = new FakeFirstPartyConnector(); // CatalogId "email"
+        var ctrl = Build(cosmos, gw, secrets, connector);
+
+        var res = await ctrl.Connect(boardId,
+            new BoardMcpConnectionsController.ConnectRequest("email", "Work email", "re_key"), CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(res);
+        var conn = Assert.IsType<McpConnection>(ok.Value);
+        Assert.Equal("email", conn.CatalogId);
+        Assert.Equal("re_key", connector.ValidatedToken);   // validated through the connector
+        Assert.Null(gw.LastTarget);                          // gateway never touched for first-party
+        Assert.Equal("re_key", secrets.Store[conn.SecretName]);
+    }
+
+    [Fact]
+    public async Task Connect_first_party_validation_failure_returns_400_and_stores_nothing()
+    {
+        var (cosmos, boardId) = await SeedBoardAsync();
+        var secrets = new FakeSecretProvider();
+        var connector = new FakeFirstPartyConnector { ThrowOnValidate = true };
+        var ctrl = Build(cosmos, new FakeMcpGateway(), secrets, connector);
+
+        var res = await ctrl.Connect(boardId,
+            new BoardMcpConnectionsController.ConnectRequest("email", "Work email", "bad"), CancellationToken.None);
 
         Assert.IsType<BadRequestObjectResult>(res);
         Assert.Empty(secrets.Store);

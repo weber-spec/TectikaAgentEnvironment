@@ -177,20 +177,6 @@ public class McpToolExecutorTests
         Assert.Contains("unavailable", result);
     }
 
-    private sealed class FakeFirstPartyConnector : TectikaAgents.AgentRuntime.Mcp.IFirstPartyConnector
-    {
-        public string CatalogId => "email";
-        public string? LastTool { get; private set; }
-        public string? LastToken { get; private set; }
-        public string Result { get; set; } = "{\"status\":\"sent\"}";
-
-        public Task<string> CallAsync(string toolName, JsonElement args, string token, CancellationToken ct)
-        {
-            LastTool = toolName; LastToken = token;
-            return Task.FromResult(Result);
-        }
-    }
-
     private sealed class ThrowingGateway : TectikaAgents.Core.Interfaces.IMcpGateway
     {
         public Task<IReadOnlyList<TectikaAgents.Core.Interfaces.McpToolInfo>> ListToolsAsync(TectikaAgents.Core.Interfaces.McpServerTarget t, CancellationToken ct) => throw new System.Exception("boom");
