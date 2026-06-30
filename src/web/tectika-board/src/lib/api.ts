@@ -6,7 +6,7 @@ import type {
   UsageRollup, UsageEventsPage, PricingCatalog, UsageTimePoint, AgentUsage,
   PreviewSession, BoardWorkspaceStatusDto, ResetBoardResult,
   Comment, CommentKind, NoteType,
-  McpConnection, McpCatalogEntry,
+  McpConnection, McpCatalogEntry, ResendDomain,
 } from './types';
 import { trackEvent, trackException, redact } from './telemetry';
 
@@ -214,6 +214,21 @@ export const api = {
       fetchApi<McpConnection>(`/api/boards/${boardId}/mcp/${connectionId}/validate`, { method: 'POST' }),
     disconnect: (boardId: string, connectionId: string) =>
       fetchApi<void>(`/api/boards/${boardId}/mcp/${connectionId}`, { method: 'DELETE' }),
+  },
+
+  email: {
+    domains: (boardId: string) =>
+      fetchApi<ResendDomain[]>(`/api/boards/${boardId}/email/domains`),
+    addDomain: (boardId: string, name: string) =>
+      fetchApi<ResendDomain>(`/api/boards/${boardId}/email/domains`, { method: 'POST', body: JSON.stringify({ name }) }),
+    getDomain: (boardId: string, id: string) =>
+      fetchApi<ResendDomain>(`/api/boards/${boardId}/email/domains/${id}`),
+    verifyDomain: (boardId: string, id: string) =>
+      fetchApi<ResendDomain>(`/api/boards/${boardId}/email/domains/${id}/verify`, { method: 'POST' }),
+    deleteDomain: (boardId: string, id: string) =>
+      fetchApi<void>(`/api/boards/${boardId}/email/domains/${id}`, { method: 'DELETE' }),
+    setFrom: (boardId: string, from: string) =>
+      fetchApi<{ defaultFrom: string }>(`/api/boards/${boardId}/email/from`, { method: 'PUT', body: JSON.stringify({ from }) }),
   },
 
   models: {
