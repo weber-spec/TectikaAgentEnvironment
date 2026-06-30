@@ -56,7 +56,7 @@ public sealed class McpToolExecutor
             {
                 if (!_connectors.TryGetValue(catalogId, out var connector))
                     return Err($"{entry.DisplayName} is unavailable (no connector is configured). Please contact support.");
-                return await connector.CallAsync(tool, args, token, ct);
+                return await connector.CallAsync(tool, args, token, conn, ct);
             }
 
             var target = new McpServerTarget(entry.Endpoint, entry.AuthHeader, entry.AuthScheme, token);

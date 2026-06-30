@@ -16,8 +16,10 @@ public interface IFirstPartyConnector
     /// so the connect controller's try/catch handling is identical for both backends.</summary>
     Task ValidateAsync(string token, CancellationToken ct);
 
-    /// <summary>Execute one of the entry's tools. <paramref name="token"/> is the board's resolved secret value.
-    /// The write opt-in and connection resolution are enforced by the caller (McpToolExecutor) before this runs.
+    /// <summary>Execute one of the entry's tools. <paramref name="token"/> is the board's resolved secret value
+    /// and <paramref name="connection"/> the resolved per-board connection (for config such as DefaultFrom). The
+    /// write opt-in and connection resolution are enforced by the caller (McpToolExecutor) before this runs.
     /// Returns the tool result serialized as a JSON string.</summary>
-    Task<string> CallAsync(string toolName, JsonElement args, string token, CancellationToken ct);
+    Task<string> CallAsync(string toolName, JsonElement args, string token,
+        TectikaAgents.Core.Models.McpConnection connection, CancellationToken ct);
 }

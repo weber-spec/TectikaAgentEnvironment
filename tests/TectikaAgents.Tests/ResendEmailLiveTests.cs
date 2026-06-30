@@ -37,7 +37,7 @@ public class ResendEmailLiveTests
             body = "This message was sent by the Tectika Email integration end-to-end test.",
         })).RootElement;
 
-        var result = await connector.CallAsync("send_email", args, key, CancellationToken.None);
+        var result = await connector.CallAsync("send_email", args, key, new TectikaAgents.Core.Models.McpConnection { CatalogId = "email" }, CancellationToken.None);
         _out.WriteLine(result);
 
         using var doc = JsonDocument.Parse(result);

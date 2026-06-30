@@ -22,9 +22,12 @@ public sealed class FakeFirstPartyConnector : IFirstPartyConnector
         return Task.CompletedTask;
     }
 
-    public Task<string> CallAsync(string toolName, JsonElement args, string token, CancellationToken ct)
+    public TectikaAgents.Core.Models.McpConnection? LastConnection { get; private set; }
+
+    public Task<string> CallAsync(string toolName, System.Text.Json.JsonElement args, string token,
+        TectikaAgents.Core.Models.McpConnection connection, CancellationToken ct)
     {
-        LastTool = toolName; LastToken = token;
+        LastTool = toolName; LastToken = token; LastConnection = connection;
         return Task.FromResult(Result);
     }
 }

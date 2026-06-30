@@ -44,7 +44,8 @@ public sealed class ResendEmailConnector : IFirstPartyConnector
         throw new InvalidOperationException($"Resend rejected the API key (HTTP {(int)resp.StatusCode}).");
     }
 
-    public async Task<string> CallAsync(string toolName, JsonElement args, string token, CancellationToken ct)
+    public async Task<string> CallAsync(string toolName, JsonElement args, string token,
+        TectikaAgents.Core.Models.McpConnection connection, CancellationToken ct)
     {
         if (toolName != "send_email")
             return Err($"Unknown email tool '{toolName}'.");
