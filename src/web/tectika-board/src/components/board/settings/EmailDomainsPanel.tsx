@@ -21,8 +21,17 @@ export function EmailDomainsPanel({ boardId, defaultFrom }: { boardId: string; d
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
-    try { setDomains(await api.email.domains(boardId)); }
-    catch (err) { if (err instanceof ApiError) toast('Could not load domains', 'error'); }
+    try {
+      const list = await api.email.domains(boardId);
+      // The list endpoint omits DNS records; hydrate them for unverified domains so the records
+      // to add stay visible across reloads (and reflect the latest verification status).
+      const hydrated = await Promise.all(
+        list.map(d => VERIFIED.has(d.status)
+          ? Promise.resolve(d)
+          : api.email.getDomain(boardId, d.id).catch(() => d)),
+      );
+      setDomains(hydrated);
+    } catch (err) { if (err instanceof ApiError) toast('Could not load domains', 'error'); }
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [boardId]);
 
@@ -35,8 +44,13 @@ export function EmailDomainsPanel({ boardId, defaultFrom }: { boardId: string; d
   };
 
   const verify = async (id: string) => {
-    try { const d = await api.email.verifyDomain(boardId, id); setDomains(p => p.map(x => x.id === id ? d : x)); toast('Verification started — refresh in a minute', 'info'); }
+    try { const d = await api.email.verifyDomain(boardId, id); setDomains(p => p.map(x => x.id === id ? d : x)); toast('Verification started — click Refresh in a minute to check', 'info'); }
     catch { toast('Could not verify', 'error'); }
+  };
+
+  const refresh = async (id: string) => {
+    try { const d = await api.email.getDomain(boardId, id); setDomains(p => p.map(x => x.id === id ? d : x)); }
+    catch { toast('Could not refresh status', 'error'); }
   };
 
   const remove = async (id: string) => {
@@ -65,6 +79,7 @@ export function EmailDomainsPanel({ boardId, defaultFrom }: { boardId: string; d
             <span className="font-semibold text-[13px]">{d.name}</span>
             <span className="flex items-center gap-3">{badge(d.status)}
               {!VERIFIED.has(d.status) && <button className="text-[12px] underline" onClick={() => verify(d.id)}>Verify</button>}
+              {!VERIFIED.has(d.status) && <button className="text-[12px] underline" onClick={() => refresh(d.id)}>Refresh</button>}
               <button className="text-[12px] text-[var(--muted)] underline" onClick={() => remove(d.id)}>Remove</button>
             </span>
           </div>
