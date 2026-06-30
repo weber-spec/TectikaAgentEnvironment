@@ -1,0 +1,46 @@
+using TectikaAgents.AgentRuntime;
+
+namespace TectikaAgents.AgentRuntime.Mcp;
+
+/// <summary>Curated registry of connectable MCP integrations. Each entry pins the exact tool surface we
+/// expose (read/write flagged) so the per-role agent definition is board-independent. Bump <see cref="Version"/>
+/// whenever the catalog changes so AgentInstructionsHash republishes affected agents.</summary>
+public static class McpCatalog
+{
+    public const string Version = "mcp-catalog-v1";
+
+    /// <summary>Reuses TectikaToolSchema.ToolProp for property shapes so projection stays consistent.</summary>
+    public sealed record CatalogTool(
+        string Name, string Description,
+        IReadOnlyDictionary<string, TectikaToolSchema.ToolProp> Properties, string[] Required, bool IsWrite);
+
+    public sealed record CatalogEntry(
+        string Id, string DisplayName, string Description,
+        string Endpoint, string AuthHeader, string AuthScheme, string TokenHint, string? HelpUrl,
+        IReadOnlyList<CatalogTool> Tools);
+
+    private static readonly Dictionary<string, TectikaToolSchema.ToolProp> NoProps = new();
+
+    public static readonly IReadOnlyList<CatalogEntry> Entries = new CatalogEntry[]
+    {
+        // NOTE (curation): confirm the production Slack MCP endpoint before shipping; tests use a fake gateway,
+        // so the URL does not affect them. Slack bot tokens auth via `Authorization: Bearer xoxb-…`.
+        new("slack", "Slack", "Read channels and post messages to a connected Slack workspace.",
+            Endpoint: "https://mcp.slack.example/mcp", AuthHeader: "Authorization", AuthScheme: "Bearer",
+            TokenHint: "Slack Bot Token (xoxb-…)", HelpUrl: "https://api.slack.com/authentication/token-types",
+            Tools: new CatalogTool[]
+            {
+                new("list_channels", "List channels in the connected Slack workspace.",
+                    NoProps, [], IsWrite: false),
+                new("post_message", "Post a message to a Slack channel.",
+                    new Dictionary<string, TectikaToolSchema.ToolProp>
+                    {
+                        ["channel"] = new("string", "Channel id or name, e.g. '#general'."),
+                        ["text"]    = new("string", "Message text to post."),
+                    },
+                    ["channel", "text"], IsWrite: true),
+            }),
+    };
+
+    public static CatalogEntry? Find(string id) => Entries.FirstOrDefault(e => e.Id == id);
+}

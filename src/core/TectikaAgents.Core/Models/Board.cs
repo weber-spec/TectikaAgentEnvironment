@@ -43,6 +43,9 @@ public class Board
     [JsonPropertyName("github")]
     public GitHubRepoConnection? GitHub { get; set; }
 
+    [JsonPropertyName("mcpConnections")]
+    public List<McpConnection> McpConnections { get; set; } = [];
+
     [JsonPropertyName("workspaceContainerName")]
     public string? WorkspaceContainerName { get; set; }
 

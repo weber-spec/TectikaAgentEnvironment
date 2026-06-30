@@ -60,5 +60,6 @@ public class RoundExecutorControlTests
         public Task<IReadOnlyList<TaskSummary>> SearchTasksAsync(string q, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<TaskDetail?> GetTaskAsync(string id, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<ArtifactView?> GetArtifactAsync(string id, int? v, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<IReadOnlyList<SharedNote>> GetSharedNotesAsync(string taskId, CancellationToken ct = default) => throw new NotImplementedException();
     }
 }

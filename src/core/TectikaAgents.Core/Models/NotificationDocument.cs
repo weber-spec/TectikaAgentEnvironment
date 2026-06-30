@@ -26,4 +26,9 @@ public class NotificationDocument
 
     /// <summary>run_completed | run_failed | approval_required | interaction_required | agent_created | agent_deleted</summary>
     public string SourceEventType { get; set; } = string.Empty;
+
+    /// <summary>If set, this notification targets a single user (e.g. an @-mention).
+    /// Null = tenant-wide (existing behavior, visible to all).</summary>
+    [JsonPropertyName("recipientUserId")]
+    public string? RecipientUserId { get; set; }
 }

@@ -484,6 +484,27 @@ public class WorkflowCosmosService
         catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
     }
 
+    // ── TaskComments ──────────────────────────────────────────────────────────
+
+    /// <summary>Returns all notes on a task that have been explicitly shared with the agent,
+    /// ordered oldest-first. Only kind="note", sharedWithAgent=true, and not soft-deleted.</summary>
+    public async Task<IReadOnlyList<TaskComment>> GetSharedTaskNotesAsync(string taskId, CancellationToken ct = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.taskId = @taskId AND c.kind = 'note' " +
+            "AND c.sharedWithAgent = true AND (NOT IS_DEFINED(c.deletedAt) OR IS_NULL(c.deletedAt)) " +
+            "ORDER BY c.createdAt ASC")
+            .WithParameter("@taskId", taskId);
+
+        var iter = C("taskComments").GetItemQueryIterator<TaskComment>(query,
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(taskId) });
+
+        var results = new List<TaskComment>();
+        while (iter.HasMoreResults)
+            results.AddRange(await iter.ReadNextAsync(ct));
+        return results;
+    }
+
     // ── Board workspace (worktree architecture) ───────────────────────────────
 
     /// <summary>Reads a board and returns it together with its current ETag for CAS operations.</summary>

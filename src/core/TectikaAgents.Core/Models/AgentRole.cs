@@ -36,8 +36,15 @@ public class AgentRole
     [JsonPropertyName("tools")]
     public List<string> Tools { get; set; } = [];
 
+    /// <summary>Catalog ids of MCP integrations this role is allowed to use (e.g. ["slack","notion"]).
+    /// Drives which MCP tools are projected onto the Foundry agent definition.</summary>
     [JsonPropertyName("mcpServers")]
     public List<string> McpServers { get; set; } = [];
+
+    /// <summary>Catalog ids (subset of <see cref="McpServers"/>) for which this role may call WRITE tools.
+    /// Write tools are omitted from the agent definition unless their catalog id appears here.</summary>
+    [JsonPropertyName("mcpWriteEnabled")]
+    public List<string> McpWriteEnabled { get; set; } = [];
 
     [JsonPropertyName("permissions")]
     public AgentPermissions Permissions { get; set; } = new();

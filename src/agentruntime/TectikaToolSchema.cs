@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using TectikaAgents.AgentRuntime.Mcp;
 using TectikaAgents.Core.Models;
 
 namespace TectikaAgents.AgentRuntime;
@@ -8,7 +9,7 @@ namespace TectikaAgents.AgentRuntime;
 /// whenever the toolset changes so AgentInstructionsHash republishes agent versions.</summary>
 public static class TectikaToolSchema
 {
-    public const string Version = "tools-v10";
+    public const string Version = "tools-v11";  // was tools-v10 — added read_team_notes
 
     public sealed record ToolProp(string Type, string? Description = null, string[]? Enum = null);
     public sealed record ToolDef(
@@ -28,6 +29,10 @@ public static class TectikaToolSchema
             new Dictionary<string, ToolProp> {
                 ["taskId"] = new("string", "The task whose artifact to read."),
                 ["version"] = new("integer", "Optional specific version; omit for latest.") }, ["taskId"]),
+        new("read_team_notes",
+            "Read notes the human team has explicitly shared with you on a task (decisions, open questions, context). Use before major decisions or when you need the team's standing guidance.",
+            new Dictionary<string, ToolProp> { ["taskId"] = new("string", "The task id.") },
+            ["taskId"]),
         // ── Control (signal the orchestrator) ──────────────────────────────────
         new("round_intent", "Announce, in one short line, what you are about to do this round. Call this at the START of each round. " +
             "You have a LIMITED number of rounds, so make each one count: a round can carry MANY tool calls at once — " +
@@ -164,7 +169,8 @@ public static class TectikaToolSchema
     /// <summary>Project the catalog into the Foundry flat function-tool array (definition.tools).
     /// Workspace permission (layer 1) controls run_command and cascades GitHub read access.
     /// GitHub permissions (layer 2) are honoured only for agents without workspace access.</summary>
-    public static IReadOnlyList<object> ToFoundryToolsJson(AgentPermissions permissions, GitHubPermissions? github = null)
+    public static IReadOnlyList<object> ToFoundryToolsJson(AgentPermissions permissions, GitHubPermissions? github = null,
+        IReadOnlyList<string>? mcpEnabled = null, IReadOnlyList<string>? mcpWriteEnabled = null)
     {
         var tools = Definitions.Select(d => (object)ToFoundryTool(d)).ToList();
 
@@ -181,6 +187,24 @@ public static class TectikaToolSchema
         {
             tools.Add(ToFoundryTool(RunCommandTool));
             tools.AddRange(FileTools.Select(d => (object)ToFoundryTool(d)));
+        }
+        // MCP integration tools (layer 3): read tools whenever the role enables the integration;
+        // write tools only when its catalog id is also write-opted-in.
+        if (mcpEnabled is not null)
+        {
+            var writeSet = new HashSet<string>(mcpWriteEnabled ?? Array.Empty<string>(), StringComparer.Ordinal);
+            foreach (var catalogId in mcpEnabled)
+            {
+                var entry = McpCatalog.Find(catalogId);
+                if (entry is null) continue;
+                var allowWrite = writeSet.Contains(catalogId);
+                foreach (var t in entry.Tools)
+                {
+                    if (t.IsWrite && !allowWrite) continue;
+                    tools.Add(ToFoundryTool(new ToolDef(
+                        McpToolNaming.Qualify(catalogId, t.Name), t.Description, t.Properties, t.Required)));
+                }
+            }
         }
         return tools;
     }

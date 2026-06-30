@@ -20,8 +20,12 @@ import { LiveEdge } from './LiveEdge';
 import { contextFromEvents, sumTokens } from '@/lib/thinking-phrases';
 import { InteractionCard } from '@/components/InteractionCard';
 import { ModelSelect } from '@/components/ModelSelect';
+import { Markdown } from '../../lib/markdown';
+import { TeamTab } from './TeamTab';
+import { countUnread } from '@/lib/team-notes';
+import { CURRENT_USER } from '@/lib/collaboration';
 
-type Tab = 'chat' | 'activity' | 'details' | 'bridge';
+type Tab = 'chat' | 'activity' | 'details' | 'bridge' | 'team';
 
 const TOOL_LIBRARY = ['search', 'read_repo', 'write_code', 'run_tests', 'deploy', 'browser', 'sql', 'http'];
 
@@ -42,6 +46,25 @@ export function ItemPanel() {
 function PanelInner({ task }: { task: AgentTask }) {
   const { openTask, roles, runsById, updateTask, setStatus, peopleById, people } = useBoard();
   const [tab, setTab] = useState<Tab>('chat');
+  const [teamUnread, setTeamUnread] = useState(0);
+
+  // Team-tab unread badge: count others' comments since the caller's persisted last-read marker
+  // (server-side, cross-session). Viewing the Team tab calls markRead, which advances the marker.
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const res = await api.comments.list(task.boardId, task.id);
+        if (!alive) return;
+        setTeamUnread(tab === 'team'
+          ? 0
+          : countUnread(res.comments, res.lastReadAt ?? undefined, CURRENT_USER.id));
+      } catch { /* ignore; keep last count */ }
+    };
+    tick();
+    const iv = setInterval(() => { if (document.visibilityState !== 'hidden') tick(); }, 4000);
+    return () => { alive = false; clearInterval(iv); };
+  }, [task.boardId, task.id, tab]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') openTask(undefined); };
@@ -81,8 +104,15 @@ function PanelInner({ task }: { task: AgentTask }) {
         {/* left: execution thread / config */}
         <div className="w-[420px] shrink-0 border-r border-[var(--border)] flex flex-col min-h-0">
           <div className="flex border-b border-[var(--border)] px-2 overflow-x-auto whitespace-nowrap">
-            {(['chat', 'activity', 'details', 'bridge'] as Tab[]).map(t => (
-              <button key={t} onClick={() => setTab(t)} className={`px-3 py-2.5 text-[13px] font-medium capitalize border-b-2 -mb-px transition-colors shrink-0 ${tab === t ? 'border-[var(--primary)] text-[var(--primary)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'}`}>{t === 'chat' ? 'Chat' : t === 'bridge' ? 'CLI Bridge' : t}</button>
+            {(['chat', 'activity', 'details', 'bridge', 'team'] as Tab[]).map(t => (
+              <button key={t} onClick={() => { if (t === 'team') setTeamUnread(0); setTab(t); }} className={`px-3 py-2.5 text-[13px] font-medium capitalize border-b-2 -mb-px transition-colors shrink-0 ${tab === t ? 'border-[var(--primary)] text-[var(--primary)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'}`}>
+                <>
+                  {t === 'chat' ? 'Chat' : t === 'bridge' ? 'CLI Bridge' : t === 'team' ? 'Team' : t}
+                  {t === 'team' && tab !== 'team' && teamUnread > 0 && (
+                    <span className="ml-1.5 bg-[#e2445c] text-white text-[10px] rounded-full px-1.5 align-middle">{teamUnread}</span>
+                  )}
+                </>
+              </button>
             ))}
           </div>
           <div className="flex-1 overflow-auto flex flex-col min-h-0">
@@ -90,6 +120,7 @@ function PanelInner({ task }: { task: AgentTask }) {
             {tab === 'activity' && <ActivityTab task={task} />}
             {tab === 'details' && <DetailsTab task={task} role={role} run={run} people={people} onAssign={(id, kind) => updateTask(task.id, { assignee: { type: kind, id } })} />}
             {tab === 'bridge' && <CliBridgeTab task={task} />}
+            {tab === 'team' && <TeamTab task={task} />}
           </div>
         </div>
         {/* right: evolving artifact */}
@@ -1026,24 +1057,3 @@ function CodeOutputCard({ output }: { output: Output }) {
   );
 }
 
-// minimal markdown: headings, lists, code fences, bold
-function Markdown({ text }: { text: string }) {
-  const lines = text.split('\n');
-  const out: React.ReactNode[] = [];
-  let code: string[] | null = null;
-  lines.forEach((ln, i) => {
-    if (ln.startsWith('```')) { if (code) { out.push(<pre key={i} className="font-mono text-[12px] bg-[var(--background)] border border-[var(--border)] rounded p-2 my-2 overflow-auto">{code.join('\n')}</pre>); code = null; } else code = []; return; }
-    if (code) { code.push(ln); return; }
-    if (ln.startsWith('### ')) out.push(<h4 key={i} className="font-semibold text-[var(--foreground)] mt-2">{ln.slice(4)}</h4>);
-    else if (ln.startsWith('## ')) out.push(<h3 key={i} className="font-bold text-[var(--foreground)] text-base mt-3">{ln.slice(3)}</h3>);
-    else if (ln.startsWith('# ')) out.push(<h2 key={i} className="font-bold text-[var(--foreground)] text-lg mt-3">{ln.slice(2)}</h2>);
-    else if (ln.startsWith('- ')) out.push(<li key={i} className="text-[13px] text-[var(--foreground)] ml-4 list-disc">{inlineBold(ln.slice(2))}</li>);
-    else if (ln.trim() === '') out.push(<div key={i} className="h-2" />);
-    else out.push(<p key={i} className="text-[13px] text-[var(--foreground)]">{inlineBold(ln)}</p>);
-  });
-  if (code) out.push(<pre key="last" className="font-mono text-[12px] bg-[var(--background)] border border-[var(--border)] rounded p-2 my-2 overflow-auto">{(code as string[]).join('\n')}</pre>);
-  return <div>{out}</div>;
-}
-function inlineBold(s: string) {
-  return s.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((p, i) => p.startsWith('**') ? <b key={i}>{p.slice(2, -2)}</b> : p.startsWith('`') ? <code key={i} className="font-mono bg-[var(--surface)] rounded px-1 text-[12px]">{p.slice(1, -1)}</code> : <span key={i}>{p}</span>);
-}

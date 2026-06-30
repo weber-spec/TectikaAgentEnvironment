@@ -54,6 +54,9 @@ if dotnet --list-runtimes | grep -q 'Microsoft.NETCore.App 9\.'; then
 else
   warn ".NET 9 runtime not installed — workflows (net9) will run on the .NET 10 runtime via DOTNET_ROLL_FORWARD=Major (dev-local.sh handles this)."
 fi
+inst_max="$(cat /proc/sys/fs/inotify/max_user_instances 2>/dev/null || echo '?')"
+inst_use="$(find /proc/*/fd -lname 'anon_inode:inotify' 2>/dev/null | wc -l)"
+ok "inotify instances in use: $inst_use / $inst_max (dev-local.sh polls + restarts cleanly to stay clear; if you hit the cap: echo fs.inotify.max_user_instances=512 | sudo tee /etc/sysctl.d/99-inotify.conf && sudo sysctl --system)"
 
 az account show >/dev/null 2>&1 || die "not logged in to az — run 'az login' first"
 SUB_NAME="$(az account show --query name -o tsv)"

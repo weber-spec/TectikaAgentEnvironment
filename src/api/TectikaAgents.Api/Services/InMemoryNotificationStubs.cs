@@ -16,11 +16,13 @@ public sealed class InMemoryNotificationRepository : NotificationRepository
         return Task.CompletedTask;
     }
 
-    public override Task<IReadOnlyList<NotificationDocument>> GetRecentAsync(string tenantId, int limit = 50, CancellationToken ct = default)
+    public override Task<IReadOnlyList<NotificationDocument>> GetRecentAsync(string tenantId, string userId, int limit = 50, CancellationToken ct = default)
     {
         lock (_store)
         {
-            IReadOnlyList<NotificationDocument> result = _store.Take(limit).ToList();
+            IReadOnlyList<NotificationDocument> result = _store
+                .Where(n => n.RecipientUserId is null || n.RecipientUserId == userId)
+                .Take(limit).ToList();
             return Task.FromResult(result);
         }
     }

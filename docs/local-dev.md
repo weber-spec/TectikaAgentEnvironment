@@ -139,6 +139,16 @@ install the .NET 9 runtime instead. The API targets .NET 10 (no roll-forward).
 unset, so local runs don't publish traces into the shared App Insights. Set it
 in the config if you want local traces there.
 
+**WSL inotify limit.** File-watchers (VS Code + `dotnet watch` + next) share a
+small per-user inotify-instance budget (`fs.inotify.max_user_instances`, often
+128). Two safeguards are built in: `up` is **idempotent** (it stops the previous
+instances and frees the ports first, so watchers never pile up), and the API's
+`dotnet watch` uses **polling** (`DOTNET_USE_POLLING_FILE_WATCHER=true`, no
+inotify). If you still see `inotify instances ... reached` (e.g. VS Code alone is
+near the cap), raise it:
+`echo fs.inotify.max_user_instances=512 | sudo tee /etc/sysctl.d/99-inotify.conf && sudo sysctl --system`.
+Symptom when exhausted: `dotnet watch` dies → API down → `ERR_CONNECTION_REFUSED`.
+
 **Agent workspace/sandbox.** Provisioning a workspace ACI from a local Workflows
 process is the least-exercised path. It should work (ARM call with your
 identity + the `mi-agentteam-workflows` identity), but if a sandbox tool misbehaves

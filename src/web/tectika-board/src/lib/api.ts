@@ -5,6 +5,8 @@ import type {
   RepoMeta, BranchInfo, TreeEntry, FileContent, CommitInfo, PullRequestInfo, CompareResult,
   UsageRollup, UsageEventsPage, PricingCatalog, UsageTimePoint, AgentUsage,
   PreviewSession, BoardWorkspaceStatusDto, ResetBoardResult,
+  Comment, CommentKind, NoteType,
+  McpConnection, McpCatalogEntry,
 } from './types';
 import { trackEvent, trackException, redact } from './telemetry';
 
@@ -163,6 +165,23 @@ export const api = {
       fetchApi<{ summarized: boolean }>(`/api/boards/${boardId}/tasks/${taskId}/compact`, { method: 'POST' }),
   },
 
+  comments: {
+    list: (boardId: string, taskId: string) =>
+      fetchApi<{ comments: Comment[]; lastReadAt: string | null }>(`/api/boards/${boardId}/tasks/${taskId}/comments`),
+    create: (boardId: string, taskId: string, input: { kind: CommentKind; noteType?: NoteType; body: string; mentions: string[] }) =>
+      fetchApi<Comment>(`/api/boards/${boardId}/tasks/${taskId}/comments`, { method: 'POST', body: JSON.stringify(input) }),
+    update: (boardId: string, taskId: string, commentId: string, input: { body: string; noteType?: NoteType }) =>
+      fetchApi<Comment>(`/api/boards/${boardId}/tasks/${taskId}/comments/${commentId}`, { method: 'PUT', body: JSON.stringify(input) }),
+    remove: (boardId: string, taskId: string, commentId: string) =>
+      fetchApi<{ deleted: boolean }>(`/api/boards/${boardId}/tasks/${taskId}/comments/${commentId}`, { method: 'DELETE' }),
+    react: (boardId: string, taskId: string, commentId: string, emoji: string) =>
+      fetchApi<Comment>(`/api/boards/${boardId}/tasks/${taskId}/comments/${commentId}/reactions`, { method: 'POST', body: JSON.stringify({ emoji }) }),
+    share: (boardId: string, taskId: string, commentId: string, shared: boolean) =>
+      fetchApi<Comment>(`/api/boards/${boardId}/tasks/${taskId}/comments/${commentId}/share`, { method: 'POST', body: JSON.stringify({ shared }) }),
+    markRead: (boardId: string, taskId: string) =>
+      fetchApi<{ lastReadAt: string }>(`/api/boards/${boardId}/tasks/${taskId}/comments/read`, { method: 'POST' }),
+  },
+
   edges: {
     list: (boardId: string) => fetchApi<TaskEdge[]>(`/api/boards/${boardId}/edges`),
     create: (boardId: string, body: { sourceTaskId: string; targetTaskId: string; kind?: EdgeKind; label?: string }) =>
@@ -185,6 +204,17 @@ export const api = {
     /** Upserts an agent role and returns the full {role, synced, error} response. */
     upsertFull: (role: AgentRole, anthropicApiKey?: string): Promise<AgentUpsertResult> =>
       fetchApi<AgentUpsertResult>('/api/agentroles', { method: 'POST', body: JSON.stringify({ role, anthropicApiKey }) }),
+  },
+
+  mcp: {
+    catalog: () => fetchApi<McpCatalogEntry[]>('/api/mcp/catalog'),
+    connections: (boardId: string) => fetchApi<McpConnection[]>(`/api/boards/${boardId}/mcp`),
+    connect: (boardId: string, input: { catalogId: string; displayName?: string; token: string }) =>
+      fetchApi<McpConnection>(`/api/boards/${boardId}/mcp/connect`, { method: 'POST', body: JSON.stringify(input) }),
+    validate: (boardId: string, connectionId: string) =>
+      fetchApi<McpConnection>(`/api/boards/${boardId}/mcp/${connectionId}/validate`, { method: 'POST' }),
+    disconnect: (boardId: string, connectionId: string) =>
+      fetchApi<void>(`/api/boards/${boardId}/mcp/${connectionId}`, { method: 'DELETE' }),
   },
 
   models: {
