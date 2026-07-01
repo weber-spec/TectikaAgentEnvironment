@@ -52,6 +52,15 @@ function Test-PortBusy([int] $Port) {
   [bool] (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
 }
 
+# Block until a port is listening (or timeout). Returns $true if it came up.
+function Wait-Port([int] $Port, [int] $MaxWaitSec = 150) {
+  for ($i = 0; $i -lt ($MaxWaitSec / 5); $i++) {
+    if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) { return $true }
+    Start-Sleep 5
+  }
+  return $false
+}
+
 # Force-kill a process tree. Routed through cmd so taskkill's stderr (e.g. a stale pid that
 # is already gone) is swallowed and never surfaces as a terminating NativeCommandError.
 function Stop-Tree([int] $TreePid) {
@@ -116,6 +125,21 @@ function Invoke-Up {
   # Idempotent start: stop tracked instances and free the app ports first.
   Stop-Tracked
   foreach ($p in @($API_PORT, $FUNC_PORT, $WEB_PORT)) { Clear-Port $p }
+
+  # Pre-build (sequential) BEFORE starting the watchers. The api (dotnet watch) and
+  # workflows (func) builds both compile the shared net9.0 outputs of Core/AgentRuntime;
+  # started together on a cold `up` they race on those DLLs -> CS2012 "used by another
+  # process", which fails workflows' build and can make the API load a half-written
+  # assembly (it then exits with no startup log). Building once up front leaves every
+  # output current, so each watcher finds it up-to-date and skips the concurrent compile.
+  Write-Host 'Pre-building .NET projects (avoids the concurrent-build file lock)...'
+  $prebuildLog = Join-Path $LOGDIR 'prebuild.log'
+  Set-Content -Path $prebuildLog -Value '' -Encoding ASCII
+  foreach ($proj in @('src\api\TectikaAgents.Api\TectikaAgents.Api.csproj', 'src\workflows\TectikaAgents.Workflows.csproj')) {
+    & dotnet build (Join-Path $ROOT $proj) -c Debug --nologo -v minimal *>> $prebuildLog
+    if ($LASTEXITCODE -ne 0) { Write-Host "   [!!] pre-build of $proj reported errors (see .dev-local/logs/prebuild.log) - continuing" }
+  }
+
   Write-Host 'Starting local stack (real Azure data + agents)...'
 
   if (Test-PortBusy 10000) {
@@ -137,11 +161,19 @@ function Invoke-Up {
     DOTNET_USE_POLLING_FILE_WATCHER = 'true'
   } 'dotnet watch --non-interactive run --no-launch-profile --property:UseAppHost=false'
 
+  # web is Node/Next - it never touches the .NET build, so start it now to compile in parallel.
+  Start-Svc 'web' (Join-Path $ROOT 'src\web\tectika-board') @{} 'npm run dev'
+
+  # Stagger workflows AFTER the API is listening. `func start` recompiles the shared net9.0
+  # projects into its own output dir; started alongside the API watcher's build it races on
+  # the same obj DLLs (CS2012) and the func host dies. Waiting removes the overlap. (The
+  # pre-build above covers the API; func rebuilds regardless, so it needs the API done first.)
+  Write-Host '   waiting for the API to bind before starting workflows (avoids the build race)...'
+  if (-not (Wait-Port $API_PORT 180)) { Write-Host '   [!!] API did not come up in time - starting workflows anyway' }
+
   Start-Svc 'workflows' (Join-Path $ROOT 'src\workflows') @{
     DOTNET_ROLL_FORWARD = 'Major'
   } "func start --port $FUNC_PORT"
-
-  Start-Svc 'web' (Join-Path $ROOT 'src\web\tectika-board') @{} 'npm run dev'
 
   @"
 
