@@ -25,6 +25,8 @@ param foundryEndpoint string
 param foundryProjectName string
 param foundryProjectEndpoint string
 param modelName string
+@secure()
+param mcpSigningKey string = ''
 param functionAppUrl string
 param workflowsFunctionKeySecretUri string
 param workflowsManagementKeySecretUri string
@@ -111,6 +113,8 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'Foundry__DefaultModel', value: modelName }
             { name: 'Foundry__IsOpenAiDirect', value: 'false' }
             { name: 'Foundry__ApiKey', value: '' }
+            // Board-tools MCP: the API validates the per-run token minted by the workflows (same signing key).
+            { name: 'Mcp__SigningKey', value: mcpSigningKey }
             { name: 'DurableFunctions__StartUrl', value: '${functionAppUrl}/api/pipelines/start' }
             { name: 'DurableFunctions__FunctionKey', secretRef: 'workflows-function-key' }
             { name: 'DurableFunctions__ManagementKey', secretRef: 'workflows-management-key' }

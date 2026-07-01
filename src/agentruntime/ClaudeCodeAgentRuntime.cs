@@ -38,12 +38,19 @@ public sealed class ClaudeCodeAgentRuntime : IAgentRuntime
     /// <summary>Optional per-turn sink for the agent's final text (one event, non-streaming) — mirrors Foundry.</summary>
     public Action<string>? OnText { get; set; }
 
+    // Board-tools MCP: the API's public base URL + the shared run-token signing key. When both are set,
+    // the agent gets a per-run .mcp.json pointing at <base>/mcp; otherwise the feature is simply off.
+    private readonly string? _mcpApiBaseUrl;
+    private readonly string? _mcpSigningKey;
+
     public ClaudeCodeAgentRuntime(IWorkspaceService workspace, ISecretProvider secrets,
-        ILogger<ClaudeCodeAgentRuntime> logger)
+        ILogger<ClaudeCodeAgentRuntime> logger, Microsoft.Extensions.Configuration.IConfiguration config)
     {
         _workspace = workspace;
         _secrets = secrets;
         _logger = logger;
+        _mcpApiBaseUrl = config["Mcp:ApiBaseUrl"];
+        _mcpSigningKey = config["Mcp:SigningKey"];
     }
 
     /// <summary>Claude has no thread to create up front — its session id is only known AFTER the first
@@ -111,13 +118,18 @@ public sealed class ClaudeCodeAgentRuntime : IAgentRuntime
             await _workspace.InvokeAsync(conn.Endpoint, conn.Token, "/write",
                 new { path = promptPath, content = req.UserInput ?? "", run_id = runIdShort }, ct).ConfigureAwait(false);
 
+            // Expose the Tectika board tools to claude via a per-run MCP server (the API's /mcp endpoint),
+            // written as a project .mcp.json in the worktree. --dangerously-skip-permissions auto-approves the
+            // mcp__tectika__* tools; --strict-mcp-config makes claude use ONLY this config.
+            var mcpFlag = await WriteMcpConfigAsync(req, conn, runIdShort, ct).ConfigureAwait(false);
+
             // Resume the existing session on continuation/steering rounds; fresh run otherwise. `--resume`
             // is best-effort: if the session is gone (container recycled), Claude errors and we fall back to
             // a fresh prompt on the next round (the activity rebuilds full context when ClaudeSessionId is null).
             var resume = string.IsNullOrEmpty(req.ThreadId) ? "" : $" --resume {req.ThreadId}";
             var cmd =
                 $"mkdir -p .claude-job && claude -p \"$(cat {promptPath})\"" +
-                $" --output-format json --model {model} --max-turns {MaxTurns} --dangerously-skip-permissions{resume}";
+                $" --output-format json --model {model} --max-turns {MaxTurns} --dangerously-skip-permissions{mcpFlag}{resume}";
 
             _logger.LogInformation("[ClaudeCode] starting job {JobId} model={Model} resume={Resume}",
                 jobId, model, !string.IsNullOrEmpty(req.ThreadId));
@@ -179,12 +191,10 @@ public sealed class ClaudeCodeAgentRuntime : IAgentRuntime
         if (env is null)
             return Fail(id, "Claude Code returned an unrecognized response.", RunFailureClass.ModelProvider);
 
-        var usage = new TokenUsage
-        {
-            Input = env.Usage?.InputTokens ?? 0,
-            CachedInput = env.Usage?.CacheReadInputTokens ?? 0,
-            Output = env.Usage?.OutputTokens ?? 0,
-        };
+        var usage = ExtractUsage(env);
+        // Claude Code already computed the REAL cost from the actual Anthropic responses — record it as
+        // authoritative (0/absent for subscription/OAuth tokens → null → the activity falls back to the catalog).
+        var costUsd = env.TotalCostUsd is > 0 ? env.TotalCostUsd : null;
         var sessionId = string.IsNullOrEmpty(env.SessionId) ? id : env.SessionId!;
         var finalText = Scrub(env.Result ?? "", credential);
 
@@ -192,12 +202,69 @@ public sealed class ClaudeCodeAgentRuntime : IAgentRuntime
         {
             var reason = $"Claude Code did not complete successfully (subtype: {env.Subtype ?? "unknown"}).";
             return new RoundOutcome(RoundKind.Final, finalText, [], null, null, null, null, [], usage, sessionId,
-                Error: reason, FailureClass: RunFailureClass.ModelProvider);
+                Error: reason, FailureClass: RunFailureClass.ModelProvider, CostUsd: costUsd);
         }
 
         OnText?.Invoke(finalText);
         // CompletionId carries the Claude session id — the activity persists it as task.ClaudeSessionId.
-        return new RoundOutcome(RoundKind.Final, finalText, [], null, null, null, null, [], usage, sessionId);
+        return new RoundOutcome(RoundKind.Final, finalText, [], null, null, null, null, [], usage, sessionId, CostUsd: costUsd);
+    }
+
+    /// <summary>Prefer `modelUsage` (cumulative across the whole run) over the top-level `usage` (often just
+    /// the last turn). Anthropic semantics: input_tokens is already the NON-cached input, with cache read and
+    /// cache creation reported separately — sum all three into Input so Total is the true prompt size and the
+    /// CostCalculator can split cache read/write onto their own rates.</summary>
+    private static TokenUsage ExtractUsage(ClaudeResult env)
+    {
+        if (env.ModelUsage is { Count: > 0 })
+        {
+            int input = 0, cacheRead = 0, cacheCreate = 0, output = 0;
+            foreach (var mu in env.ModelUsage.Values)
+            {
+                input       += ReadInt(mu, "inputTokens", "input_tokens");
+                output      += ReadInt(mu, "outputTokens", "output_tokens");
+                cacheRead   += ReadInt(mu, "cacheReadInputTokens", "cache_read_input_tokens");
+                cacheCreate += ReadInt(mu, "cacheCreationInputTokens", "cache_creation_input_tokens");
+            }
+            return new TokenUsage { Input = input + cacheRead + cacheCreate, CachedInput = cacheRead, CacheCreation = cacheCreate, Output = output };
+        }
+        var u = env.Usage;
+        int cr = u?.CacheReadInputTokens ?? 0, cc = u?.CacheCreationInputTokens ?? 0;
+        return new TokenUsage { Input = (u?.InputTokens ?? 0) + cr + cc, CachedInput = cr, CacheCreation = cc, Output = u?.OutputTokens ?? 0 };
+    }
+
+    private static int ReadInt(JsonElement e, params string[] names)
+    {
+        foreach (var n in names)
+            if (e.ValueKind == JsonValueKind.Object && e.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.Number)
+                return v.GetInt32();
+        return 0;
+    }
+
+    /// <summary>Write a per-run .mcp.json into the worktree and return the CLI flag, or "" when the board-tools
+    /// MCP endpoint isn't configured. The bearer is a short-lived HMAC run token scoped to this board/task.</summary>
+    private async Task<string> WriteMcpConfigAsync(RoundRequest req, WorkspaceConnection conn, string runIdShort, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(_mcpApiBaseUrl) || string.IsNullOrEmpty(_mcpSigningKey))
+            return "";
+
+        var runCtx = new TectikaAgents.Core.Mcp.RunContext(req.RunId, req.Task.Id, req.Task.BoardId, req.Task.TenantId, req.Role.Id);
+        var token = TectikaAgents.Core.Mcp.RunTokenCodec.Mint(runCtx, _mcpSigningKey, DateTimeOffset.UtcNow.AddMinutes(40));
+        var mcpJson = JsonSerializer.Serialize(new
+        {
+            mcpServers = new Dictionary<string, object>
+            {
+                ["tectika"] = new
+                {
+                    type = "http",
+                    url = $"{_mcpApiBaseUrl!.TrimEnd('/')}/mcp",
+                    headers = new Dictionary<string, string> { ["Authorization"] = $"Bearer {token}" },
+                },
+            },
+        });
+        await _workspace.InvokeAsync(conn.Endpoint, conn.Token, "/write",
+            new { path = ".mcp.json", content = mcpJson, run_id = runIdShort }, ct).ConfigureAwait(false);
+        return " --mcp-config .mcp.json --strict-mcp-config";
     }
 
     private static RoundOutcome Fail(string id, string error, RunFailureClass cls) =>
@@ -217,10 +284,13 @@ public sealed class ClaudeCodeAgentRuntime : IAgentRuntime
         string? Type, string? Subtype, string? Result,
         [property: System.Text.Json.Serialization.JsonPropertyName("session_id")] string? SessionId,
         [property: System.Text.Json.Serialization.JsonPropertyName("is_error")] bool IsError,
-        ClaudeUsage? Usage);
+        ClaudeUsage? Usage,
+        [property: System.Text.Json.Serialization.JsonPropertyName("total_cost_usd")] decimal? TotalCostUsd,
+        [property: System.Text.Json.Serialization.JsonPropertyName("modelUsage")] Dictionary<string, JsonElement>? ModelUsage);
 
     private sealed record ClaudeUsage(
         [property: System.Text.Json.Serialization.JsonPropertyName("input_tokens")] int InputTokens,
         [property: System.Text.Json.Serialization.JsonPropertyName("output_tokens")] int OutputTokens,
-        [property: System.Text.Json.Serialization.JsonPropertyName("cache_read_input_tokens")] int CacheReadInputTokens);
+        [property: System.Text.Json.Serialization.JsonPropertyName("cache_read_input_tokens")] int CacheReadInputTokens,
+        [property: System.Text.Json.Serialization.JsonPropertyName("cache_creation_input_tokens")] int CacheCreationInputTokens);
 }

@@ -65,9 +65,14 @@ public class TokenUsage
     [JsonPropertyName("input")]
     public int Input { get; set; }
 
-    /// <summary>Subset of <see cref="Input"/> served from cache — billed at the cached rate.</summary>
+    /// <summary>Subset of <see cref="Input"/> served from cache — billed at the cached (read) rate.</summary>
     [JsonPropertyName("cachedInput")]
     public int CachedInput { get; set; }
+
+    /// <summary>Subset of <see cref="Input"/> written to the prompt cache — billed at the cache-WRITE rate
+    /// (Anthropic; ~1.25× input). Foundry/OpenAI don't report it, so it stays 0 there.</summary>
+    [JsonPropertyName("cacheCreation")]
+    public int CacheCreation { get; set; }
 
     [JsonPropertyName("output")]
     public int Output { get; set; }

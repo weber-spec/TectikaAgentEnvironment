@@ -166,6 +166,38 @@ public static class TectikaToolSchema
             ["pattern"]),
     ];
 
+    // Board tools exposed to a Claude Code agent over MCP (a subset of Definitions + the role's MCP
+    // integrations). Excludes workspace file tools + GitHub (claude has native tools and a real git
+    // worktree) and the control tools (human-input/approval/revision — they need orchestrator
+    // pause/resume that a single autonomous claude round can't do; see plan phase 3).
+    private static readonly HashSet<string> McpBoardToolNames = new(StringComparer.Ordinal)
+    {
+        "get_board_overview", "search_tasks", "get_task", "get_artifact", "read_team_notes",
+        "update_brief", "declare_output", "update_output", "remove_output",
+    };
+
+    /// <summary>The board tools a Claude Code agent gets over the `tectika` MCP server — SAME source of
+    /// truth as the Foundry projection. Board reads + output/brief writes, plus the role's opted-in MCP
+    /// integration tools (read tools when enabled, write tools when also write-opted-in).</summary>
+    public static IReadOnlyList<ToolDef> McpBoardTools(AgentRole role)
+    {
+        var tools = Definitions.Where(d => McpBoardToolNames.Contains(d.Name)).ToList();
+
+        var writeSet = new HashSet<string>(role.McpWriteEnabled ?? new List<string>(), StringComparer.Ordinal);
+        foreach (var catalogId in role.McpServers ?? new List<string>())
+        {
+            var entry = McpCatalog.Find(catalogId);
+            if (entry is null) continue;
+            var allowWrite = writeSet.Contains(catalogId);
+            foreach (var t in entry.Tools)
+            {
+                if (t.IsWrite && !allowWrite) continue;
+                tools.Add(new ToolDef(McpToolNaming.Qualify(catalogId, t.Name), t.Description, t.Properties, t.Required));
+            }
+        }
+        return tools;
+    }
+
     /// <summary>Project the catalog into the Foundry flat function-tool array (definition.tools).
     /// Workspace permission (layer 1) controls run_command and cascades GitHub read access.
     /// GitHub permissions (layer 2) are honoured only for agents without workspace access.</summary>

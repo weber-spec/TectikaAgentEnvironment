@@ -143,6 +143,15 @@ public class RunAgentRoundActivity
         // CanUseWorkspace flag, so old roles flipped to Claude still get a sandbox.
         var useWorkspace = role.Permissions.CanUseWorkspace || isClaudeCode;
         var explorer = new BoardProjectExplorer(_cosmos, input.BoardId, input.TenantId);
+
+        // Claude declares outputs mid-run via the MCP endpoint (writing straight to task.PendingOutputs),
+        // so reset the per-run set BEFORE the run. The Foundry path instead resets after, from outcome.OutputOps.
+        if (isClaudeCode && input.Round == 0)
+        {
+            task.PendingOutputs = [];
+            await _cosmos.PatchTaskPendingOutputsAsync(input.BoardId, input.TaskId, task.PendingOutputs, ct);
+        }
+
         var outcome = await runtime.RunRoundAsync(
             new RoundRequest(role, task, threadId, userInput, input.PendingToolOutputs, _maxCompletionTokens, input.RunId, input.Round)
             {
@@ -167,13 +176,25 @@ public class RunAgentRoundActivity
             await _cosmos.PatchTaskBriefAsync(input.BoardId, input.TaskId, task.TaskBrief, ct);
         }
 
-        // Per-run declared outputs: reset at the start of a run, fold in this round's declare/update/remove ops.
-        if (input.Round == 0)
-            task.PendingOutputs = [];
-        if (outcome.OutputOps is { Count: > 0 })
-            task.PendingOutputs = OutputAccumulator.Apply(task.PendingOutputs, outcome.OutputOps);
-        if (input.Round == 0 || outcome.OutputOps is { Count: > 0 })
-            await _cosmos.PatchTaskPendingOutputsAsync(input.BoardId, input.TaskId, task.PendingOutputs, ct);
+        // Per-run declared outputs.
+        if (isClaudeCode)
+        {
+            // Claude wrote its declare/update/remove_output straight to Cosmos via the MCP endpoint (out of
+            // band from this activity), so re-read them here — the in-memory task is stale — so the Artifact
+            // below carries the deliverables, identical to Foundry. (Round-0 reset already happened pre-run.)
+            var fresh = await _cosmos.GetTaskAsync(input.BoardId, input.TaskId, ct);
+            task.PendingOutputs = fresh?.PendingOutputs ?? task.PendingOutputs;
+        }
+        else
+        {
+            // Foundry: reset at the start of a run, fold in this round's declare/update/remove ops.
+            if (input.Round == 0)
+                task.PendingOutputs = [];
+            if (outcome.OutputOps is { Count: > 0 })
+                task.PendingOutputs = OutputAccumulator.Apply(task.PendingOutputs, outcome.OutputOps);
+            if (input.Round == 0 || outcome.OutputOps is { Count: > 0 })
+                await _cosmos.PatchTaskPendingOutputsAsync(input.BoardId, input.TaskId, task.PendingOutputs, ct);
+        }
 
         string? artifactId = null;
         if (outcome.Error is not null)
@@ -251,12 +272,16 @@ public class RunAgentRoundActivity
 
         // Record usage to the ledger + rollups (per round). Session = the task's current session id.
         var model = role.ModelOverride ?? _defaultModel;
+        // Claude Code bills Anthropic directly and reports the real cost on the outcome; attribute it to the
+        // anthropic provider (so the catalog resolves claude pricing) and pass the authoritative cost override.
+        var provider = isClaudeCode ? "anthropic" : _provider;
         await _usage.RecordAsync(new UsageRecorder.Attribution(
             TenantId: input.TenantId, BoardId: input.BoardId, TaskId: input.TaskId, RunId: input.RunId,
             Step: 0, Round: input.Round, InvocationId: ctx.InvocationId,
             AgentRoleId: role.Id, AgentRoleName: role.DisplayName,
-            Provider: _provider, Model: model, ModelVersion: null,
-            SessionId: task.UsageSessionId ?? input.RunId),
+            Provider: provider, Model: model, ModelVersion: null,
+            SessionId: task.UsageSessionId ?? input.RunId,
+            CostOverrideUsd: outcome.CostUsd),
             outcome.Usage, ct);
 
         // A steerable control tool paused the run — persist a HumanInteraction so the request surfaces
@@ -345,7 +370,13 @@ public class RunAgentRoundActivity
             $"Your working directory is `{dir}` and it is already your current directory. {git}\n" +
             "Implement the task directly using your tools (edit files, run commands, run tests). The sandbox is " +
             "non-interactive (no TTY/stdin). End your run with a concise summary of what you did and what you " +
-            "delivered — that summary becomes the task's artifact handed downstream.";
+            "delivered — that summary becomes the task's artifact handed downstream.\n\n" +
+            "## Board tools (Tectika)\n" +
+            "The `tectika` MCP server gives you the platform's board tools (they appear as `mcp__tectika__…`): " +
+            "`get_board_overview` (call this FIRST to understand the project), `search_tasks`, `get_task`, " +
+            "`get_artifact`, `read_team_notes`, `update_brief`, and — most importantly — `declare_output` to " +
+            "register each finished DELIVERABLE (pass workspace file paths in `files` so they're linked). Your " +
+            "declared outputs become the task's artifact for the user and downstream tasks; the final summary alone is not enough.";
     }
 
     public static string WorkspacePrompt(bool canUseWorkspace, bool repoConnected, bool canPushCode, string? branchName = null)

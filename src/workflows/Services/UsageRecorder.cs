@@ -23,7 +23,8 @@ public sealed class UsageRecorder
         string TenantId, string BoardId, string TaskId, string RunId,
         int Step, int Round, string InvocationId,
         string AgentRoleId, string AgentRoleName,
-        string Provider, string Model, string? ModelVersion, string SessionId);
+        string Provider, string Model, string? ModelVersion, string SessionId,
+        decimal? CostOverrideUsd = null);   // authoritative cost the engine already computed (Claude Code) — wins over the catalog
 
     public async Task RecordAsync(Attribution a, TokenUsage usage, CancellationToken ct)
     {
@@ -31,7 +32,11 @@ public sealed class UsageRecorder
 
         var at = DateTimeOffset.UtcNow;
         var cost = _cost.Compute(a.Provider, a.Model, usage, at);
-        if (cost.PricingMissing)
+        // Prefer the engine's real cost when supplied (Claude Code total_cost_usd); the catalog still fills
+        // the per-million display rates. Only warn about missing pricing when there's no authoritative cost.
+        var costUsd = a.CostOverrideUsd ?? cost.CostUsd;
+        var pricingMissing = cost.PricingMissing && a.CostOverrideUsd is null;
+        if (pricingMissing)
             _logger.LogWarning("[Usage] no pricing for {Provider}/{Model} — tokens tracked, cost=0", a.Provider, a.Model);
 
         var ev = new UsageEvent
@@ -45,7 +50,7 @@ public sealed class UsageRecorder
             CatalogVersion = cost.CatalogVersion,
             InputPerMillion = cost.InputPerMillion, CachedInputPerMillion = cost.CachedInputPerMillion,
             OutputPerMillion = cost.OutputPerMillion, Currency = cost.Currency,
-            CostUsd = cost.CostUsd, PricingMissing = cost.PricingMissing, Timestamp = at,
+            CostUsd = costUsd, PricingMissing = pricingMissing, Timestamp = at,
         };
 
         var created = await _cosmos.TryCreateUsageEventAsync(ev, ct);
@@ -57,11 +62,11 @@ public sealed class UsageRecorder
 
         await _cosmos.UpdateRollupAsync(a.TenantId, UsageRollup.ProjectId(a.TenantId),
             () => new UsageRollup { Id = UsageRollup.ProjectId(a.TenantId), TenantId = a.TenantId, Scope = UsageScope.Project, ScopeId = a.TenantId },
-            r => ApplyShared(r, a.Provider, a.Model, usage, cost.CostUsd), ct);
+            r => ApplyShared(r, a.Provider, a.Model, usage, costUsd), ct);
 
         await _cosmos.UpdateRollupAsync(a.TenantId, UsageRollup.BoardId(a.BoardId),
             () => new UsageRollup { Id = UsageRollup.BoardId(a.BoardId), TenantId = a.TenantId, Scope = UsageScope.Board, ScopeId = a.BoardId },
-            r => ApplyShared(r, a.Provider, a.Model, usage, cost.CostUsd), ct);
+            r => ApplyShared(r, a.Provider, a.Model, usage, costUsd), ct);
 
         await _cosmos.UpdateRollupAsync(a.TenantId, UsageRollup.TaskId(a.TaskId),
             () => new UsageRollup
@@ -69,7 +74,7 @@ public sealed class UsageRecorder
                 Id = UsageRollup.TaskId(a.TaskId), TenantId = a.TenantId, Scope = UsageScope.Task, ScopeId = a.TaskId,
                 CurrentSession = new SessionBucket { SessionId = a.SessionId, Since = at },
             },
-            r => ApplyTask(r, a.Provider, a.Model, usage, cost.CostUsd, a.SessionId), ct);
+            r => ApplyTask(r, a.Provider, a.Model, usage, costUsd, a.SessionId), ct);
     }
 
     /// <summary>Add usage to a bucket's perModel map (creating the model entry on first use).</summary>

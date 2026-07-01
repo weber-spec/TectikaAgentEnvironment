@@ -42,4 +42,5 @@ public sealed record RoundOutcome(
     string CompletionId,
     string? Error = null,
     IReadOnlyList<OutputOp>? OutputOps = null,
-    RunFailureClass? FailureClass = null);   // set alongside Error so the failure CLASS (not the raw text) drives the user message
+    RunFailureClass? FailureClass = null,    // set alongside Error so the failure CLASS (not the raw text) drives the user message
+    decimal? CostUsd = null);                // authoritative run cost when the engine reports it (Claude Code total_cost_usd); overrides the pricing catalog

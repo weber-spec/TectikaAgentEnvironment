@@ -20,6 +20,9 @@ param foundryEndpoint string
 param foundryProjectName string
 param foundryProjectEndpoint string
 param modelName string
+@secure()
+param mcpSigningKey string = ''
+param mcpApiBaseUrl string = ''
 
 var sfx = empty(nameSuffix) ? '' : '-${nameSuffix}'
 
@@ -86,6 +89,10 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'Foundry__DefaultModel', value: modelName }
         { name: 'Foundry__IsOpenAiDirect', value: 'false' }
         { name: 'Foundry__ApiKey', value: '' }
+        // Board-tools MCP: the workflows mints the per-run token (Mcp__SigningKey) and points Claude Code at
+        // the API's /mcp endpoint (Mcp__ApiBaseUrl). Empty ApiBaseUrl → feature off (agent runs without board tools).
+        { name: 'Mcp__SigningKey', value: mcpSigningKey }
+        { name: 'Mcp__ApiBaseUrl', value: mcpApiBaseUrl }
         // DefaultAzureCredential picks this user-assigned identity
         { name: 'AZURE_CLIENT_ID', value: miClientId }
       ]
