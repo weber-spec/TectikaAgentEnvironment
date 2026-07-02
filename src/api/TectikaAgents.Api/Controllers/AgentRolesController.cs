@@ -53,27 +53,34 @@ public class AgentRolesController : ControllerBase
         role.UpdatedAt = DateTimeOffset.UtcNow;
         var existing = await _cosmos.GetAgentRoleAsync(TenantId, role.Id, ct);
 
+        // The agent's model provider comes from its chosen model connection (Connections page): Foundry is the
+        // system default; an Anthropic connection selects the Claude Code engine and supplies the credential
+        // secret. The credential itself is never entered here — it lives on the connection.
+        if (string.IsNullOrEmpty(role.ModelConnectionId) || role.ModelConnectionId == ConnectionsController.FoundrySystemId)
+        {
+            role.ExecutionEngine = ExecutionEngine.Foundry;
+            role.ApiKeySecretName = null;
+        }
+        else
+        {
+            var modelConn = await _cosmos.GetConnectionAsync(TenantId, role.ModelConnectionId, ct);
+            if (modelConn is null || modelConn.CatalogId != "anthropic")
+                return BadRequest(new { error = "InvalidModelConnection", detail = "Select a model provider on the Connections page." });
+            role.ExecutionEngine = ExecutionEngine.ClaudeCode;
+            role.ApiKeySecretName = modelConn.SecretName;
+            role.ClaudeAuth = Enum.TryParse<ClaudeAuthMode>(modelConn.Metadata.GetValueOrDefault("claudeAuth"), out var m) ? m : ClaudeAuthMode.ApiKey;
+        }
+
         bool synced;
         string? syncError;
         if (role.ExecutionEngine == ExecutionEngine.ClaudeCode)
         {
-            // Claude Code roles are not provisioned in Foundry. Instead, store the Anthropic API key in Key
-            // Vault (mirroring the GitHub PAT pattern) and keep only its secret NAME on the role. The key
-            // value never lands in the persisted document.
+            // Claude Code roles are not provisioned in Foundry; the credential is the Anthropic connection's
+            // Key Vault secret (resolved above), so nothing to store here.
             role.FoundryAgentId = existing?.FoundryAgentId;
             role.FoundryAgentHash = existing?.FoundryAgentHash;
-            if (!string.IsNullOrWhiteSpace(req.AnthropicApiKey))
-            {
-                var secretName = $"anthropic-api-key-agent-{role.Id}";
-                await _secrets.SetSecretAsync(secretName, req.AnthropicApiKey!, ct);
-                role.ApiKeySecretName = secretName;
-            }
-            else
-            {
-                role.ApiKeySecretName = existing?.ApiKeySecretName;  // carry forward; blank means "keep existing"
-            }
             synced = !string.IsNullOrEmpty(role.ApiKeySecretName);
-            syncError = synced ? null : "An Anthropic credential (API key or subscription token) is required for a Claude Code agent.";
+            syncError = synced ? null : "Select a Claude (Anthropic) connection on the Connections page to power this agent.";
         }
         else
         {

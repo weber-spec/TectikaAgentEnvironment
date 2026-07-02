@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
-import type { AgentRole, ClaudeAuthMode, ExecutionEngine, Connection, ConnectionCatalogEntry } from '@/lib/types';
+import type { AgentRole, ExecutionEngine, Connection, ConnectionCatalogEntry } from '@/lib/types';
 import { colorFor } from '@/lib/palette';
 import { Avatar, Button, Skeleton, EmptyState, Tag } from '@/components/ui/primitives';
 import { Modal } from '@/components/ui/overlays';
@@ -22,6 +22,8 @@ const CLAUDE_MODELS: { id: string; label: string }[] = [
 ];
 const DEFAULT_CLAUDE_MODEL = 'claude-opus-4-8';
 const CLAUDE_MODEL_IDS = CLAUDE_MODELS.map(m => m.id);
+// The always-present Foundry system connection id (mirrors backend ConnectionsController.FoundrySystemId).
+const FOUNDRY_CONN_ID = 'conn_foundry_system';
 
 export default function AgentsPage() {
   const [roles, setRoles] = useState<AgentRole[] | null>(null);
@@ -30,9 +32,9 @@ export default function AgentsPage() {
 
   useEffect(() => { api.agentRoles.list().then(setRoles).catch(() => setRoles([])); }, []);
 
-  const save = async (role: AgentRole, anthropicApiKey?: string) => {
+  const save = async (role: AgentRole) => {
     try {
-      const result = await api.agentRoles.upsertFull(role, anthropicApiKey);
+      const result = await api.agentRoles.upsertFull(role);
       const saved = result.role;
       setRoles(prev => { const list = prev ?? []; return list.some(r => r.id === saved.id) ? list.map(r => r.id === saved.id ? saved : r) : [...list, saved]; });
       setSyncStates(prev => ({ ...prev, [saved.id]: { synced: result.synced, error: result.error } }));
@@ -119,26 +121,26 @@ function RoleCard({ role, syncState, onEdit }: { role: AgentRole; syncState?: Sy
   );
 }
 
-function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: AgentRole, apiKey?: string) => void | Promise<void>; onClose: () => void }) {
+function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: AgentRole) => void | Promise<void>; onClose: () => void }) {
   const [r, setR] = useState<AgentRole>(role);
-  // Anthropic API key (ClaudeCode engine) — kept local, never on the role object, sent only on save.
-  const [apiKey, setApiKey] = useState('');
   const set = (p: Partial<AgentRole>) => setR(prev => ({ ...prev, ...p }));
   const setPerms = (p: Partial<typeof r.permissions>) =>
     setR(prev => ({ ...prev, permissions: { ...prev.permissions, ...p } }));
 
-  const engine = r.executionEngine ?? 'Foundry';
+  // Model provider comes from a tenant "model" connection: Foundry (system) is the default; a Claude
+  // (Anthropic) connection selects the Claude Code engine. No credential is entered here — it lives on the
+  // connection, so the Claude Code option only appears once an Anthropic connection exists.
+  const [modelConns, setModelConns] = useState<Connection[]>([]);
+  const engine: ExecutionEngine = r.executionEngine ?? 'Foundry';
   const isClaude = engine === 'ClaudeCode';
-  const claudeAuth: ClaudeAuthMode = r.claudeAuth ?? 'ApiKey';
-  const isOAuth = claudeAuth === 'OAuthToken';
 
-  // Switching provider also swaps the model so the field never keeps a value from the other provider:
-  // → Claude Code: default to Opus 4.8 unless it's already a Claude id. → Foundry: clear a Claude id to Default.
-  const onEngineChange = (next: ExecutionEngine) => setR(prev => {
+  const onModelConnChange = (id: string) => setR(prev => {
+    const conn = modelConns.find(c => c.id === id);
+    const next: ExecutionEngine = conn?.catalogId === 'anthropic' ? 'ClaudeCode' : 'Foundry';
     let model = prev.modelOverride;
     if (next === 'ClaudeCode') model = model && CLAUDE_MODEL_IDS.includes(model) ? model : DEFAULT_CLAUDE_MODEL;
     else if (model && CLAUDE_MODEL_IDS.includes(model)) model = undefined;
-    return { ...prev, executionEngine: next, modelOverride: model };
+    return { ...prev, modelConnectionId: id, executionEngine: next, modelOverride: model };
   });
 
   // Agent-tool connections come from the tenant registry (Connections page); the agent references specific
@@ -146,7 +148,10 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
   const [connections, setConnections] = useState<Connection[]>([]);
   const [catMap, setCatMap] = useState<Record<string, ConnectionCatalogEntry>>({});
   useEffect(() => {
-    api.connections.list().then(cs => setConnections(cs.filter(c => c.category === 'agent-tool'))).catch(() => setConnections([]));
+    api.connections.list().then(cs => {
+      setConnections(cs.filter(c => c.category === 'agent-tool'));
+      setModelConns(cs.filter(c => c.category === 'model'));
+    }).catch(() => { setConnections([]); setModelConns([]); });
     api.connections.catalog().then(cat => setCatMap(Object.fromEntries(cat.map(c => [c.id, c])))).catch(() => setCatMap({}));
   }, []);
 
@@ -177,7 +182,7 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
     if (savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
-    try { await onSave(r, isClaude ? (apiKey || undefined) : undefined); }
+    try { await onSave(r); }
     finally { savingRef.current = false; setSaving(false); }
   };
   return (
@@ -187,14 +192,24 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
         <L label="Display name"><input value={r.displayName} onChange={e => set({ displayName: e.target.value })} className="inp" /></L>
         <L label="System prompt"><textarea value={r.systemPrompt} onChange={e => set({ systemPrompt: e.target.value })} rows={4} className="inp resize-none" /></L>
 
-        {/* Provider first — it determines which model list the field below shows. */}
-        <L label="Provider">
-          <select value={engine}
-            onChange={e => onEngineChange(e.target.value as ExecutionEngine)}
+        {/* Model provider — a tenant "model" connection. Claude Code appears only if an Anthropic connection
+            exists; the credential lives on the connection, never here. */}
+        <L label="Model provider">
+          <select value={r.modelConnectionId ?? FOUNDRY_CONN_ID}
+            onChange={e => onModelConnChange(e.target.value)}
             className="inp">
-            <option value="Foundry">Azure Foundry</option>
-            <option value="ClaudeCode">Claude Code</option>
+            {modelConns.length === 0 && <option value={FOUNDRY_CONN_ID}>Azure Foundry</option>}
+            {modelConns.map(c => (
+              <option key={c.id} value={c.id}>
+                {c.catalogId === 'anthropic' ? `Claude Code — ${c.displayName}` : c.displayName}
+              </option>
+            ))}
           </select>
+          {!modelConns.some(c => c.catalogId === 'anthropic') && (
+            <span className="text-[11px] text-[var(--muted)] block mt-1">
+              To run agents on Claude, add a <a href="/connections" className="underline text-[var(--primary)]">Claude (Anthropic) connection</a>.
+            </span>
+          )}
         </L>
 
         {/* Model — provider-dependent: Foundry's live catalog, or the Claude Code model list. */}
@@ -209,30 +224,6 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
             <ModelSelect value={r.modelOverride} onChange={v => set({ modelOverride: v || undefined })} selectClassName="inp" />
           )}
         </L>
-
-        {isClaude && (
-          <>
-            <L label="Authentication">
-              <select value={claudeAuth}
-                onChange={e => set({ claudeAuth: e.target.value as ClaudeAuthMode })}
-                className="inp">
-                <option value="ApiKey">API key (pay-as-you-go)</option>
-                <option value="OAuthToken">Pro / Max subscription token</option>
-              </select>
-            </L>
-            <L label={isOAuth ? 'Claude subscription token' : 'Anthropic API key'}>
-              <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)}
-                placeholder={r.apiKeySecretName ? 'Leave blank to keep existing' : (isOAuth ? 'sk-ant-oat…' : 'sk-ant-api…')}
-                className="inp" autoComplete="off" />
-              <span className="text-[11px] text-[var(--muted)] block mt-1">
-                {isOAuth
-                  ? <>Generate it with <code>claude setup-token</code> while logged into your Pro/Max account. Billed to your subscription, not the API.</>
-                  : <>From platform.claude.com → API keys. Billed pay-as-you-go, separately from any subscription.</>}
-                {' '}Stored securely in Azure Key Vault — never shown again.
-              </span>
-            </L>
-          </>
-        )}
 
         {/* Layer 1: Workspace */}
         <div className="rounded-lg border border-[var(--border)] p-3">

@@ -34,6 +34,9 @@ export function ConnectionCreateModal({
   const [displayName, setDisplayName] = useState(entry.displayName);
   const [values, setValues] = useState<Record<string, string>>({});
   const [scope, setScope] = useState<ConnectionScope>('Organization');
+  // Anthropic (Claude) connections carry how the token authenticates so the runtime injects the right env var.
+  const isAnthropic = entry.id === 'anthropic';
+  const [claudeAuth, setClaudeAuth] = useState<'ApiKey' | 'OAuthToken'>('ApiKey');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,6 +55,7 @@ export function ConnectionCreateModal({
         displayName: displayName.trim() || undefined,
         scope,
         secrets,
+        metadata: isAnthropic ? { claudeAuth } : undefined,
       });
       toast(`${displayName.trim() || entry.displayName} connected`, 'success');
       onCreated();
@@ -95,6 +99,16 @@ export function ConnectionCreateModal({
             <p className="text-[11px] text-[var(--muted)] mt-1">Give it a distinct name — you can create several connections of this type.</p>
           )}
         </label>
+
+        {isAnthropic && (
+          <label className="block">
+            <span className="text-[11px] uppercase tracking-wide text-[var(--muted)] font-semibold">Credential type</span>
+            <select className="inp mt-1 w-full" value={claudeAuth} onChange={e => setClaudeAuth(e.target.value as 'ApiKey' | 'OAuthToken')}>
+              <option value="ApiKey">API key (pay-as-you-go, sk-ant-api…)</option>
+              <option value="OAuthToken">Pro / Max subscription token (claude setup-token)</option>
+            </select>
+          </label>
+        )}
 
         {entry.authFields.map(f => (
           <label className="block" key={f.name}>
