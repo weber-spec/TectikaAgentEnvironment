@@ -57,6 +57,18 @@ public class WorkflowCosmosService
         return list;
     }
 
+    // ── Tool policy (read-only in runtime, for global gating) ───────────────────
+
+    public async Task<ToolPolicy?> GetToolPolicyAsync(string tenantId, CancellationToken ct = default)
+    {
+        try
+        {
+            var res = await C("toolPolicies").ReadItemAsync<ToolPolicy>(tenantId, new PartitionKey(tenantId), cancellationToken: ct);
+            return res.Resource;
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
+    }
+
     // ── AgentTask ─────────────────────────────────────────────────────────────
 
     public async Task<AgentTask?> GetTaskAsync(string boardId, string taskId, CancellationToken ct = default)

@@ -20,6 +20,7 @@ public class CosmosDbService : ICosmosDbService
     public const string TasksContainer = "tasks";
     public const string AgentRolesContainer = "agentRoles";
     public const string ConnectionsContainer = "connections";
+    public const string ToolPoliciesContainer = "toolPolicies";
     public const string WorkflowRunsContainer = "workflowRuns";
     public const string ArtifactsContainer = "artifacts";
     public const string HumanInteractionsContainer = "humanInteractions";
@@ -41,6 +42,7 @@ public class CosmosDbService : ICosmosDbService
         (TasksContainer,             "/boardId"),
         (AgentRolesContainer,        "/tenantId"),
         (ConnectionsContainer,       "/tenantId"),
+        (ToolPoliciesContainer,      "/tenantId"),
         (WorkflowRunsContainer,      "/taskId"),
         (ArtifactsContainer,         "/taskId"),
         (HumanInteractionsContainer, "/runId"),
@@ -326,6 +328,24 @@ public class CosmosDbService : ICosmosDbService
             await GetContainer(ConnectionsContainer).DeleteItemAsync<Connection>(connectionId, new PartitionKey(tenantId), cancellationToken: ct);
         }
         catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { /* already gone */ }
+    }
+
+    // ── Tool policy (tenant-level global tool enable/disable) ────────────────────
+
+    public async Task<ToolPolicy?> GetToolPolicyAsync(string tenantId, CancellationToken ct = default)
+    {
+        try
+        {
+            var res = await GetContainer(ToolPoliciesContainer).ReadItemAsync<ToolPolicy>(tenantId, new PartitionKey(tenantId), cancellationToken: ct);
+            return res.Resource;
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
+    }
+
+    public async Task<ToolPolicy> UpsertToolPolicyAsync(ToolPolicy policy, CancellationToken ct = default)
+    {
+        var res = await GetContainer(ToolPoliciesContainer).UpsertItemAsync(policy, new PartitionKey(policy.TenantId), cancellationToken: ct);
+        return res.Resource;
     }
 
     // ── Agent Roles ───────────────────────────────────────────────────────────

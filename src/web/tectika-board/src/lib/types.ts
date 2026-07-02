@@ -122,14 +122,25 @@ export interface Connection {
   scope: ConnectionScope;
 }
 
-// ── Foundry catalog (Connections → Foundry tab, live from the project) ────────
-export interface FoundryConnectionInfo { name: string; type: string; target?: string | null; }
-export interface FoundryBuiltInTool { id: string; name: string; description: string; }
-export interface FoundryCatalog {
-  available: boolean;
-  connections: FoundryConnectionInfo[];
-  deployments: string[];
-  builtInTools: FoundryBuiltInTool[];
+// ── Tools catalog (the Tools page: capabilities + global enable/disable) ──────
+export type ToolSource = 'board' | 'foundry' | 'integration';
+export interface ToolItem {
+  toolId: string;
+  name: string;
+  description: string;
+  source: ToolSource;
+  group: string;
+  enabled: boolean;
+  lockable: boolean;      // false = core tool, always on (no toggle)
+  needsSetup: boolean;    // board: needs workspace/GitHub · foundry: needs a project connection · integration: no connection yet
+  iconKey?: string | null;
+  isWrite?: boolean | null;
+  connectionCatalogId?: string | null;
+}
+export interface ToolsCatalog {
+  board: ToolItem[];
+  foundry: ToolItem[];
+  integration: ToolItem[];
 }
 
 /** POST /api/connections body. */
@@ -285,6 +296,8 @@ export interface AgentRole {
   connections: AgentConnectionRef[];
   /** The tenant "model" connection powering this role (Foundry system / Anthropic). Forward-looking. */
   modelConnectionId?: string | null;
+  /** Foundry built-in tool ids this role enables (Foundry engine only), e.g. ["code_interpreter"]. */
+  foundryTools?: string[];
   permissions: AgentPermissions;
   escalateTo?: string;
   modelOverride?: string;

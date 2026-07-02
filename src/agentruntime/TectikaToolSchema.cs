@@ -199,11 +199,39 @@ public static class TectikaToolSchema
         return tools;
     }
 
+    // Names of the read-only Explore tools (the rest of Definitions are Control/output tools).
+    private static readonly HashSet<string> ExploreNames = new(StringComparer.Ordinal)
+    { "get_board_overview", "search_tasks", "get_task", "get_artifact", "read_team_notes" };
+
+    /// <summary>A board tool described for the Tools catalog UI: which group it belongs to, what gates it
+    /// (workspace / GitHub-read permission), and whether it may be globally disabled (core Explore/Control
+    /// tools are the platform's spine and are never lockable).</summary>
+    public sealed record ToolDescriptor(
+        string Name, string Description, string Group,
+        bool RequiresWorkspace, bool RequiresGithubRead, bool Lockable);
+
+    /// <summary>Flatten every board tool (Explore/Control + Workspace + GitHub) into descriptors for the Tools
+    /// page — the single source of truth, so the catalog never drifts from what agents actually get.</summary>
+    public static IReadOnlyList<ToolDescriptor> Describe()
+    {
+        var list = new List<ToolDescriptor>();
+        foreach (var d in Definitions)
+            list.Add(new(d.Name, d.Description, ExploreNames.Contains(d.Name) ? "Explore" : "Control",
+                RequiresWorkspace: false, RequiresGithubRead: false, Lockable: false));
+        list.Add(new(RunCommandTool.Name, RunCommandTool.Description, "Workspace", true, false, true));
+        foreach (var d in FileTools)
+            list.Add(new(d.Name, d.Description, "Workspace", true, false, true));
+        foreach (var (def, _) in GitHubTools)
+            list.Add(new(def.Name, def.Description, "GitHub", false, true, true));
+        return list;
+    }
+
     /// <summary>Project the catalog into the Foundry flat function-tool array (definition.tools).
     /// Workspace permission (layer 1) controls run_command and cascades GitHub read access.
     /// GitHub permissions (layer 2) are honoured only for agents without workspace access.</summary>
     public static IReadOnlyList<object> ToFoundryToolsJson(AgentPermissions permissions, GitHubPermissions? github = null,
-        IReadOnlyList<string>? mcpEnabled = null, IReadOnlyList<string>? mcpWriteEnabled = null)
+        IReadOnlyList<string>? mcpEnabled = null, IReadOnlyList<string>? mcpWriteEnabled = null,
+        IReadOnlyList<string>? foundryTools = null)
     {
         var tools = Definitions.Select(d => (object)ToFoundryTool(d)).ToList();
 
@@ -239,8 +267,20 @@ public static class TectikaToolSchema
                 }
             }
         }
+        // Foundry built-in tools (layer 4): typed tool objects, not function tools. Only the agent-selectable
+        // subset is emitted. NOTE: the exact wire shape for grounding tools must be validated against the live
+        // Foundry Agent Service — web_search maps to bing_grounding, which may additionally require a
+        // connection_id from a Bing grounding project connection; if so, enabling it without that connection
+        // will fail provisioning (surfaced as a non-fatal sync error).
+        if (foundryTools is not null)
+            foreach (var id in foundryTools.Where(FoundryBuiltInTools.AgentSelectable.Contains).Distinct())
+                tools.Add(new FoundryBuiltInToolJson(id == "web_search" ? "bing_grounding" : id));
+
         return tools;
     }
+
+    // Foundry built-in tool wire shape: a typed tool object, e.g. { "type": "code_interpreter" }.
+    private sealed record FoundryBuiltInToolJson([property: JsonPropertyName("type")] string Type);
 
     private static FoundryTool ToFoundryTool(ToolDef d) => new(
         "function", d.Name, d.Description,

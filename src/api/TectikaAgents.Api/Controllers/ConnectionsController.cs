@@ -34,14 +34,17 @@ public class ConnectionsController : ControllerBase
     private readonly ICosmosDbService _cosmos;
     private readonly IMcpGateway _gateway;
     private readonly ISecretProvider _secrets;
+    private readonly TectikaAgents.AgentRuntime.FoundryConnectionsCatalog _foundry;
     private readonly IReadOnlyDictionary<string, IFirstPartyConnector> _connectors;
 
     public ConnectionsController(ICosmosDbService cosmos, IMcpGateway gateway, ISecretProvider secrets,
+        TectikaAgents.AgentRuntime.FoundryConnectionsCatalog foundry,
         IEnumerable<IFirstPartyConnector>? connectors = null)
     {
         _cosmos = cosmos;
         _gateway = gateway;
         _secrets = secrets;
+        _foundry = foundry;
         _connectors = (connectors ?? Array.Empty<IFirstPartyConnector>())
             .ToDictionary(c => c.CatalogId, StringComparer.Ordinal);
     }
@@ -64,6 +67,22 @@ public class ConnectionsController : ControllerBase
         var stored = (await _cosmos.GetConnectionsAsync(TenantId, ct)).ToList();
         // Foundry arrives pre-connected — inject it as a read-only system row so the UI can show it.
         stored.Insert(0, FoundrySystemConnection(TenantId));
+        // The Foundry project's own connections (Azure OpenAI, Search, …) are live, read-only system rows.
+        var projectConns = (await _foundry.ListAsync(ct))
+            .Where(c => !string.IsNullOrEmpty(c.Name))
+            .Select(c => new Connection
+            {
+                Id = $"foundry-conn-{c.Name}",
+                TenantId = TenantId,
+                CatalogId = "foundry",
+                Category = ConnectionCategory.Model,
+                DisplayName = c.Name!,
+                Status = ConnectionStatus.Connected,
+                IsSystem = true,
+                Scope = ConnectionScope.Organization,
+                Metadata = new() { ["foundryType"] = c.Type ?? "Connection" },
+            });
+        stored.AddRange(projectConns);
         return Ok(stored);
     }
 
@@ -103,7 +122,8 @@ public class ConnectionsController : ControllerBase
             Metadata = req.Metadata ?? new(),
             Scope = Enum.TryParse<ConnectionScope>(req.Scope, ignoreCase: true, out var s) ? s : ConnectionScope.Organization,
         };
-        conn.SecretName = $"conn-{conn.Id}";
+        // Key Vault secret names allow only [0-9a-zA-Z-]; conn.Id is `conn_<hex>` (underscore), so sanitize.
+        conn.SecretName = $"conn-{conn.Id}".Replace('_', '-');
         // Single-field auth stores the raw token (what IFirstPartyConnector/IMcpGateway expect); multi-field
         // stores a JSON object keyed by field name.
         var secretValue = fields.Count == 1

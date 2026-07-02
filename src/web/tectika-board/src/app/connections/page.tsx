@@ -2,14 +2,14 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import type { Connection, ConnectionCatalogEntry, FoundryCatalog } from '@/lib/types';
+import type { Connection, ConnectionCatalogEntry } from '@/lib/types';
 import { Button, EmptyState, Spinner } from '@/components/ui/primitives';
 import { Icon } from '@/components/ui/icons';
 import { BrandIcon } from '@/components/ui/brand-icons';
 import { ConnectionCreateModal } from '@/components/connections/ConnectionCreateModal';
 import { toast } from '@/lib/toast';
 
-type Tab = 'available' | 'active' | 'foundry';
+type Tab = 'available' | 'active';
 
 const CATEGORY_LABEL: Record<string, string> = {
   'model': 'Models',
@@ -34,8 +34,6 @@ export default function ConnectionsPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState<ConnectionCatalogEntry | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [foundry, setFoundry] = useState<FoundryCatalog | null>(null);
-  const [foundryLoading, setFoundryLoading] = useState(false);
 
   const load = async () => {
     try {
@@ -49,13 +47,6 @@ export default function ConnectionsPage() {
     }
   };
   useEffect(() => { load(); }, []);
-
-  // Lazily load the Foundry project catalog the first time that tab is opened.
-  useEffect(() => {
-    if (tab !== 'foundry' || foundry || foundryLoading) return;
-    setFoundryLoading(true);
-    api.foundry.catalog().then(setFoundry).catch(() => setFoundry({ available: false, connections: [], deployments: [], builtInTools: [] })).finally(() => setFoundryLoading(false));
-  }, [tab, foundry, foundryLoading]);
 
   const catalogById = useMemo(() => new Map(catalog.map(c => [c.id, c])), [catalog]);
 
@@ -98,7 +89,7 @@ export default function ConnectionsPage() {
         </p>
         {/* Tabs */}
         <div className="flex gap-1 mt-4 border-b border-[var(--border)]">
-          {([['available', 'Available'], ['active', 'Active'], ['foundry', 'Foundry']] as [Tab, string][]).map(([id, label]) => (
+          {([['available', 'Available'], ['active', 'Active']] as [Tab, string][]).map(([id, label]) => (
             <button
               key={id}
               onClick={() => setTab(id)}
@@ -153,7 +144,7 @@ export default function ConnectionsPage() {
               </section>
             ))}
           </div>
-        ) : tab === 'active' ? (
+        ) : (
           connections.length === 0 ? (
             <div className="pt-10">
               <EmptyState
@@ -177,7 +168,7 @@ export default function ConnectionsPage() {
                         {c.scope === 'Private' && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--surface)] text-[var(--muted)] font-medium">Private</span>}
                       </div>
                       <p className="text-[12px] text-[var(--muted)] truncate">
-                        {cat?.displayName ?? c.catalogId}
+                        {c.metadata?.foundryType ?? cat?.displayName ?? c.catalogId}
                         {!c.isSystem && c.createdAt && <> · created {new Date(c.createdAt).toLocaleDateString()}</>}
                       </p>
                     </div>
@@ -193,64 +184,6 @@ export default function ConnectionsPage() {
                   </div>
                 );
               })}
-            </div>
-          )
-        ) : (
-          // Foundry tab — live from the connected Foundry project.
-          foundryLoading || !foundry ? (
-            <div className="flex items-center justify-center h-40"><Spinner size={24} /></div>
-          ) : (
-            <div className="flex flex-col gap-8 pt-4">
-              {!foundry.available && (
-                <p className="text-sm text-[var(--muted)] bg-[var(--surface)] px-3 py-2 rounded-lg">
-                  Couldn&apos;t reach the Foundry project (not configured, or unavailable in this environment). Built-in tool types are still listed below.
-                </p>
-              )}
-
-              <section>
-                <h2 className="text-[11px] uppercase tracking-wide text-[var(--muted)] font-semibold mb-3">Model deployments</h2>
-                {foundry.deployments.length === 0 ? (
-                  <p className="text-[13px] text-[var(--muted)]">No deployments found.</p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {foundry.deployments.map(d => (
-                      <span key={d} className="px-2.5 py-1 rounded-lg border border-[var(--border)] bg-[var(--background)] text-[13px] text-[var(--foreground)]">{d}</span>
-                    ))}
-                  </div>
-                )}
-              </section>
-
-              <section>
-                <h2 className="text-[11px] uppercase tracking-wide text-[var(--muted)] font-semibold mb-3">Project connections</h2>
-                {foundry.connections.length === 0 ? (
-                  <p className="text-[13px] text-[var(--muted)]">No project connections found.</p>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {foundry.connections.map(c => (
-                      <div key={c.name} className="flex items-center gap-3 bg-[var(--background)] rounded-xl border border-[var(--border)] px-4 py-2.5">
-                        <BrandIcon name="foundry" size={30} />
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-[var(--foreground)] truncate">{c.name}</div>
-                          {c.target && <div className="text-[11px] text-[var(--muted)] truncate">{c.target}</div>}
-                        </div>
-                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--surface)] text-[var(--muted)] font-medium">{c.type}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
-
-              <section>
-                <h2 className="text-[11px] uppercase tracking-wide text-[var(--muted)] font-semibold mb-3">Built-in agent tools</h2>
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
-                  {foundry.builtInTools.map(t => (
-                    <div key={t.id} className="bg-[var(--background)] rounded-xl border border-[var(--border)] p-3">
-                      <div className="text-sm font-semibold text-[var(--foreground)]">{t.name}</div>
-                      <p className="text-[12px] text-[var(--muted)] mt-0.5">{t.description}</p>
-                    </div>
-                  ))}
-                </div>
-              </section>
             </div>
           )
         )}

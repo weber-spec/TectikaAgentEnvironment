@@ -86,9 +86,9 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
             var mcpEnabled = role.Connections.Select(c => c.CatalogId).ToList();
             var mcpWrite = role.Connections.Where(c => c.WriteEnabled).Select(c => c.CatalogId).ToList();
             var hash = AgentInstructionsHash.Compute(role.SystemPrompt, model, TectikaToolSchema.Version,
-                role.Permissions, role.GitHubPermissions, mcpEnabled, mcpWrite);
+                role.Permissions, role.GitHubPermissions, mcpEnabled, mcpWrite, role.FoundryTools);
             var definition = new AgentDefinition("prompt", model, role.SystemPrompt, role.DisplayName,
-                TectikaToolSchema.ToFoundryToolsJson(role.Permissions, role.GitHubPermissions, mcpEnabled, mcpWrite));
+                TectikaToolSchema.ToFoundryToolsJson(role.Permissions, role.GitHubPermissions, mcpEnabled, mcpWrite, role.FoundryTools));
             var http = await ClientAsync(ct).ConfigureAwait(false);
 
             // Stable agent id: reuse the stored one; mint a fresh random id only for a brand-new role.

@@ -7,7 +7,7 @@ import type {
   PreviewSession, BoardWorkspaceStatusDto, ResetBoardResult,
   Comment, CommentKind, NoteType,
   ResendDomain,
-  Connection, ConnectionCatalogEntry, CreateConnectionInput, BoardConnectionBinding, FoundryCatalog,
+  Connection, ConnectionCatalogEntry, CreateConnectionInput, BoardConnectionBinding, ToolsCatalog,
 } from './types';
 import { trackEvent, trackException, redact } from './telemetry';
 
@@ -229,9 +229,12 @@ export const api = {
       fetchApi<void>(`/api/connections/${connectionId}`, { method: 'DELETE' }),
   },
 
-  /** Read-only view of the connected Azure AI Foundry project (Connections → Foundry tab). */
-  foundry: {
-    catalog: () => fetchApi<FoundryCatalog>('/api/foundry/catalog'),
+  /** Unified capability catalog + tenant-level global tool enable/disable (the Tools page). */
+  tools: {
+    catalog: () => fetchApi<ToolsCatalog>('/api/tools/catalog'),
+    setEnabled: (toolId: string, enabled: boolean) =>
+      fetchApi<{ toolId: string; enabled: boolean }>(`/api/tools/${encodeURIComponent(toolId)}/enabled`,
+        { method: 'PUT', body: JSON.stringify({ enabled }) }),
   },
 
   email: {

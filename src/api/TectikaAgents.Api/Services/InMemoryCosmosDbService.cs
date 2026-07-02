@@ -140,6 +140,16 @@ public class InMemoryCosmosDbService : ICosmosDbService
         return Task.CompletedTask;
     }
 
+    // ── Tool policy ──────────────────────────────────────────────────────────────
+    private readonly ConcurrentDictionary<string, ToolPolicy> _toolPolicies = new();
+    public Task<ToolPolicy?> GetToolPolicyAsync(string tenantId, CancellationToken ct = default) =>
+        Task.FromResult(_toolPolicies.TryGetValue(tenantId, out var p) ? p : null);
+    public Task<ToolPolicy> UpsertToolPolicyAsync(ToolPolicy policy, CancellationToken ct = default)
+    {
+        _toolPolicies[policy.TenantId] = policy;
+        return Task.FromResult(policy);
+    }
+
     // ── Agent Roles ────────────────────────────────────────────────────────────
     public Task<IEnumerable<AgentRole>> GetAgentRolesAsync(string tenantId, CancellationToken ct = default) =>
         Task.FromResult(_agentRoles.Values.Where(r => r.TenantId == tenantId).AsEnumerable());

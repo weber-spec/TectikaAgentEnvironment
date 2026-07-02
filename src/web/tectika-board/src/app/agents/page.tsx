@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
-import type { AgentRole, ExecutionEngine, Connection, ConnectionCatalogEntry } from '@/lib/types';
+import type { AgentRole, ExecutionEngine, Connection, ConnectionCatalogEntry, ToolItem } from '@/lib/types';
 import { colorFor } from '@/lib/palette';
 import { Avatar, Button, Skeleton, EmptyState, Tag } from '@/components/ui/primitives';
 import { Modal } from '@/components/ui/overlays';
@@ -24,6 +24,8 @@ const DEFAULT_CLAUDE_MODEL = 'claude-opus-4-8';
 const CLAUDE_MODEL_IDS = CLAUDE_MODELS.map(m => m.id);
 // The always-present Foundry system connection id (mirrors backend ConnectionsController.FoundrySystemId).
 const FOUNDRY_CONN_ID = 'conn_foundry_system';
+// Foundry built-in tools an agent may attach (mirrors backend FoundryBuiltInTools.AgentSelectable).
+const FOUNDRY_SELECTABLE = ['code_interpreter', 'web_search'];
 
 export default function AgentsPage() {
   const [roles, setRoles] = useState<AgentRole[] | null>(null);
@@ -45,7 +47,7 @@ export default function AgentsPage() {
 
   const newAgent = (): AgentRole => ({
     id: `role-${Date.now().toString(36)}`, tenantId: 'default', displayName: 'New Agent',
-    systemPrompt: 'You are a helpful agent.', tools: [], connections: [],
+    systemPrompt: 'You are a helpful agent.', tools: [], connections: [], foundryTools: [],
     permissions: { canUseWorkspace: false, canPushCode: false, canDeploy: false, requiresOboFor: [], requiresApprovalFor: [] },
     modelOverride: 'gpt-4o',
   });
@@ -147,13 +149,25 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
   // instances by id. The catalog map supplies each connection's read/write tool counts + brand icon.
   const [connections, setConnections] = useState<Connection[]>([]);
   const [catMap, setCatMap] = useState<Record<string, ConnectionCatalogEntry>>({});
+  // Foundry built-in tools the agent may attach: only the globally-enabled, agent-selectable subset.
+  const [foundryToolOpts, setFoundryToolOpts] = useState<ToolItem[]>([]);
   useEffect(() => {
     api.connections.list().then(cs => {
       setConnections(cs.filter(c => c.category === 'agent-tool'));
       setModelConns(cs.filter(c => c.category === 'model'));
     }).catch(() => { setConnections([]); setModelConns([]); });
     api.connections.catalog().then(cat => setCatMap(Object.fromEntries(cat.map(c => [c.id, c])))).catch(() => setCatMap({}));
+    api.tools.catalog()
+      .then(tc => setFoundryToolOpts(tc.foundry.filter(t => FOUNDRY_SELECTABLE.includes(t.toolId.replace('foundry:', '')) && t.enabled)))
+      .catch(() => setFoundryToolOpts([]));
   }, []);
+
+  const toggleFoundryTool = (id: string, on: boolean) => setR(prev => ({
+    ...prev,
+    foundryTools: on
+      ? [...new Set([...(prev.foundryTools ?? []), id])]
+      : (prev.foundryTools ?? []).filter(x => x !== id),
+  }));
 
   const connRef = (id: string) => r.connections.find(c => c.connectionId === id);
   const toggleConn = (conn: Connection, on: boolean) =>
@@ -224,6 +238,29 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
             <ModelSelect value={r.modelOverride} onChange={v => set({ modelOverride: v || undefined })} selectClassName="inp" />
           )}
         </L>
+
+        {/* Foundry built-in tools — only for Foundry agents, only globally-enabled selectable tools */}
+        {engine === 'Foundry' && foundryToolOpts.length > 0 && (
+          <div className="rounded-lg border border-[var(--border)] p-3">
+            <span className="text-[11px] uppercase tracking-wide text-[var(--muted)] font-semibold flex items-center gap-1.5 mb-2">
+              <Icon.bolt size={13} /> Foundry tools
+            </span>
+            <div className="flex flex-col gap-1.5">
+              {foundryToolOpts.map(t => {
+                const bare = t.toolId.replace('foundry:', '');
+                const on = (r.foundryTools ?? []).includes(bare);
+                return (
+                  <label key={t.toolId} className="flex items-center gap-2 text-sm text-[var(--foreground)]">
+                    <input type="checkbox" checked={on} onChange={e => toggleFoundryTool(bare, e.target.checked)} className="accent-[var(--primary)]" />
+                    {t.name}
+                    {t.needsSetup && <span className="text-[11px] text-[var(--muted)]">(needs a Foundry connection in the project)</span>}
+                  </label>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-[var(--muted)] mt-2">Enable tool types org-wide on the <a href="/tools" className="underline text-[var(--primary)]">Tools</a> page.</p>
+          </div>
+        )}
 
         {/* Layer 1: Workspace */}
         <div className="rounded-lg border border-[var(--border)] p-3">

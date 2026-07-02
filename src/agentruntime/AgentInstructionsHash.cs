@@ -10,13 +10,15 @@ public static class AgentInstructionsHash
 {
     public static string Compute(string systemPrompt, string model, string toolsVersion,
         AgentPermissions permissions, GitHubPermissions? github = null,
-        IReadOnlyList<string>? mcpEnabled = null, IReadOnlyList<string>? mcpWriteEnabled = null)
+        IReadOnlyList<string>? mcpEnabled = null, IReadOnlyList<string>? mcpWriteEnabled = null,
+        IReadOnlyList<string>? foundryTools = null)
     {
         var gh = github is null ? "" : $"gh:{github.CanRead}";
         var ws = $"ws:{permissions.CanUseWorkspace}";
         // Order-independent: a role's enabled/write lists are sets, not sequences.
         var mcp = $"mcp:{Join(mcpEnabled)}|mcpw:{Join(mcpWriteEnabled)}|cat:{McpCatalog.Version}";
-        var bytes = Encoding.UTF8.GetBytes($"{model}\n{toolsVersion}\n{ws}|{gh}|{mcp}\n{systemPrompt}");
+        var fdy = $"fdy:{Join(foundryTools)}";
+        var bytes = Encoding.UTF8.GetBytes($"{model}\n{toolsVersion}\n{ws}|{gh}|{mcp}|{fdy}\n{systemPrompt}");
         return Convert.ToHexString(SHA256.HashData(bytes));
     }
 

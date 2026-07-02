@@ -53,6 +53,12 @@ public class AgentRole
     [JsonPropertyName("modelConnectionId")]
     public string? ModelConnectionId { get; set; }
 
+    /// <summary>Foundry built-in tool ids this role enables (e.g. ["code_interpreter"]). Projected into the
+    /// Foundry agent definition; ignored for Claude Code (which has native tools). Only globally-enabled,
+    /// agent-selectable tools should appear here.</summary>
+    [JsonPropertyName("foundryTools")]
+    public List<string> FoundryTools { get; set; } = [];
+
     [JsonPropertyName("permissions")]
     public AgentPermissions Permissions { get; set; } = new();
 

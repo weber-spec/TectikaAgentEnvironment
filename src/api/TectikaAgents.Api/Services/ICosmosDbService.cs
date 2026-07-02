@@ -41,6 +41,10 @@ public interface ICosmosDbService
     Task<Connection> UpsertConnectionAsync(Connection connection, CancellationToken ct = default);
     Task DeleteConnectionAsync(string tenantId, string connectionId, CancellationToken ct = default);
 
+    // ── Tool policy (tenant-level global tool enable/disable) ────────────────────
+    Task<ToolPolicy?> GetToolPolicyAsync(string tenantId, CancellationToken ct = default);
+    Task<ToolPolicy> UpsertToolPolicyAsync(ToolPolicy policy, CancellationToken ct = default);
+
     // ── Agent Roles ────────────────────────────────────────────────────────────
     Task<IEnumerable<AgentRole>> GetAgentRolesAsync(string tenantId, CancellationToken ct = default);
     Task<AgentRole> UpsertAgentRoleAsync(AgentRole role, CancellationToken ct = default);
