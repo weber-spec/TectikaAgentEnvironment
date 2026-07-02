@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
-import type { AgentRole, ClaudeAuthMode, ExecutionEngine, McpCatalogEntry } from '@/lib/types';
+import type { AgentRole, ClaudeAuthMode, ExecutionEngine, Connection, ConnectionCatalogEntry } from '@/lib/types';
 import { colorFor } from '@/lib/palette';
 import { Avatar, Button, Skeleton, EmptyState, Tag } from '@/components/ui/primitives';
 import { Modal } from '@/components/ui/overlays';
 import { Icon } from '@/components/ui/icons';
+import { BrandIcon } from '@/components/ui/brand-icons';
 import { ModelSelect } from '@/components/ModelSelect';
 import { toast } from '@/lib/toast';
 
@@ -42,7 +43,7 @@ export default function AgentsPage() {
 
   const newAgent = (): AgentRole => ({
     id: `role-${Date.now().toString(36)}`, tenantId: 'default', displayName: 'New Agent',
-    systemPrompt: 'You are a helpful agent.', tools: [], mcpServers: [], mcpWriteEnabled: [],
+    systemPrompt: 'You are a helpful agent.', tools: [], connections: [],
     permissions: { canUseWorkspace: false, canPushCode: false, canDeploy: false, requiresOboFor: [], requiresApprovalFor: [] },
     modelOverride: 'gpt-4o',
   });
@@ -101,7 +102,7 @@ function RoleCard({ role, syncState, onEdit }: { role: AgentRole; syncState?: Sy
       <p className="text-xs text-[var(--muted)] line-clamp-3 mb-3 flex-1">{role.systemPrompt}</p>
       <div className="flex flex-wrap gap-1 mb-2">
         {role.tools.map(t => <Tag key={t} label={t} hex="#0086c0" />)}
-        {role.mcpServers.map(m => <Tag key={m} label={role.mcpWriteEnabled?.includes(m) ? `mcp:${m} ✎` : `mcp:${m}`} hex="#a25ddc" />)}
+        {role.connections?.map(c => <Tag key={c.connectionId} label={c.writeEnabled ? `${c.catalogId} ✎` : c.catalogId} hex="#a25ddc" />)}
         {role.githubPermissions && Object.values(role.githubPermissions).some(Boolean) && (
           <Tag label="GitHub" hex="#24292e" />
         )}
@@ -140,21 +141,28 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
     return { ...prev, executionEngine: next, modelOverride: model };
   });
 
-  const [catalog, setCatalog] = useState<McpCatalogEntry[]>([]);
-  useEffect(() => { api.mcp.catalog().then(setCatalog).catch(() => setCatalog([])); }, []);
+  // Agent-tool connections come from the tenant registry (Connections page); the agent references specific
+  // instances by id. The catalog map supplies each connection's read/write tool counts + brand icon.
+  const [connections, setConnections] = useState<Connection[]>([]);
+  const [catMap, setCatMap] = useState<Record<string, ConnectionCatalogEntry>>({});
+  useEffect(() => {
+    api.connections.list().then(cs => setConnections(cs.filter(c => c.category === 'agent-tool'))).catch(() => setConnections([]));
+    api.connections.catalog().then(cat => setCatMap(Object.fromEntries(cat.map(c => [c.id, c])))).catch(() => setCatMap({}));
+  }, []);
 
-  const mcpEnabled = (id: string) => r.mcpServers.includes(id);
-  const toggleMcp = (id: string, on: boolean) =>
+  const connRef = (id: string) => r.connections.find(c => c.connectionId === id);
+  const toggleConn = (conn: Connection, on: boolean) =>
     setR(prev => ({
       ...prev,
-      mcpServers: on ? [...new Set([...prev.mcpServers, id])] : prev.mcpServers.filter(x => x !== id),
-      // Disabling an integration also revokes its write opt-in.
-      mcpWriteEnabled: on ? prev.mcpWriteEnabled : prev.mcpWriteEnabled.filter(x => x !== id),
+      connections: on
+        ? [...prev.connections.filter(c => c.connectionId !== conn.id),
+           { connectionId: conn.id, catalogId: conn.catalogId, writeEnabled: false }]
+        : prev.connections.filter(c => c.connectionId !== conn.id),
     }));
-  const toggleMcpWrite = (id: string, on: boolean) =>
+  const toggleConnWrite = (id: string, on: boolean) =>
     setR(prev => ({
       ...prev,
-      mcpWriteEnabled: on ? [...new Set([...prev.mcpWriteEnabled, id])] : prev.mcpWriteEnabled.filter(x => x !== id),
+      connections: prev.connections.map(c => c.connectionId === id ? { ...c, writeEnabled: on } : c),
     }));
 
   const wsEnabled = r.permissions.canUseWorkspace;
@@ -259,28 +267,36 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
           </label>
         </div>
 
-        {/* Layer 3: MCP integrations */}
-        {catalog.length > 0 && (
-          <div className="rounded-lg border border-[var(--border)] p-3">
-            <span className="text-[11px] uppercase tracking-wide text-[var(--muted)] font-semibold flex items-center gap-1.5 mb-2">
-              <Icon.bolt size={13} /> Integrations
-            </span>
+        {/* Layer 3: Connections (agent tools) — reference tenant connections defined on the Connections page */}
+        <div className="rounded-lg border border-[var(--border)] p-3">
+          <span className="text-[11px] uppercase tracking-wide text-[var(--muted)] font-semibold flex items-center gap-1.5 mb-2">
+            <Icon.bolt size={13} /> Connections
+          </span>
+          {connections.length === 0 ? (
+            <p className="text-[12px] text-[var(--muted)]">
+              No tool connections yet. Create one on the <a href="/connections" className="underline text-[var(--primary)]">Connections</a> page, then enable it on a board.
+            </p>
+          ) : (
             <div className="flex flex-col gap-2">
-              {catalog.map(entry => {
-                const on = mcpEnabled(entry.id);
+              {connections.map(conn => {
+                const ref = connRef(conn.id);
+                const on = !!ref;
+                const cat = catMap[conn.catalogId];
+                const writable = (cat?.writeToolCount ?? 0) > 0;
                 return (
-                  <div key={entry.id} className="flex flex-col gap-1">
+                  <div key={conn.id} className="flex flex-col gap-1">
                     <label className="flex items-center gap-2 text-sm text-[var(--foreground)]">
                       <input type="checkbox" checked={on}
-                        onChange={e => toggleMcp(entry.id, e.target.checked)}
+                        onChange={e => toggleConn(conn, e.target.checked)}
                         className="accent-[var(--primary)]" />
-                      {entry.displayName}
-                      <span className="text-[11px] text-[var(--muted)]">({entry.readToolCount} read · {entry.writeToolCount} write)</span>
+                      <BrandIcon name={cat?.iconKey ?? conn.catalogId} size={18} />
+                      {conn.displayName}
+                      {cat && <span className="text-[11px] text-[var(--muted)]">({cat.readToolCount} read · {cat.writeToolCount} write)</span>}
                     </label>
-                    {on && entry.writeToolCount > 0 && (
+                    {on && writable && (
                       <label className="flex items-center gap-2 text-[13px] text-[var(--foreground)] ml-6">
-                        <input type="checkbox" checked={r.mcpWriteEnabled.includes(entry.id)}
-                          onChange={e => toggleMcpWrite(entry.id, e.target.checked)}
+                        <input type="checkbox" checked={ref?.writeEnabled ?? false}
+                          onChange={e => toggleConnWrite(conn.id, e.target.checked)}
                           className="accent-[var(--primary)]" />
                         Allow write actions
                         <span className="text-[11px] text-[var(--muted)]">(send/post/create)</span>
@@ -289,10 +305,10 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
                   </div>
                 );
               })}
+              <p className="text-[11px] text-[var(--muted)] mt-1">The connection must also be enabled on the board (Board Settings → Integrations) for the agent to use it.</p>
             </div>
-            <p className="text-[11px] text-[var(--muted)] mt-2">Connect integrations per board in Board Settings → Integrations.</p>
-          </div>
-        )}
+          )}
+        </div>
 
         <div className="flex gap-4 pt-1">
           <label className="flex items-center gap-2 text-sm text-[var(--foreground)]"><input type="checkbox" checked={r.permissions.canPushCode} onChange={e => setPerms({ canPushCode: e.target.checked })} className="accent-[var(--primary)]" /> Can push code</label>

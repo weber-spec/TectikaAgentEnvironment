@@ -45,7 +45,7 @@ public sealed class ResendEmailConnector : IFirstPartyConnector
     }
 
     public async Task<string> CallAsync(string toolName, JsonElement args, string token,
-        TectikaAgents.Core.Models.McpConnection connection, CancellationToken ct)
+        TectikaAgents.Core.Models.Connection connection, CancellationToken ct)
     {
         if (toolName != "send_email")
             return Err($"Unknown email tool '{toolName}'.");
@@ -53,9 +53,9 @@ public sealed class ResendEmailConnector : IFirstPartyConnector
         var to = Str(args, "to");
         var subject = Str(args, "subject");
         var body = Str(args, "body");
-        // `from` is optional; fall back to the connection's configured default sender.
+        // `from` is optional; fall back to the connection's configured default sender (metadata).
         var from = Str(args, "from");
-        if (from.Length == 0) from = connection.DefaultFrom ?? string.Empty;
+        if (from.Length == 0) from = connection.Metadata.GetValueOrDefault("defaultFrom") ?? string.Empty;
 
         if (from.Length == 0)
             return Err("No sender address is configured. Set a default From in Board Settings → Integrations → Email, or pass 'from'.");

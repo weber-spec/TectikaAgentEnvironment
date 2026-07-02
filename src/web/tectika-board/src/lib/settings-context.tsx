@@ -41,6 +41,7 @@ export const TRANSLATIONS = {
     // Nav
     boards: 'Boards',
     agents: 'Agents',
+    connections: 'Connections',
     interactions: 'Interactions',
     analytics: 'Analytics',
     dashboards: 'Dashboards',
@@ -95,6 +96,7 @@ export const TRANSLATIONS = {
     // Nav
     boards: 'לוחות',
     agents: 'סוכנים',
+    connections: 'חיבורים',
     interactions: 'אינטראקציות',
     analytics: 'ניתוח',
     dashboards: 'לוחות מחוונים',

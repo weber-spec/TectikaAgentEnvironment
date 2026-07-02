@@ -1,23 +1,19 @@
+using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
-using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
-using TectikaAgents.AgentRuntime.Mcp;
-using TectikaAgents.Api.Controllers;
 using TectikaAgents.Api.Services;
 using TectikaAgents.Core.Models;
 using TectikaAgents.Core.Usage;
-using Xunit;
 
-// Minimal ICosmosDbService fake that persists board mutations — used by this test class only.
-// FakeCosmosForRepo only returns a fixed board and throws on UpdateBoardAsync, so it cannot
-// support the round-trip pattern (Connect → board mutation → GetBoardAsync sees the change).
-internal sealed class FakeCosmosForBoardMcp : ICosmosDbService
+// Minimal ICosmosDbService fake that persists board + tenant-connection mutations — used by the board
+// integration controller tests (connection registry + per-board bindings + email resolution round-trips).
+internal sealed class FakeCosmosForBoard : ICosmosDbService
 {
     private readonly ConcurrentDictionary<string, Board> _boards = new();
+    private readonly ConcurrentDictionary<string, Connection> _connections = new();
 
     public Task<Board> CreateBoardAsync(Board board, CancellationToken ct = default)
     {
@@ -33,6 +29,25 @@ internal sealed class FakeCosmosForBoardMcp : ICosmosDbService
     {
         _boards[board.Id] = board;
         return Task.FromResult(board);
+    }
+
+    // ── Connections (tenant-level registry) ──────────────────────────────────────
+    public Task<IEnumerable<Connection>> GetConnectionsAsync(string tenantId, CancellationToken ct = default) =>
+        Task.FromResult(_connections.Values.Where(c => c.TenantId == tenantId));
+
+    public Task<Connection?> GetConnectionAsync(string tenantId, string connectionId, CancellationToken ct = default) =>
+        Task.FromResult(_connections.TryGetValue(connectionId, out var c) && c.TenantId == tenantId ? c : null);
+
+    public Task<Connection> UpsertConnectionAsync(Connection connection, CancellationToken ct = default)
+    {
+        _connections[connection.Id] = connection;
+        return Task.FromResult(connection);
+    }
+
+    public Task DeleteConnectionAsync(string tenantId, string connectionId, CancellationToken ct = default)
+    {
+        _connections.TryRemove(connectionId, out _);
+        return Task.CompletedTask;
     }
 
     // ── Everything below is unused in these tests ────────────────────────────
@@ -85,139 +100,4 @@ internal sealed class FakeCosmosForBoardMcp : ICosmosDbService
     public Task<IReadOnlyList<TaskComment>> GetCommentsByTaskAsync(string taskId, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<TaskComment?> GetCommentAsync(string taskId, string commentId, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<TaskComment> UpsertCommentAsync(TaskComment comment, CancellationToken ct = default) => throw new NotImplementedException();
-}
-
-public class BoardMcpConnectionsControllerTests
-{
-    private static BoardMcpConnectionsController Build(ICosmosDbService cosmos, FakeMcpGateway gw, FakeSecretProvider secrets,
-        params IFirstPartyConnector[] connectors)
-    {
-        var ctrl = new BoardMcpConnectionsController(cosmos, gw, secrets, connectors);
-        var user = new ClaimsPrincipal(new ClaimsIdentity(new[]
-        {
-            new Claim("tid", "t1"),
-            new Claim("preferred_username", "eli@tectika.com"),
-        }, "test"));
-        ctrl.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = user } };
-        return ctrl;
-    }
-
-    // Uses FakeCosmosForBoardMcp (not InMemoryCosmosDbService — that requires an ILogger ctor arg).
-    private static async Task<(ICosmosDbService cosmos, string boardId)> SeedBoardAsync()
-    {
-        var cosmos = new FakeCosmosForBoardMcp();
-        var board = await cosmos.CreateBoardAsync(new Board { TenantId = "t1", Name = "B", OwnerId = "eli@tectika.com" });
-        return (cosmos, board.Id);
-    }
-
-    [Fact]
-    public async Task Connect_validates_stores_secret_and_persists_connection()
-    {
-        var (cosmos, boardId) = await SeedBoardAsync();
-        var gw = new FakeMcpGateway();
-        var secrets = new FakeSecretProvider();
-        var ctrl = Build(cosmos, gw, secrets);
-
-        var res = await ctrl.Connect(boardId, new BoardMcpConnectionsController.ConnectRequest("slack", "My Slack", "xoxb-abc"), CancellationToken.None);
-
-        var ok = Assert.IsType<OkObjectResult>(res);
-        var conn = Assert.IsType<McpConnection>(ok.Value);
-        Assert.Equal("slack", conn.CatalogId);
-        Assert.Equal("xoxb-abc", secrets.Store[conn.SecretName]);
-        var board = await cosmos.GetBoardAsync("t1", boardId, CancellationToken.None);
-        Assert.Single(board!.McpConnections);
-    }
-
-    [Fact]
-    public async Task Connect_validation_failure_returns_400_and_stores_nothing()
-    {
-        var (cosmos, boardId) = await SeedBoardAsync();
-        var gw = new FakeMcpGateway { ThrowOnList = true };
-        var secrets = new FakeSecretProvider();
-        var ctrl = Build(cosmos, gw, secrets);
-
-        var res = await ctrl.Connect(boardId, new BoardMcpConnectionsController.ConnectRequest("slack", "My Slack", "bad"), CancellationToken.None);
-
-        Assert.IsType<BadRequestObjectResult>(res);
-        Assert.Empty(secrets.Store);
-        var board = await cosmos.GetBoardAsync("t1", boardId, CancellationToken.None);
-        Assert.Empty(board!.McpConnections);
-    }
-
-    [Fact]
-    public async Task Connect_first_party_email_validates_via_connector_not_gateway()
-    {
-        var (cosmos, boardId) = await SeedBoardAsync();
-        var gw = new FakeMcpGateway();
-        var secrets = new FakeSecretProvider();
-        var connector = new FakeFirstPartyConnector(); // CatalogId "email"
-        var ctrl = Build(cosmos, gw, secrets, connector);
-
-        var res = await ctrl.Connect(boardId,
-            new BoardMcpConnectionsController.ConnectRequest("email", "Work email", "re_key"), CancellationToken.None);
-
-        var ok = Assert.IsType<OkObjectResult>(res);
-        var conn = Assert.IsType<McpConnection>(ok.Value);
-        Assert.Equal("email", conn.CatalogId);
-        Assert.Equal("re_key", connector.ValidatedToken);   // validated through the connector
-        Assert.Null(gw.LastTarget);                          // gateway never touched for first-party
-        Assert.Equal("re_key", secrets.Store[conn.SecretName]);
-    }
-
-    [Fact]
-    public async Task Connect_first_party_validation_failure_returns_400_and_stores_nothing()
-    {
-        var (cosmos, boardId) = await SeedBoardAsync();
-        var secrets = new FakeSecretProvider();
-        var connector = new FakeFirstPartyConnector { ThrowOnValidate = true };
-        var ctrl = Build(cosmos, new FakeMcpGateway(), secrets, connector);
-
-        var res = await ctrl.Connect(boardId,
-            new BoardMcpConnectionsController.ConnectRequest("email", "Work email", "bad"), CancellationToken.None);
-
-        Assert.IsType<BadRequestObjectResult>(res);
-        Assert.Empty(secrets.Store);
-        var board = await cosmos.GetBoardAsync("t1", boardId, CancellationToken.None);
-        Assert.Empty(board!.McpConnections);
-    }
-
-    [Fact]
-    public async Task Connect_unknown_catalog_id_returns_400()
-    {
-        var (cosmos, boardId) = await SeedBoardAsync();
-        var ctrl = Build(cosmos, new FakeMcpGateway(), new FakeSecretProvider());
-        var res = await ctrl.Connect(boardId, new BoardMcpConnectionsController.ConnectRequest("nope", "x", "t"), CancellationToken.None);
-        Assert.IsType<BadRequestObjectResult>(res);
-    }
-
-    [Fact]
-    public async Task Disconnect_removes_connection_and_deletes_secret()
-    {
-        var (cosmos, boardId) = await SeedBoardAsync();
-        var gw = new FakeMcpGateway();
-        var secrets = new FakeSecretProvider();
-        var ctrl = Build(cosmos, gw, secrets);
-        var ok = (OkObjectResult)await ctrl.Connect(boardId, new BoardMcpConnectionsController.ConnectRequest("slack", "My Slack", "xoxb-abc"), CancellationToken.None);
-        var conn = (McpConnection)ok.Value!;
-
-        var res = await ctrl.Disconnect(boardId, conn.ConnectionId, CancellationToken.None);
-
-        Assert.IsType<NoContentResult>(res);
-        var board = await cosmos.GetBoardAsync("t1", boardId, CancellationToken.None);
-        Assert.Empty(board!.McpConnections);
-        Assert.False(secrets.Store.ContainsKey(conn.SecretName));
-    }
-
-    [Fact]
-    public async Task List_returns_board_connections()
-    {
-        var (cosmos, boardId) = await SeedBoardAsync();
-        var ctrl = Build(cosmos, new FakeMcpGateway(), new FakeSecretProvider());
-        await ctrl.Connect(boardId, new BoardMcpConnectionsController.ConnectRequest("slack", "My Slack", "xoxb-abc"), CancellationToken.None);
-
-        var res = await ctrl.List(boardId, CancellationToken.None);
-        var ok = Assert.IsType<OkObjectResult>(res);
-        var items = Assert.IsAssignableFrom<System.Collections.Generic.IEnumerable<McpConnection>>(ok.Value);
-        Assert.Single(items);
-    }
 }

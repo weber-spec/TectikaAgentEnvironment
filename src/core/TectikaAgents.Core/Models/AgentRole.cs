@@ -42,15 +42,16 @@ public class AgentRole
     [JsonPropertyName("tools")]
     public List<string> Tools { get; set; } = [];
 
-    /// <summary>Catalog ids of MCP integrations this role is allowed to use (e.g. ["slack","notion"]).
-    /// Drives which MCP tools are projected onto the Foundry agent definition.</summary>
-    [JsonPropertyName("mcpServers")]
-    public List<string> McpServers { get; set; } = [];
+    /// <summary>Tenant connections (agent-tool category) this role may use. Each reference denormalizes the
+    /// connection's <see cref="AgentConnectionRef.CatalogId"/> so the board-independent Foundry projection +
+    /// instructions hash need no lookup. A connection is only usable at runtime if the BOARD also enabled it.</summary>
+    [JsonPropertyName("connections")]
+    public List<AgentConnectionRef> Connections { get; set; } = [];
 
-    /// <summary>Catalog ids (subset of <see cref="McpServers"/>) for which this role may call WRITE tools.
-    /// Write tools are omitted from the agent definition unless their catalog id appears here.</summary>
-    [JsonPropertyName("mcpWriteEnabled")]
-    public List<string> McpWriteEnabled { get; set; } = [];
+    /// <summary>The tenant "model" connection powering this role (Foundry system connection, or an Anthropic
+    /// connection). Optional/forward-looking: the runtime still uses <see cref="ExecutionEngine"/> today.</summary>
+    [JsonPropertyName("modelConnectionId")]
+    public string? ModelConnectionId { get; set; }
 
     [JsonPropertyName("permissions")]
     public AgentPermissions Permissions { get; set; } = new();
@@ -69,6 +70,15 @@ public class AgentRole
 
     [JsonPropertyName("updatedAt")]
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+/// <summary>An agent's reference to a tenant connection it may use, with the write opt-in. <see cref="CatalogId"/>
+/// is denormalized from the connection so tool projection/hashing stay board-independent and lookup-free.</summary>
+public class AgentConnectionRef
+{
+    [JsonPropertyName("connectionId")] public string ConnectionId { get; set; } = string.Empty;
+    [JsonPropertyName("catalogId")]    public string CatalogId { get; set; } = string.Empty;
+    [JsonPropertyName("writeEnabled")] public bool WriteEnabled { get; set; }
 }
 
 public enum ExecutionEngine { Foundry, ClaudeCode }

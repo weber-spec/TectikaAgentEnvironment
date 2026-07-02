@@ -97,7 +97,6 @@ internal static class MockDataSeeder
             SystemPrompt = "You are a senior software engineer. Implement the spec faithfully, with " +
                            "tests, and document trade-offs in your output.",
             Tools = ["read_repo", "write_code", "run_tests"],
-            McpServers = ["github"],
             Permissions = new AgentPermissions
             {
                 CanPushCode = true,

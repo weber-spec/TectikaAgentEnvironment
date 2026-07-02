@@ -45,6 +45,18 @@ public class WorkflowCosmosService
     public async Task UpsertAgentRoleAsync(AgentRole role, CancellationToken ct = default) =>
         await C("agentRoles").UpsertItemAsync(role, new PartitionKey(role.TenantId), cancellationToken: ct);
 
+    // ── Connections (tenant-level registry) ────────────────────────────────────
+
+    public async Task<IReadOnlyList<Connection>> GetConnectionsAsync(string tenantId, CancellationToken ct = default)
+    {
+        var query = new QueryDefinition("SELECT * FROM c WHERE c.tenantId = @tenantId").WithParameter("@tenantId", tenantId);
+        var it = C("connections").GetItemQueryIterator<Connection>(query,
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(tenantId) });
+        var list = new List<Connection>();
+        while (it.HasMoreResults) list.AddRange(await it.ReadNextAsync(ct));
+        return list;
+    }
+
     // ── AgentTask ─────────────────────────────────────────────────────────────
 
     public async Task<AgentTask?> GetTaskAsync(string boardId, string taskId, CancellationToken ct = default)

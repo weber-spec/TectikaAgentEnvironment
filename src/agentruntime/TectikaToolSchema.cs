@@ -183,8 +183,9 @@ public static class TectikaToolSchema
     {
         var tools = Definitions.Where(d => McpBoardToolNames.Contains(d.Name)).ToList();
 
-        var writeSet = new HashSet<string>(role.McpWriteEnabled ?? new List<string>(), StringComparer.Ordinal);
-        foreach (var catalogId in role.McpServers ?? new List<string>())
+        var writeSet = new HashSet<string>(
+            role.Connections.Where(c => c.WriteEnabled).Select(c => c.CatalogId), StringComparer.Ordinal);
+        foreach (var catalogId in role.Connections.Select(c => c.CatalogId).Distinct())
         {
             var entry = McpCatalog.Find(catalogId);
             if (entry is null) continue;

@@ -82,7 +82,10 @@ public sealed class BoardToolsMcp
                 {
                     var board = await _cosmos.GetBoardAsync(ctx.BoardId, ctx.TenantId, ct);
                     var role = await _cosmos.GetAgentRoleAsync(ctx.TenantId, ctx.RoleId, ct);
-                    return await _mcp.ExecuteAsync(name, args, board?.McpConnections, role, ct);
+                    var conns = board is not null && role is not null
+                        ? ConnectionResolver.Effective(role, board, await _cosmos.GetConnectionsAsync(ctx.TenantId, ct))
+                        : (IReadOnlyList<Connection>)Array.Empty<Connection>();
+                    return await _mcp.ExecuteAsync(name, args, conns, role, ct);
                 }
                 return $"Unknown tool '{name}'.";
         }

@@ -6,7 +6,8 @@ import type {
   UsageRollup, UsageEventsPage, PricingCatalog, UsageTimePoint, AgentUsage,
   PreviewSession, BoardWorkspaceStatusDto, ResetBoardResult,
   Comment, CommentKind, NoteType,
-  McpConnection, McpCatalogEntry, ResendDomain,
+  ResendDomain,
+  Connection, ConnectionCatalogEntry, CreateConnectionInput, BoardConnectionBinding, FoundryCatalog,
 } from './types';
 import { trackEvent, trackException, redact } from './telemetry';
 
@@ -80,9 +81,9 @@ export const api = {
       fetchApi<Board>(`/api/boards/${boardId}`, { method: 'PUT', body: JSON.stringify({ name, description }) }),
     remove: (boardId: string) =>
       fetchApi<void>(`/api/boards/${boardId}`, { method: 'DELETE' }),
-    connectGitHub: (boardId: string, repoUrl: string, pat: string) =>
+    connectGitHub: (boardId: string, connectionId: string, repoUrl: string) =>
       fetchApi<Board>(`/api/boards/${boardId}/github`, {
-        method: 'PUT', body: JSON.stringify({ repoUrl, pat }),
+        method: 'PUT', body: JSON.stringify({ connectionId, repoUrl }),
       }),
     disconnectGitHub: (boardId: string) =>
       fetchApi<Board>(`/api/boards/${boardId}/github`, { method: 'DELETE' }),
@@ -206,15 +207,31 @@ export const api = {
       fetchApi<AgentUpsertResult>('/api/agentroles', { method: 'POST', body: JSON.stringify({ role, anthropicApiKey }) }),
   },
 
-  mcp: {
-    catalog: () => fetchApi<McpCatalogEntry[]>('/api/mcp/catalog'),
-    connections: (boardId: string) => fetchApi<McpConnection[]>(`/api/boards/${boardId}/mcp`),
-    connect: (boardId: string, input: { catalogId: string; displayName?: string; token: string }) =>
-      fetchApi<McpConnection>(`/api/boards/${boardId}/mcp/connect`, { method: 'POST', body: JSON.stringify(input) }),
-    validate: (boardId: string, connectionId: string) =>
-      fetchApi<McpConnection>(`/api/boards/${boardId}/mcp/${connectionId}/validate`, { method: 'POST' }),
-    disconnect: (boardId: string, connectionId: string) =>
-      fetchApi<void>(`/api/boards/${boardId}/mcp/${connectionId}`, { method: 'DELETE' }),
+  /** Per-board bindings: which tenant connections a board enabled (+ per-board config, e.g. the GitHub repo). */
+  boardConnections: {
+    list: (boardId: string) => fetchApi<BoardConnectionBinding[]>(`/api/boards/${boardId}/connections`),
+    bind: (boardId: string, connectionId: string, config?: Record<string, string>) =>
+      fetchApi<BoardConnectionBinding>(`/api/boards/${boardId}/connections/${connectionId}`,
+        { method: 'PUT', body: JSON.stringify({ config: config ?? {} }) }),
+    unbind: (boardId: string, connectionId: string) =>
+      fetchApi<void>(`/api/boards/${boardId}/connections/${connectionId}`, { method: 'DELETE' }),
+  },
+
+  /** Tenant-level connection registry (the Connections page). */
+  connections: {
+    catalog: () => fetchApi<ConnectionCatalogEntry[]>('/api/connections/catalog'),
+    list: () => fetchApi<Connection[]>('/api/connections'),
+    create: (input: CreateConnectionInput) =>
+      fetchApi<Connection>('/api/connections', { method: 'POST', body: JSON.stringify(input) }),
+    validate: (connectionId: string) =>
+      fetchApi<Connection>(`/api/connections/${connectionId}/validate`, { method: 'POST' }),
+    remove: (connectionId: string) =>
+      fetchApi<void>(`/api/connections/${connectionId}`, { method: 'DELETE' }),
+  },
+
+  /** Read-only view of the connected Azure AI Foundry project (Connections → Foundry tab). */
+  foundry: {
+    catalog: () => fetchApi<FoundryCatalog>('/api/foundry/catalog'),
   },
 
   email: {

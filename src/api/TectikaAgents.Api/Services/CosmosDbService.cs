@@ -19,6 +19,7 @@ public class CosmosDbService : ICosmosDbService
     public const string BoardsContainer = "boards";
     public const string TasksContainer = "tasks";
     public const string AgentRolesContainer = "agentRoles";
+    public const string ConnectionsContainer = "connections";
     public const string WorkflowRunsContainer = "workflowRuns";
     public const string ArtifactsContainer = "artifacts";
     public const string HumanInteractionsContainer = "humanInteractions";
@@ -39,6 +40,7 @@ public class CosmosDbService : ICosmosDbService
         (BoardsContainer,            "/tenantId"),
         (TasksContainer,             "/boardId"),
         (AgentRolesContainer,        "/tenantId"),
+        (ConnectionsContainer,       "/tenantId"),
         (WorkflowRunsContainer,      "/taskId"),
         (ArtifactsContainer,         "/taskId"),
         (HumanInteractionsContainer, "/runId"),
@@ -291,6 +293,39 @@ public class CosmosDbService : ICosmosDbService
         try { await del(); }
         catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { }
         catch (Exception ex) { _logger.LogWarning(ex, "[Purge] delete failed (non-fatal) container={Container} id={Id}", container, id); }
+    }
+
+    // ── Connections (tenant-level registry) ────────────────────────────────────
+
+    public async Task<IEnumerable<Connection>> GetConnectionsAsync(string tenantId, CancellationToken ct = default)
+    {
+        var query = new QueryDefinition("SELECT * FROM c WHERE c.tenantId = @tenantId").WithParameter("@tenantId", tenantId);
+        return await QueryAsync<Connection>(ConnectionsContainer, query, tenantId, ct);
+    }
+
+    public async Task<Connection?> GetConnectionAsync(string tenantId, string connectionId, CancellationToken ct = default)
+    {
+        try
+        {
+            var res = await GetContainer(ConnectionsContainer).ReadItemAsync<Connection>(connectionId, new PartitionKey(tenantId), cancellationToken: ct);
+            return res.Resource;
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
+    }
+
+    public async Task<Connection> UpsertConnectionAsync(Connection connection, CancellationToken ct = default)
+    {
+        var res = await GetContainer(ConnectionsContainer).UpsertItemAsync(connection, new PartitionKey(connection.TenantId), cancellationToken: ct);
+        return res.Resource;
+    }
+
+    public async Task DeleteConnectionAsync(string tenantId, string connectionId, CancellationToken ct = default)
+    {
+        try
+        {
+            await GetContainer(ConnectionsContainer).DeleteItemAsync<Connection>(connectionId, new PartitionKey(tenantId), cancellationToken: ct);
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { /* already gone */ }
     }
 
     // ── Agent Roles ───────────────────────────────────────────────────────────

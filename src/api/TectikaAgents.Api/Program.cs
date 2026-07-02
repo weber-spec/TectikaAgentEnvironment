@@ -163,6 +163,10 @@ else
     builder.Services.AddSingleton<IModelCatalog, FoundryModelCatalog>();
 }
 
+// Foundry project catalog (connections + deployments) for the Connections → Foundry tab. Degrades to empty
+// when Foundry isn't reachable, so it's safe to register in both mock and real modes.
+builder.Services.AddSingleton<TectikaAgents.AgentRuntime.FoundryConnectionsCatalog>();
+
 // ── SSE + Service Bus ────────────────────────────────────────────────────────
 builder.Services.AddSingleton<SseConnectionManager>();
 builder.Services.AddHostedService<ServiceBusListenerService>();

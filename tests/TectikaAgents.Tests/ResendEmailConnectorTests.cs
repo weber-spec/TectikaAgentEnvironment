@@ -30,7 +30,7 @@ public class ResendEmailConnectorTests
     {
         var (conn, handler) = Build(Ok("{\"id\":\"abc-123\"}"));
 
-        var result = await conn.CallAsync("send_email", Args(ValidArgs), "re_secret", new TectikaAgents.Core.Models.McpConnection { CatalogId = "email" }, CancellationToken.None);
+        var result = await conn.CallAsync("send_email", Args(ValidArgs), "re_secret", new TectikaAgents.Core.Models.Connection { CatalogId = "email" }, CancellationToken.None);
 
         Assert.Equal(HttpMethod.Post, handler.Request!.Method);
         Assert.Equal("https://api.resend.com/emails", handler.Request.RequestUri!.ToString());
@@ -57,7 +57,7 @@ public class ResendEmailConnectorTests
             Content = new StringContent("{\"name\":\"validation_error\",\"message\":\"from is not verified\"}"),
         });
 
-        var result = await conn.CallAsync("send_email", Args(ValidArgs), "re_secret", new TectikaAgents.Core.Models.McpConnection { CatalogId = "email" }, CancellationToken.None);
+        var result = await conn.CallAsync("send_email", Args(ValidArgs), "re_secret", new TectikaAgents.Core.Models.Connection { CatalogId = "email" }, CancellationToken.None);
 
         using var res = JsonDocument.Parse(result);
         Assert.True(res.RootElement.TryGetProperty("error", out var err));
@@ -71,7 +71,7 @@ public class ResendEmailConnectorTests
         var (conn, handler) = Build(Ok());
 
         var result = await conn.CallAsync("send_email",
-            Args("{\"from\":\"a@b.com\",\"subject\":\"Hi\",\"body\":\"x\"}"), "re_secret", new TectikaAgents.Core.Models.McpConnection { CatalogId = "email" }, CancellationToken.None); // no 'to'
+            Args("{\"from\":\"a@b.com\",\"subject\":\"Hi\",\"body\":\"x\"}"), "re_secret", new TectikaAgents.Core.Models.Connection { CatalogId = "email" }, CancellationToken.None); // no 'to'
 
         Assert.Contains("requires", result);
         Assert.Null(handler.Request); // never reached the network
@@ -83,7 +83,7 @@ public class ResendEmailConnectorTests
         var (conn, handler) = Build(Ok());
 
         var result = await conn.CallAsync("send_email",
-            Args("{\"from\":\"a@b.com\",\"to\":\"c@d.com\",\"subject\":\"Hi\",\"body\":\"\"}"), "re_secret", new TectikaAgents.Core.Models.McpConnection { CatalogId = "email" }, CancellationToken.None);
+            Args("{\"from\":\"a@b.com\",\"to\":\"c@d.com\",\"subject\":\"Hi\",\"body\":\"\"}"), "re_secret", new TectikaAgents.Core.Models.Connection { CatalogId = "email" }, CancellationToken.None);
 
         Assert.Contains("requires", result);
         Assert.Null(handler.Request); // never reached the network — body is required (catalog + runtime agree)
@@ -93,7 +93,7 @@ public class ResendEmailConnectorTests
     public async Task Unknown_tool_is_rejected()
     {
         var (conn, handler) = Build(Ok());
-        var result = await conn.CallAsync("delete_everything", Args("{}"), "re_secret", new TectikaAgents.Core.Models.McpConnection { CatalogId = "email" }, CancellationToken.None);
+        var result = await conn.CallAsync("delete_everything", Args("{}"), "re_secret", new TectikaAgents.Core.Models.Connection { CatalogId = "email" }, CancellationToken.None);
         Assert.Contains("Unknown email tool", result);
         Assert.Null(handler.Request);
     }
@@ -139,8 +139,12 @@ public class ResendEmailConnectorTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => conn.ValidateAsync("", CancellationToken.None));
     }
 
-    private static TectikaAgents.Core.Models.McpConnection Conn(string? defaultFrom = null) =>
-        new() { CatalogId = "email", DefaultFrom = defaultFrom };
+    private static TectikaAgents.Core.Models.Connection Conn(string? defaultFrom = null)
+    {
+        var c = new TectikaAgents.Core.Models.Connection { CatalogId = "email" };
+        if (defaultFrom is not null) c.Metadata["defaultFrom"] = defaultFrom;
+        return c;
+    }
 
     [Fact]
     public async Task Uses_connection_default_from_when_arg_omitted()

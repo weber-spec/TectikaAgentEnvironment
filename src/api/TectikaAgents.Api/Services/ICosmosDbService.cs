@@ -35,6 +35,12 @@ public interface ICosmosDbService
     /// used by board reset. Does NOT delete the task document itself.</summary>
     Task PurgeTaskWorkDataAsync(string tenantId, string boardId, string taskId, CancellationToken ct = default);
 
+    // ── Connections (tenant-level registry) ──────────────────────────────────────
+    Task<IEnumerable<Connection>> GetConnectionsAsync(string tenantId, CancellationToken ct = default);
+    Task<Connection?> GetConnectionAsync(string tenantId, string connectionId, CancellationToken ct = default);
+    Task<Connection> UpsertConnectionAsync(Connection connection, CancellationToken ct = default);
+    Task DeleteConnectionAsync(string tenantId, string connectionId, CancellationToken ct = default);
+
     // ── Agent Roles ────────────────────────────────────────────────────────────
     Task<IEnumerable<AgentRole>> GetAgentRolesAsync(string tenantId, CancellationToken ct = default);
     Task<AgentRole> UpsertAgentRoleAsync(AgentRole role, CancellationToken ct = default);

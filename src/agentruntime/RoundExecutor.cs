@@ -30,7 +30,7 @@ public static class RoundExecutor
         IGitHubToolExecutor? gitHub, GitHubRepoConnection? boardRepo, AgentRole? role,
         WorkspaceToolExecutor? workspace, TectikaAgents.Core.Interfaces.IWorkspaceProvider? workspaceProvider,
         CancellationToken ct,
-        McpToolExecutor? mcp = null, IReadOnlyList<McpConnection>? boardMcp = null)
+        McpToolExecutor? mcp = null, IReadOnlyList<Connection>? connections = null)
     {
         if (resp.ToolCalls is null || resp.ToolCalls.Count == 0)
             return new RoundProcessResult(true, resp.FinalText ?? "", [], null, null, null, null, [], []);
@@ -176,7 +176,7 @@ public static class RoundExecutor
                     }
                     if (mcp is not null && mcp.CanHandle(call.Name))
                     {
-                        var mcpResult = await mcp.ExecuteAsync(call.Name, args, boardMcp, role, ct);
+                        var mcpResult = await mcp.ExecuteAsync(call.Name, args, connections, role, ct);
                         outputs.Add(new(call.CallId, mcpResult));
                         traced.Add(new(call.Name, call.ArgumentsJson, Summarize(mcpResult)));
                         break;

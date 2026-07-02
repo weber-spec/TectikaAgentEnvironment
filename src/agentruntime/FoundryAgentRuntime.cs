@@ -83,10 +83,12 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
         {
             var model = role.ModelOverride ?? _settings.DefaultModel;
             _logger.LogInformation("[FoundryEnsureAgent] ensuring agent role={RoleId} model={Model}", role.Id, model);
+            var mcpEnabled = role.Connections.Select(c => c.CatalogId).ToList();
+            var mcpWrite = role.Connections.Where(c => c.WriteEnabled).Select(c => c.CatalogId).ToList();
             var hash = AgentInstructionsHash.Compute(role.SystemPrompt, model, TectikaToolSchema.Version,
-                role.Permissions, role.GitHubPermissions, role.McpServers, role.McpWriteEnabled);
+                role.Permissions, role.GitHubPermissions, mcpEnabled, mcpWrite);
             var definition = new AgentDefinition("prompt", model, role.SystemPrompt, role.DisplayName,
-                TectikaToolSchema.ToFoundryToolsJson(role.Permissions, role.GitHubPermissions, role.McpServers, role.McpWriteEnabled));
+                TectikaToolSchema.ToFoundryToolsJson(role.Permissions, role.GitHubPermissions, mcpEnabled, mcpWrite));
             var http = await ClientAsync(ct).ConfigureAwait(false);
 
             // Stable agent id: reuse the stored one; mint a fresh random id only for a brand-new role.
@@ -283,7 +285,7 @@ public sealed class FoundryAgentRuntime : IAgentRuntime, IAgentProvisioner
                 (n, _) => OnText?.Invoke($"\n[using tool: {n}]\n"),
                 _gitHub, req.BoardGitHub, req.Role,
                 _workspaceExecutor, req.Workspace, ct,
-                _mcp, req.BoardMcp).ConfigureAwait(false);
+                _mcp, req.Connections).ConfigureAwait(false);
             var next = p.ToolOutputs.Select(o => new PriorToolOutput(o.CallId, o.Output)).ToList();
             var id = r.Id ?? $"round-{req.RunId}-{req.Round}";
 

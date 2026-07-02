@@ -12,12 +12,25 @@ public enum McpBackend
     FirstParty,
 }
 
+/// <summary>Category buckets used to group connections in the UI. Kept as strings (not an enum) so new
+/// buckets can be added without a schema change.</summary>
+public static class ConnectionCategory
+{
+    public const string Model         = "model";          // model providers (Foundry, Anthropic/Claude)
+    public const string AgentTool     = "agent-tool";     // external tools agents call (Slack, Email, …)
+    public const string SourceControl = "source-control"; // GitHub, …
+}
+
+/// <summary>One credential input a connection requires. Most integrations need a single <c>token</c>; a few
+/// need several (key + secret). <see cref="Secret"/> masks the field in the UI and marks it for Key Vault.</summary>
+public sealed record AuthField(string Name, string Label, string Type, string Hint, bool Secret = true);
+
 /// <summary>Curated registry of connectable integrations. Each entry pins the exact tool surface we
 /// expose (read/write flagged) so the per-role agent definition is board-independent. Bump <see cref="Version"/>
 /// whenever the catalog changes so AgentInstructionsHash republishes affected agents.</summary>
 public static class McpCatalog
 {
-    public const string Version = "mcp-catalog-v3";  // was v2 — send_email 'from' optional (defaults to the connection's From)
+    public const string Version = "mcp-catalog-v4";  // was v3 — added categories/icons/auth-fields + anthropic entry
 
     /// <summary>Reuses TectikaToolSchema.ToolProp for property shapes so projection stays consistent.</summary>
     public sealed record CatalogTool(
@@ -25,11 +38,24 @@ public static class McpCatalog
         IReadOnlyDictionary<string, TectikaToolSchema.ToolProp> Properties, string[] Required, bool IsWrite);
 
     /// <summary><see cref="Backend"/> selects the execution path. For <see cref="McpBackend.FirstParty"/> entries
-    /// Endpoint/AuthHeader/AuthScheme are unused (pass empty strings).</summary>
+    /// Endpoint/AuthHeader/AuthScheme are unused (pass empty strings). <see cref="Category"/>/<see cref="IconKey"/>/
+    /// <see cref="SupportsMultiple"/>/<see cref="AuthFields"/> drive the Connections UI; when AuthFields is null a
+    /// single password field derived from <see cref="TokenHint"/> is assumed (see <see cref="EffectiveAuthFields"/>).</summary>
     public sealed record CatalogEntry(
         string Id, string DisplayName, string Description,
         string Endpoint, string AuthHeader, string AuthScheme, string TokenHint, string? HelpUrl,
-        IReadOnlyList<CatalogTool> Tools, McpBackend Backend = McpBackend.Mcp);
+        IReadOnlyList<CatalogTool> Tools, McpBackend Backend = McpBackend.Mcp,
+        string Category = ConnectionCategory.AgentTool, string? IconKey = null,
+        bool SupportsMultiple = true, IReadOnlyList<AuthField>? AuthFields = null)
+    {
+        /// <summary>Brand-icon key for the UI; defaults to the entry id.</summary>
+        public string Icon => IconKey ?? Id;
+
+        /// <summary>The auth inputs to collect, defaulting to a single masked "token" field from TokenHint.</summary>
+        public IReadOnlyList<AuthField> EffectiveAuthFields =>
+            AuthFields is { Count: > 0 } ? AuthFields
+            : new[] { new AuthField("token", "Token", "password", TokenHint) };
+    }
 
     private static readonly Dictionary<string, TectikaToolSchema.ToolProp> NoProps = new();
 
@@ -51,7 +77,20 @@ public static class McpCatalog
                         ["text"]    = new("string", "Message text to post."),
                     },
                     ["channel", "text"], IsWrite: true),
-            }),
+            },
+            Category: ConnectionCategory.AgentTool, IconKey: "slack"),
+
+        // Claude (Anthropic) — a MODEL provider, not a tool integration (no tools). Powers ClaudeCode agents.
+        // Not tool-executed, so Backend is FirstParty only to keep it off the remote-MCP validation path; the
+        // Connections controller skips credential validation for the "model" category.
+        new("anthropic", "Claude (Anthropic)",
+            "Run agents on Claude models using an Anthropic API key or a Pro/Max OAuth token.",
+            Endpoint: "", AuthHeader: "", AuthScheme: "",
+            TokenHint: "Anthropic API key (sk-ant-…) or OAuth token", HelpUrl: "https://console.anthropic.com/settings/keys",
+            Tools: Array.Empty<CatalogTool>(),
+            Backend: McpBackend.FirstParty,
+            Category: ConnectionCategory.Model, IconKey: "anthropic", SupportsMultiple: true,
+            AuthFields: new[] { new AuthField("token", "API key or OAuth token", "password", "sk-ant-… or an OAuth token from `claude setup-token`") }),
 
         // Email (Resend) — first-party: executed in-process by ResendEmailConnector against the Resend
         // REST API. No token-auth remote MCP server exists for Resend, so we connect first-party (like GitHub)
@@ -71,7 +110,20 @@ public static class McpCatalog
                     },
                     ["to", "subject", "body"], IsWrite: true),
             },
-            Backend: McpBackend.FirstParty),
+            Backend: McpBackend.FirstParty,
+            Category: ConnectionCategory.AgentTool, IconKey: "resend"),
+
+        // GitHub — a SOURCE-CONTROL connection: the PAT lives here (tenant-level); each board picks this
+        // connection + a specific repo (Board Settings → Integrations). Not tool-executed via this catalog
+        // (the GitHub read/write tools resolve the repo's PatSecretName), so no tools + no remote validation.
+        new("github", "GitHub",
+            "Connect a GitHub account once with a personal access token, then choose the repo per board.",
+            Endpoint: "", AuthHeader: "", AuthScheme: "",
+            TokenHint: "GitHub PAT (ghp_… or github_pat_…)", HelpUrl: "https://github.com/settings/tokens",
+            Tools: Array.Empty<CatalogTool>(),
+            Backend: McpBackend.FirstParty,
+            Category: ConnectionCategory.SourceControl, IconKey: "github", SupportsMultiple: true,
+            AuthFields: new[] { new AuthField("token", "Personal access token", "password", "ghp_… or a fine-grained github_pat_…") }),
     };
 
     public static CatalogEntry? Find(string id) => Entries.FirstOrDefault(e => e.Id == id);

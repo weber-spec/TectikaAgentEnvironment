@@ -152,11 +152,15 @@ public class RunAgentRoundActivity
             await _cosmos.PatchTaskPendingOutputsAsync(input.BoardId, input.TaskId, task.PendingOutputs, ct);
         }
 
+        // Effective integration connections = tenant connections referenced by the agent AND enabled on the board.
+        var tenantConnections = await _cosmos.GetConnectionsAsync(input.TenantId, ct);
+        var effectiveConnections = TectikaAgents.AgentRuntime.Mcp.ConnectionResolver.Effective(role, board, tenantConnections);
+
         var outcome = await runtime.RunRoundAsync(
             new RoundRequest(role, task, threadId, userInput, input.PendingToolOutputs, _maxCompletionTokens, input.RunId, input.Round)
             {
                 BoardGitHub = board.GitHub,
-                BoardMcp = board.McpConnections,
+                Connections = effectiveConnections,
                 Workspace = useWorkspace
                     ? new RunWorkspaceProvider(_cosmos, _workspace, _snapshots, _secrets, board, input.RunId, input.TaskId, role.Permissions.CanPushCode, _logger)
                     : null,

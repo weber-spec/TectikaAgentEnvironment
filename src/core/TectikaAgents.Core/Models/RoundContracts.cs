@@ -18,7 +18,7 @@ public sealed record RoundRequest(
     int Round,
     GitHubRepoConnection? BoardGitHub = null,
     TectikaAgents.Core.Interfaces.IWorkspaceProvider? Workspace = null,
-    IReadOnlyList<McpConnection>? BoardMcp = null);
+    IReadOnlyList<Connection>? Connections = null);
 
 /// <summary>A function_call_output to submit on the next round (call_id + the tool's result text).</summary>
 public sealed record PriorToolOutput(string CallId, string Output);
