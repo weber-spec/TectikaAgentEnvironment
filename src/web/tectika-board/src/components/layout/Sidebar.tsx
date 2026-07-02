@@ -47,8 +47,8 @@ const NAV_MAIN: NavItem[] = [
     labelKey: 'connections',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-        <path d="M9 12a3 3 0 0 0 3 3h1a3 3 0 0 0 0-6h-1" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-        <path d="M15 12a3 3 0 0 0-3-3h-1a3 3 0 0 0 0 6h1" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+        <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
       </svg>
     ),
   },
