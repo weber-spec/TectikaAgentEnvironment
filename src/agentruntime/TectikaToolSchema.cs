@@ -9,7 +9,7 @@ namespace TectikaAgents.AgentRuntime;
 /// whenever the toolset changes so AgentInstructionsHash republishes agent versions.</summary>
 public static class TectikaToolSchema
 {
-    public const string Version = "tools-v11";  // was tools-v10 — added read_team_notes
+    public const string Version = "tools-v12";  // was tools-v11 — declare_output content = the deliverable itself, not a description
 
     public sealed record ToolProp(string Type, string? Description = null, string[]? Enum = null);
     public sealed record ToolDef(
@@ -49,9 +49,9 @@ public static class TectikaToolSchema
             new Dictionary<string, ToolProp> { ["description"] = new("string", "The specific action needing approval.") }, ["description"]),
         new("request_revision", "(QA/validator agents) Signal that an upstream task must be re-run with fixes.",
             new Dictionary<string, ToolProp> { ["reason"] = new("string", "What must be fixed.") }, ["reason"]),
-        new("declare_output", "Register a finished DELIVERABLE for this task — what the user and downstream tasks receive. `content` describes the deliverable; if it is, or includes, files you wrote in the workspace, list their paths in `files` so they are linked on the record (downstream tasks read this record and open the linked files — they do NOT pull from your private run branch). Call once per real product of your work. Do NOT call it for exploration, debugging, or fix-up steps. Returns the output's id; pass that id to update_output or remove_output to revise it later this session.",
+        new("declare_output", "Register a finished DELIVERABLE for this task — what the user and downstream tasks receive. What goes in `content` depends on the deliverable's kind: (1) TEXT deliverable (a report, list, answer, analysis, spec, plan): `content` IS that text, IN FULL — exactly what the user reads. Never a description of it, a bare summary, or a 'see the file' pointer, and do NOT dump it into a workspace file. (2) CODE/FILES deliverable: the files ARE the deliverable — list their workspace paths in `files` (downstream opens them from the merged base branch, not your private run branch), and use `content` for a CONCISE OVERVIEW of what you built and how to use it (not the file contents). Call once per real product of your work. Do NOT call it for exploration, debugging, or fix-up steps. Returns the output's id; pass that id to update_output or remove_output to revise it later this session.",
             new Dictionary<string, ToolProp> {
-                ["content"] = new("string", "A description/summary of the deliverable — what it is and where it lives."),
+                ["content"] = new("string", "For a TEXT deliverable: the COMPLETE text the user reads (the full report/list/answer), not a description of it. For a CODE/FILES deliverable (paths go in `files`): a concise overview of what was built and how to use it."),
                 ["label"] = new("string", "Short label, e.g. 'Itinerary' or 'API spec'."),
                 ["contentType"] = new("string", "Content format (default Markdown).", new[] { "Markdown", "Json", "Data", "Code" }),
                 ["files"] = new("array", "Workspace-relative paths of the files this deliverable produced, e.g. ['docs/Plan.md','src/Game/Map.cs']. They become clickable links on the record."),

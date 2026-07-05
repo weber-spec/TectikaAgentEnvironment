@@ -246,14 +246,12 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   const lastEditRef = useRef(0);
   const failCountRef = useRef(0);  // QA §4.1: consecutive live-poll failures, to debounce the "reconnecting" flicker
 
-  // run phase — tracks spinner/status-dot state for the Run Board button
-  const [runPhase, setRunPhase] = useState<BoardRunPhase>(() => {
-    if (typeof window === 'undefined') return { kind: 'idle' };
-    try {
-      const saved = localStorage.getItem(`tectika:board:${boardId}:runPhase`);
-      return saved ? (JSON.parse(saved) as BoardRunPhase) : { kind: 'idle' };
-    } catch { return { kind: 'idle' }; }
-  });
+  // run phase — tracks spinner/status-dot state for the Run Board button.
+  // Start idle on BOTH the server and the first client render — reading localStorage in the initializer would
+  // make the client's first render differ from the server HTML → React hydration mismatch. The persisted
+  // phase is restored in an effect after mount (see the restore effect below).
+  const [runPhase, setRunPhase] = useState<BoardRunPhase>({ kind: 'idle' });
+  const runPhaseHydrated = useRef(false);
 
   // ── load ────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -319,10 +317,25 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   }, [cfg, boardId]);
 
   // ── persist runPhase ──────────────────────────────────────────────────────────
+  // Guarded on runPhaseHydrated so the initial (deterministic) idle doesn't clobber the saved value before
+  // the restore effect below has run. On mount this effect returns early (not yet hydrated); after restore
+  // flips the flag and updates state, it persists normally.
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (!runPhaseHydrated.current || typeof window === 'undefined') return;
     try { localStorage.setItem(`tectika:board:${boardId}:runPhase`, JSON.stringify(runPhase)); } catch { /* quota */ }
   }, [boardId, runPhase]);
+
+  // ── restore persisted runPhase after mount (kept out of the initializer to avoid a hydration mismatch) ──
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`tectika:board:${boardId}:runPhase`);
+      if (saved) setRunPhase(JSON.parse(saved) as BoardRunPhase);
+    } catch { /* ignore */ }
+    runPhaseHydrated.current = true;
+    // On board switch, clear the flag before the persist effect re-runs so a stale phase isn't written to the
+    // new board's key (the cleanup runs before the next commit's effects).
+    return () => { runPhaseHydrated.current = false; };
+  }, [boardId]);
 
   // ── resolve the Run Board phase from live task/run state ──────────────────────
   // Authoritative reconciliation for the spinner: a batch task is still "live" while
