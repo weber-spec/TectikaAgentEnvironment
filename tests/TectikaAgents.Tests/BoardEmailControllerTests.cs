@@ -27,15 +27,20 @@ public class BoardEmailControllerTests
         public Task DeleteAsync(string apiKey, string id, CancellationToken ct) => Task.CompletedTask;
     }
 
-    private static (BoardEmailController ctrl, FakeCosmosForBoardMcp cosmos, FakeSecretProvider secrets, string boardId) Build(FakeDomains domains, bool withEmail = true)
+    private static (BoardEmailController ctrl, FakeCosmosForBoard cosmos, FakeSecretProvider secrets, string boardId) Build(FakeDomains domains, bool withEmail = true)
     {
-        var cosmos = new FakeCosmosForBoardMcp();
+        var cosmos = new FakeCosmosForBoard();
         var secrets = new FakeSecretProvider();
         var board = cosmos.CreateBoardAsync(new Board { TenantId = "t1", Name = "B", OwnerId = "eli" }).Result;
         if (withEmail)
         {
             secrets.Store["sec1"] = "re_key";
-            board.McpConnections.Add(new McpConnection { CatalogId = "email", SecretName = "sec1", Status = McpConnectionStatus.Connected });
+            cosmos.UpsertConnectionAsync(new Connection
+            {
+                Id = "conn-email", TenantId = "t1", CatalogId = "email", Category = "agent-tool",
+                SecretName = "sec1", Status = ConnectionStatus.Connected,
+            }).Wait();
+            board.Connections.Add(new BoardConnectionBinding { ConnectionId = "conn-email" });
             cosmos.UpdateBoardAsync(board).Wait();
         }
         var ctrl = new BoardEmailController(cosmos, secrets, domains);
@@ -80,8 +85,8 @@ public class BoardEmailControllerTests
         var (ctrl, cosmos, _, boardId) = Build(new FakeDomains());
         var res = await ctrl.SetFrom(boardId, new BoardEmailController.SetFromRequest("Agents <a@acme.com>"), CancellationToken.None);
         Assert.IsType<OkObjectResult>(res);
-        var board = await cosmos.GetBoardAsync("t1", boardId, CancellationToken.None);
-        Assert.Equal("Agents <a@acme.com>", board!.McpConnections.First(c => c.CatalogId == "email").DefaultFrom);
+        var conn = await cosmos.GetConnectionAsync("t1", "conn-email", CancellationToken.None);
+        Assert.Equal("Agents <a@acme.com>", conn!.Metadata["defaultFrom"]);
     }
 
     [Fact]

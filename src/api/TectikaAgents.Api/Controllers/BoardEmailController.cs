@@ -30,14 +30,18 @@ public class BoardEmailController : ControllerBase
 
     private string TenantId => User.FindFirst("tid")?.Value ?? "default";
 
-    private async Task<(Board board, McpConnection conn, string apiKey)?> ResolveAsync(string boardId, CancellationToken ct)
+    private async Task<(Connection conn, string apiKey)?> ResolveAsync(string boardId, CancellationToken ct)
     {
         var board = await _cosmos.GetBoardAsync(TenantId, boardId, ct);
-        var conn = board?.McpConnections.FirstOrDefault(c => c.CatalogId == "email" && c.Status == McpConnectionStatus.Connected);
-        if (board is null || conn is null) return null;
+        if (board is null) return null;
+        // The board's email connection = the enabled binding whose tenant connection is a Connected "email".
+        var enabled = board.Connections.Select(b => b.ConnectionId).ToHashSet();
+        var conns = await _cosmos.GetConnectionsAsync(TenantId, ct);
+        var conn = conns.FirstOrDefault(c => enabled.Contains(c.Id) && c.CatalogId == "email" && c.Status == ConnectionStatus.Connected);
+        if (conn is null) return null;
         var apiKey = await _secrets.GetSecretAsync(conn.SecretName, ct);
         if (string.IsNullOrEmpty(apiKey)) return null;
-        return (board, conn, apiKey);
+        return (conn, apiKey);
     }
 
     private IActionResult NoEmail() =>
@@ -99,8 +103,8 @@ public class BoardEmailController : ControllerBase
         if (!from.Contains('@')) return BadRequest(new { error = "InvalidFrom", detail = "Enter a valid email address." });
         var r = await ResolveAsync(boardId, ct);
         if (r is null) return NoEmail();
-        r.Value.conn.DefaultFrom = from;
-        await _cosmos.UpdateBoardAsync(r.Value.board, ct);
+        r.Value.conn.Metadata["defaultFrom"] = from;
+        await _cosmos.UpsertConnectionAsync(r.Value.conn, ct);
         return Ok(new { defaultFrom = from });
     }
 }

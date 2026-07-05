@@ -43,8 +43,10 @@ public class Board
     [JsonPropertyName("github")]
     public GitHubRepoConnection? GitHub { get; set; }
 
-    [JsonPropertyName("mcpConnections")]
-    public List<McpConnection> McpConnections { get; set; } = [];
+    /// <summary>Tenant connections enabled on this board (with per-board binding config, e.g. the GitHub repo).
+    /// A connection defined in the tenant registry is only usable by this board's agents once bound here.</summary>
+    [JsonPropertyName("connections")]
+    public List<BoardConnectionBinding> Connections { get; set; } = [];
 
     [JsonPropertyName("workspaceContainerName")]
     public string? WorkspaceContainerName { get; set; }
@@ -57,6 +59,14 @@ public class Board
 
     [JsonPropertyName("workspaceLastUsedAt")]
     public DateTimeOffset? WorkspaceLastUsedAt { get; set; }
+}
+
+/// <summary>Binds a tenant connection to a board (enables it) plus per-board config — e.g. for GitHub the
+/// selected repo ({ owner, repo, repoUrl }); empty for tools whose config is entirely on the connection.</summary>
+public class BoardConnectionBinding
+{
+    [JsonPropertyName("connectionId")] public string ConnectionId { get; set; } = string.Empty;
+    [JsonPropertyName("config")]       public Dictionary<string, string> Config { get; set; } = new();
 }
 
 public enum BoardWorkspaceStatus { None, Provisioning, Ready }

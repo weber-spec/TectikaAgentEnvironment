@@ -98,8 +98,31 @@ else
 builder.Services.AddSingleton<IGitHubToolExecutor, OctokitGitHubToolExecutor>();
 builder.Services.AddSingleton<TectikaAgents.Core.Interfaces.IMcpGateway, TectikaAgents.AgentRuntime.Mcp.McpGateway>();
 builder.Services.AddSingleton<TectikaAgents.AgentRuntime.Mcp.IFirstPartyConnector, TectikaAgents.AgentRuntime.Mcp.ResendEmailConnector>();
+builder.Services.AddSingleton<TectikaAgents.AgentRuntime.Mcp.IFirstPartyConnector, TectikaAgents.AgentRuntime.Mcp.SlackConnector>();
 builder.Services.AddSingleton<TectikaAgents.AgentRuntime.Mcp.IResendDomainsClient, TectikaAgents.AgentRuntime.Mcp.ResendDomainsClient>();
 builder.Services.AddSingleton<TectikaAgents.AgentRuntime.Mcp.McpToolExecutor>();
+
+// ── Board-tools MCP endpoint (for Claude Code agents) ────────────────────────
+// A streamable-HTTP MCP server that re-exposes the board tools (same source of truth as the
+// Foundry projection) to the `claude` CLI running in the workspace container. Needs real Cosmos
+// (WorkflowCosmosService + BoardProjectExplorer), so it's wired only in the non-mock path. Handlers
+// resolve the singleton BoardToolsMcp from the built provider (RequestContext exposes no DI); per-run
+// identity comes from the McpRun bearer token via IHttpContextAccessor.
+IServiceProvider? mcpSp = null;
+if (!useMockDatabase)
+{
+    builder.Services.AddHttpContextAccessor();
+    builder.Services.AddSingleton<TectikaAgents.Workflows.Services.WorkflowCosmosService>();
+    builder.Services.AddSingleton<TectikaAgents.Api.Mcp.BoardToolsMcp>();
+    builder.Services.AddAuthentication()
+        .AddScheme<AuthenticationSchemeOptions, TectikaAgents.Api.Mcp.McpRunAuthHandler>(
+            TectikaAgents.Api.Mcp.McpRunAuthHandler.SchemeName, null);
+    builder.Services.AddMcpServer()
+        .WithHttpTransport()
+        .WithListToolsHandler(async (req, ct) => await mcpSp!.GetRequiredService<TectikaAgents.Api.Mcp.BoardToolsMcp>().ListToolsAsync(req, ct))
+        .WithCallToolHandler(async (req, ct) => await mcpSp!.GetRequiredService<TectikaAgents.Api.Mcp.BoardToolsMcp>().CallToolAsync(req, ct));
+}
+
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<OctokitGitHubReadService>();
 builder.Services.AddSingleton<IGitHubReadService>(sp =>
@@ -140,6 +163,10 @@ else
     builder.Services.AddSingleton<IAgentProvisioner, FoundryAgentRuntime>();
     builder.Services.AddSingleton<IModelCatalog, FoundryModelCatalog>();
 }
+
+// Foundry project catalog (connections + deployments) for the Connections → Foundry tab. Degrades to empty
+// when Foundry isn't reachable, so it's safe to register in both mock and real modes.
+builder.Services.AddSingleton<TectikaAgents.AgentRuntime.FoundryConnectionsCatalog>();
 
 // ── SSE + Service Bus ────────────────────────────────────────────────────────
 builder.Services.AddSingleton<SseConnectionManager>();
@@ -208,6 +235,7 @@ builder.Services.AddCors(o => o.AddPolicy("NextJs", p =>
 }));
 
 var app = builder.Build();
+mcpSp = app.Services;   // MCP tool handlers resolve BoardToolsMcp (singleton) from the built provider
 
 // ── Ensure data layer is ready (real: create Cosmos containers; mock: no-op) ──
 using (var scope = app.Services.CreateScope())
@@ -258,5 +286,11 @@ app.UseAuthentication();
 app.UseMiddleware<TectikaAgents.Api.Middleware.RequestLoggingMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
+
+// Board-tools MCP endpoint — authenticated by the per-run McpRun bearer token (Claude Code only).
+if (!useMockDatabase)
+    app.MapMcp("/mcp").RequireAuthorization(
+        new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder(
+            TectikaAgents.Api.Mcp.McpRunAuthHandler.SchemeName).RequireAuthenticatedUser().Build());
 
 app.Run();

@@ -9,7 +9,7 @@ namespace TectikaAgents.AgentRuntime;
 /// whenever the toolset changes so AgentInstructionsHash republishes agent versions.</summary>
 public static class TectikaToolSchema
 {
-    public const string Version = "tools-v11";  // was tools-v10 — added read_team_notes
+    public const string Version = "tools-v12";  // was tools-v11 — declare_output content = the deliverable itself, not a description
 
     public sealed record ToolProp(string Type, string? Description = null, string[]? Enum = null);
     public sealed record ToolDef(
@@ -49,9 +49,9 @@ public static class TectikaToolSchema
             new Dictionary<string, ToolProp> { ["description"] = new("string", "The specific action needing approval.") }, ["description"]),
         new("request_revision", "(QA/validator agents) Signal that an upstream task must be re-run with fixes.",
             new Dictionary<string, ToolProp> { ["reason"] = new("string", "What must be fixed.") }, ["reason"]),
-        new("declare_output", "Register a finished DELIVERABLE for this task — what the user and downstream tasks receive. `content` describes the deliverable; if it is, or includes, files you wrote in the workspace, list their paths in `files` so they are linked on the record (downstream tasks read this record and open the linked files — they do NOT pull from your private run branch). Call once per real product of your work. Do NOT call it for exploration, debugging, or fix-up steps. Returns the output's id; pass that id to update_output or remove_output to revise it later this session.",
+        new("declare_output", "Register a finished DELIVERABLE for this task — what the user and downstream tasks receive. What goes in `content` depends on the deliverable's kind: (1) TEXT deliverable (a report, list, answer, analysis, spec, plan): `content` IS that text, IN FULL — exactly what the user reads. Never a description of it, a bare summary, or a 'see the file' pointer, and do NOT dump it into a workspace file. (2) CODE/FILES deliverable: the files ARE the deliverable — list their workspace paths in `files` (downstream opens them from the merged base branch, not your private run branch), and use `content` for a CONCISE OVERVIEW of what you built and how to use it (not the file contents). Call once per real product of your work. Do NOT call it for exploration, debugging, or fix-up steps. Returns the output's id; pass that id to update_output or remove_output to revise it later this session.",
             new Dictionary<string, ToolProp> {
-                ["content"] = new("string", "A description/summary of the deliverable — what it is and where it lives."),
+                ["content"] = new("string", "For a TEXT deliverable: the COMPLETE text the user reads (the full report/list/answer), not a description of it. For a CODE/FILES deliverable (paths go in `files`): a concise overview of what was built and how to use it."),
                 ["label"] = new("string", "Short label, e.g. 'Itinerary' or 'API spec'."),
                 ["contentType"] = new("string", "Content format (default Markdown).", new[] { "Markdown", "Json", "Data", "Code" }),
                 ["files"] = new("array", "Workspace-relative paths of the files this deliverable produced, e.g. ['docs/Plan.md','src/Game/Map.cs']. They become clickable links on the record."),
@@ -166,11 +166,72 @@ public static class TectikaToolSchema
             ["pattern"]),
     ];
 
+    // Board tools exposed to a Claude Code agent over MCP (a subset of Definitions + the role's MCP
+    // integrations). Excludes workspace file tools + GitHub (claude has native tools and a real git
+    // worktree) and the control tools (human-input/approval/revision — they need orchestrator
+    // pause/resume that a single autonomous claude round can't do; see plan phase 3).
+    private static readonly HashSet<string> McpBoardToolNames = new(StringComparer.Ordinal)
+    {
+        "get_board_overview", "search_tasks", "get_task", "get_artifact", "read_team_notes",
+        "update_brief", "declare_output", "update_output", "remove_output",
+    };
+
+    /// <summary>The board tools a Claude Code agent gets over the `tectika` MCP server — SAME source of
+    /// truth as the Foundry projection. Board reads + output/brief writes, plus the role's opted-in MCP
+    /// integration tools (read tools when enabled, write tools when also write-opted-in).</summary>
+    public static IReadOnlyList<ToolDef> McpBoardTools(AgentRole role)
+    {
+        var tools = Definitions.Where(d => McpBoardToolNames.Contains(d.Name)).ToList();
+
+        var writeSet = new HashSet<string>(
+            role.Connections.Where(c => c.WriteEnabled).Select(c => c.CatalogId), StringComparer.Ordinal);
+        foreach (var catalogId in role.Connections.Select(c => c.CatalogId).Distinct())
+        {
+            var entry = McpCatalog.Find(catalogId);
+            if (entry is null) continue;
+            var allowWrite = writeSet.Contains(catalogId);
+            foreach (var t in entry.Tools)
+            {
+                if (t.IsWrite && !allowWrite) continue;
+                tools.Add(new ToolDef(McpToolNaming.Qualify(catalogId, t.Name), t.Description, t.Properties, t.Required));
+            }
+        }
+        return tools;
+    }
+
+    // Names of the read-only Explore tools (the rest of Definitions are Control/output tools).
+    private static readonly HashSet<string> ExploreNames = new(StringComparer.Ordinal)
+    { "get_board_overview", "search_tasks", "get_task", "get_artifact", "read_team_notes" };
+
+    /// <summary>A board tool described for the Tools catalog UI: which group it belongs to, what gates it
+    /// (workspace / GitHub-read permission), and whether it may be globally disabled (core Explore/Control
+    /// tools are the platform's spine and are never lockable).</summary>
+    public sealed record ToolDescriptor(
+        string Name, string Description, string Group,
+        bool RequiresWorkspace, bool RequiresGithubRead, bool Lockable);
+
+    /// <summary>Flatten every board tool (Explore/Control + Workspace + GitHub) into descriptors for the Tools
+    /// page — the single source of truth, so the catalog never drifts from what agents actually get.</summary>
+    public static IReadOnlyList<ToolDescriptor> Describe()
+    {
+        var list = new List<ToolDescriptor>();
+        foreach (var d in Definitions)
+            list.Add(new(d.Name, d.Description, ExploreNames.Contains(d.Name) ? "Explore" : "Control",
+                RequiresWorkspace: false, RequiresGithubRead: false, Lockable: false));
+        list.Add(new(RunCommandTool.Name, RunCommandTool.Description, "Workspace", true, false, true));
+        foreach (var d in FileTools)
+            list.Add(new(d.Name, d.Description, "Workspace", true, false, true));
+        foreach (var (def, _) in GitHubTools)
+            list.Add(new(def.Name, def.Description, "GitHub", false, true, true));
+        return list;
+    }
+
     /// <summary>Project the catalog into the Foundry flat function-tool array (definition.tools).
     /// Workspace permission (layer 1) controls run_command and cascades GitHub read access.
     /// GitHub permissions (layer 2) are honoured only for agents without workspace access.</summary>
     public static IReadOnlyList<object> ToFoundryToolsJson(AgentPermissions permissions, GitHubPermissions? github = null,
-        IReadOnlyList<string>? mcpEnabled = null, IReadOnlyList<string>? mcpWriteEnabled = null)
+        IReadOnlyList<string>? mcpEnabled = null, IReadOnlyList<string>? mcpWriteEnabled = null,
+        IReadOnlyList<string>? foundryTools = null)
     {
         var tools = Definitions.Select(d => (object)ToFoundryTool(d)).ToList();
 
@@ -206,8 +267,20 @@ public static class TectikaToolSchema
                 }
             }
         }
+        // Foundry built-in tools (layer 4): typed tool objects, not function tools. Only the agent-selectable
+        // subset is emitted. NOTE: the exact wire shape for grounding tools must be validated against the live
+        // Foundry Agent Service — web_search maps to bing_grounding, which may additionally require a
+        // connection_id from a Bing grounding project connection; if so, enabling it without that connection
+        // will fail provisioning (surfaced as a non-fatal sync error).
+        if (foundryTools is not null)
+            foreach (var id in foundryTools.Where(FoundryBuiltInTools.AgentSelectable.Contains).Distinct())
+                tools.Add(new FoundryBuiltInToolJson(id == "web_search" ? "bing_grounding" : id));
+
         return tools;
     }
+
+    // Foundry built-in tool wire shape: a typed tool object, e.g. { "type": "code_interpreter" }.
+    private sealed record FoundryBuiltInToolJson([property: JsonPropertyName("type")] string Type);
 
     private static FoundryTool ToFoundryTool(ToolDef d) => new(
         "function", d.Name, d.Description,

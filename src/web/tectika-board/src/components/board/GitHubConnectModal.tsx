@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Modal } from '@/components/ui/overlays';
 import { Button } from '@/components/ui/primitives';
 import { api, ApiError } from '@/lib/api';
-import type { Board } from '@/lib/types';
+import type { Board, Connection } from '@/lib/types';
 import { toast } from '@/lib/toast';
 
 // Inline GitHub Octocat mark (monochrome SVG)
@@ -46,17 +46,28 @@ interface Props {
 export function GitHubConnectModal({ board, onClose, onUpdated }: Props) {
   const connected = board.github;
   const [repoUrl, setRepoUrl] = useState(connected?.repoUrl ?? '');
-  const [pat, setPat] = useState('');
+  const [ghConns, setGhConns] = useState<Connection[]>([]);
+  const [connectionId, setConnectionId] = useState('');
   const [saving, setSaving] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    api.connections.list()
+      .then(cs => {
+        const gh = cs.filter(c => c.catalogId === 'github');
+        setGhConns(gh);
+        if (gh.length === 1) setConnectionId(gh[0].id);   // default to the only one
+      })
+      .catch(() => setGhConns([]));
+  }, []);
+
   const handleConnect = async () => {
-    if (!repoUrl.trim()) return;
+    if (!repoUrl.trim() || !connectionId) return;
     setSaving(true);
     setError(null);
     try {
-      const updated = await api.boards.connectGitHub(board.id, repoUrl.trim(), pat);
+      const updated = await api.boards.connectGitHub(board.id, connectionId, repoUrl.trim());
       onUpdated(updated);
       toast('GitHub repo connected', 'success');
       onClose();
@@ -107,7 +118,7 @@ export function GitHubConnectModal({ board, onClose, onUpdated }: Props) {
           </div>
           <div className="flex gap-2">
             <Button onClick={onClose} disabled={saving || disconnecting}>Cancel</Button>
-            <Button variant="primary" onClick={handleConnect} disabled={saving || disconnecting || !repoUrl.trim()}>
+            <Button variant="primary" onClick={handleConnect} disabled={saving || disconnecting || !repoUrl.trim() || !connectionId}>
               {saving ? 'Connecting…' : connected ? 'Update' : 'Connect'}
             </Button>
           </div>
@@ -139,18 +150,30 @@ export function GitHubConnectModal({ board, onClose, onUpdated }: Props) {
 
         <label className="block">
           <span className="text-[11px] uppercase tracking-wide text-[var(--muted)] font-semibold">
-            Personal Access Token
+            GitHub connection
           </span>
-          <input
-            className="inp mt-1 w-full"
-            type="password"
-            placeholder={connected ? 'Leave blank to keep existing token' : 'ghp_…'}
-            value={pat}
-            onChange={e => setPat(e.target.value)}
-          />
-          <p className="text-[11px] text-[var(--muted)] mt-1">
-            Token needs <code>repo</code> scope. Stored securely in Azure Key Vault.
-          </p>
+          {ghConns.length === 0 ? (
+            <p className="text-[12px] text-[var(--muted)] mt-1">
+              No GitHub connection yet. Create one on the{' '}
+              <a href="/connections" className="underline text-[var(--primary)]">Connections</a> page (its token is
+              shared across boards), then pick the repo here.
+            </p>
+          ) : (
+            <>
+              <select
+                className="inp mt-1 w-full"
+                value={connectionId}
+                onChange={e => { setConnectionId(e.target.value); setError(null); }}
+              >
+                <option value="">Select a GitHub connection…</option>
+                {ghConns.map(c => <option key={c.id} value={c.id}>{c.displayName}</option>)}
+              </select>
+              <p className="text-[11px] text-[var(--muted)] mt-1">
+                The token lives on the connection. Manage tokens on the{' '}
+                <a href="/connections" className="underline text-[var(--primary)]">Connections</a> page.
+              </p>
+            </>
+          )}
         </label>
       </div>
     </Modal>

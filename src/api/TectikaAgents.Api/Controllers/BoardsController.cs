@@ -90,8 +90,7 @@ public class BoardsController : ControllerBase
     public async Task<IActionResult> ConnectGitHub(string boardId,
         [FromBody] ConnectGitHubRequest req, CancellationToken ct)
     {
-        // NB: never log req.Pat — it is a GitHub personal access token.
-        _logger.LogInformation("[GitHubConnect] board {BoardId} repo {RepoUrl} by {UserId}", boardId, req.RepoUrl, UserId);
+        _logger.LogInformation("[GitHubConnect] board {BoardId} repo {RepoUrl} conn {ConnId} by {UserId}", boardId, req.RepoUrl, req.ConnectionId, UserId);
 
         var board = await _cosmos.GetBoardAsync(TenantId, boardId, ct);
         if (board is null)
@@ -99,6 +98,11 @@ public class BoardsController : ControllerBase
             _logger.LogWarning("[GitHubConnect] board {BoardId} not found", boardId);
             return NotFound();
         }
+
+        // The PAT lives in the tenant GitHub connection; the board references its Key Vault secret.
+        var connection = await _cosmos.GetConnectionAsync(TenantId, req.ConnectionId, ct);
+        if (connection is null || connection.CatalogId != "github")
+            return BadRequest(new { error = "UnknownConnection", detail = "Select a GitHub connection from the Connections page." });
 
         // Parse owner/repo from URL (https://github.com/owner/repo)
         if (!Uri.TryCreate(req.RepoUrl?.TrimEnd('/'), UriKind.Absolute, out var uri))
@@ -123,27 +127,22 @@ public class BoardsController : ControllerBase
             return Conflict(new { error = $"Repository {parts[0]}/{normalizedRepo} is already connected to board \"{conflict.Name}\". A repository can be connected to only one board." });
         }
 
-        var secretName = $"github-pat-board-{boardId}";
-        if (!string.IsNullOrEmpty(req.Pat))
-        {
-            try
-            {
-                await _secrets.SetSecretAsync(secretName, req.Pat, ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[GitHubConnect] failed to store PAT secret {SecretName} for board {BoardId}", secretName, boardId);
-                throw;
-            }
-        }
-
+        // Reference the connection's secret directly — no board-scoped PAT copy.
         board.GitHub = new GitHubRepoConnection
         {
             RepoUrl = req.RepoUrl,
             Owner = parts[0],
             Repo = normalizedRepo,
-            PatSecretName = secretName
+            PatSecretName = connection.SecretName,
         };
+        // Record the binding on the board's connection list too (so it appears enabled with its repo config).
+        var binding = board.Connections.FirstOrDefault(b => b.ConnectionId == connection.Id);
+        if (binding is null)
+        {
+            binding = new BoardConnectionBinding { ConnectionId = connection.Id };
+            board.Connections.Add(binding);
+        }
+        binding.Config = new() { ["owner"] = parts[0], ["repo"] = normalizedRepo, ["repoUrl"] = req.RepoUrl };
 
         try
         {
@@ -153,7 +152,7 @@ public class BoardsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[GitHubConnect] failed to persist board {BoardId} after storing PAT secret {SecretName}", boardId, secretName);
+            _logger.LogError(ex, "[GitHubConnect] failed to persist board {BoardId} (conn {ConnId})", boardId, req.ConnectionId);
             throw;
         }
     }
@@ -169,6 +168,9 @@ public class BoardsController : ControllerBase
             _logger.LogWarning("[GitHubDisconnect] board {BoardId} not found", boardId);
             return NotFound();
         }
+        // Clear the repo binding; the tenant connection + its shared PAT secret are left intact.
+        if (board.GitHub is not null)
+            board.Connections.RemoveAll(b => b.Config.GetValueOrDefault("repoUrl") == board.GitHub!.RepoUrl);
         board.GitHub = null;
 
         try
@@ -250,6 +252,8 @@ public class BoardsController : ControllerBase
 
 public record CreateBoardRequest(string Name, string? Description);
 public record UpdateBoardRequest(string Name, string? Description);
-public record ConnectGitHubRequest(string RepoUrl, string Pat);
+/// <summary>Connect a repo to a board by selecting a tenant GitHub connection (holds the PAT) + the repo URL.
+/// The board references the connection's Key Vault secret rather than storing its own PAT.</summary>
+public record ConnectGitHubRequest(string ConnectionId, string RepoUrl);
 public record ResetBoardRequest(bool ClearRepo);
 public record CloneBoardRequest(string? Name, bool IncludeData);

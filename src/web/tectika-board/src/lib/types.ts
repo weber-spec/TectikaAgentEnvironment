@@ -60,20 +60,6 @@ export interface GitHubPermissions {
   canRead: boolean;
 }
 
-export type McpConnectionStatus = 'Connected' | 'Error' | 'Disconnected';
-
-/** A per-board MCP integration connection (mirrors C# McpConnection). */
-export interface McpConnection {
-  connectionId: string;
-  catalogId: string;
-  displayName: string;
-  secretName: string;
-  status: McpConnectionStatus;
-  lastValidatedAt?: string | null;
-  createdBy?: string | null;
-  createdAt: string;
-  defaultFrom?: string;
-}
 
 export interface ResendDnsRecord { record?: string; name: string; type: string; ttl?: string; status?: string; value: string; priority?: number; }
 export interface ResendDomain { id: string; name: string; status: string; records?: ResendDnsRecord[]; }
@@ -89,6 +75,83 @@ export interface McpCatalogEntry {
   writeToolCount: number;
 }
 
+// ── Connections (tenant-level registry) ──────────────────────────────────────
+
+export type ConnectionStatus = 'Connected' | 'Error' | 'Disconnected';
+export type ConnectionScope = 'Organization' | 'Private';
+/** Catalog category buckets (mirror C# ConnectionCategory). */
+export type ConnectionCategory = 'model' | 'agent-tool' | 'source-control';
+
+/** One credential input a catalog entry requires (mirrors C# AuthField). */
+export interface ConnectionAuthField {
+  name: string;
+  label: string;
+  type: string;   // e.g. 'password' | 'text'
+  hint: string;
+  secret: boolean;
+}
+
+/** GET /api/connections/catalog item — the "Available" gallery projection. */
+export interface ConnectionCatalogEntry {
+  id: string;
+  displayName: string;
+  description: string;
+  category: ConnectionCategory;
+  iconKey: string;
+  helpUrl?: string | null;
+  supportsMultiple: boolean;
+  authFields: ConnectionAuthField[];
+  readToolCount: number;
+  writeToolCount: number;
+}
+
+/** A tenant-level connection instance (mirrors C# Connection). */
+export interface Connection {
+  id: string;
+  tenantId: string;
+  catalogId: string;
+  category: ConnectionCategory | string;
+  displayName: string;
+  secretName: string;
+  status: ConnectionStatus;
+  lastValidatedAt?: string | null;
+  createdBy?: string | null;
+  createdAt: string;
+  metadata: Record<string, string>;
+  isSystem: boolean;
+  scope: ConnectionScope;
+}
+
+// ── Tools catalog (the Tools page: capabilities + global enable/disable) ──────
+export type ToolSource = 'board' | 'foundry' | 'integration';
+export interface ToolItem {
+  toolId: string;
+  name: string;
+  description: string;
+  source: ToolSource;
+  group: string;
+  enabled: boolean;
+  lockable: boolean;      // false = core tool, always on (no toggle)
+  needsSetup: boolean;    // board: needs workspace/GitHub · foundry: needs a project connection · integration: no connection yet
+  iconKey?: string | null;
+  isWrite?: boolean | null;
+  connectionCatalogId?: string | null;
+}
+export interface ToolsCatalog {
+  board: ToolItem[];
+  foundry: ToolItem[];
+  integration: ToolItem[];
+}
+
+/** POST /api/connections body. */
+export interface CreateConnectionInput {
+  catalogId: string;
+  displayName?: string;
+  scope?: ConnectionScope;
+  secrets?: Record<string, string>;
+  metadata?: Record<string, string>;
+}
+
 export interface Board {
   id: string;
   tenantId: string;
@@ -98,11 +161,18 @@ export interface Board {
   columns: string[];
   createdAt: string;
   github?: GitHubRepoConnection | null;
-  mcpConnections?: McpConnection[];
+  /** Tenant connections enabled on this board (+ per-board binding config, e.g. the GitHub repo). */
+  connections?: BoardConnectionBinding[];
   workspaceContainerName?: string | null;
   workspaceEndpoint?: string | null;
   workspaceStatus?: 'None' | 'Provisioning' | 'Ready';
   workspaceLastUsedAt?: string | null;
+}
+
+/** Binds a tenant connection to a board (enables it) + per-board config (mirrors C# BoardConnectionBinding). */
+export interface BoardConnectionBinding {
+  connectionId: string;
+  config: Record<string, string>;
 }
 
 export type WorkspaceAzureState = 'NotFound' | 'Provisioning' | 'Running' | 'Stopped' | 'Failed' | 'Unknown';
@@ -214,11 +284,20 @@ export interface AgentRole {
   tenantId: string;
   displayName: string;
   systemPrompt: string;
+  executionEngine?: ExecutionEngine;
+  /** How a ClaudeCode role authenticates: pay-as-you-go API key, or a Pro/Max subscription OAuth token. */
+  claudeAuth?: ClaudeAuthMode;
+  /** Key Vault secret name for the Claude credential (ClaudeCode engine). The value is never returned. */
+  apiKeySecretName?: string | null;
   foundryAgentId?: string | null;
   foundryAgentHash?: string | null;
   tools: string[];
-  mcpServers: string[];
-  mcpWriteEnabled: string[];
+  /** Tenant connections (agent-tool category) this role may use; catalogId is denormalized on each ref. */
+  connections: AgentConnectionRef[];
+  /** The tenant "model" connection powering this role (Foundry system / Anthropic). Forward-looking. */
+  modelConnectionId?: string | null;
+  /** Foundry built-in tool ids this role enables (Foundry engine only), e.g. ["code_interpreter"]. */
+  foundryTools?: string[];
   permissions: AgentPermissions;
   escalateTo?: string;
   modelOverride?: string;
@@ -226,6 +305,16 @@ export interface AgentRole {
   createdAt?: string;
   updatedAt?: string;
 }
+
+/** An agent's reference to a tenant connection + write opt-in (mirrors C# AgentConnectionRef). */
+export interface AgentConnectionRef {
+  connectionId: string;
+  catalogId: string;
+  writeEnabled: boolean;
+}
+
+export type ExecutionEngine = 'Foundry' | 'ClaudeCode';
+export type ClaudeAuthMode = 'ApiKey' | 'OAuthToken';
 
 /** Response shape from POST /api/agentroles (upsert). */
 export interface AgentUpsertResult {

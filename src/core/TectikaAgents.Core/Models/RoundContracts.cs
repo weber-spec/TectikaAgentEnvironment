@@ -18,7 +18,7 @@ public sealed record RoundRequest(
     int Round,
     GitHubRepoConnection? BoardGitHub = null,
     TectikaAgents.Core.Interfaces.IWorkspaceProvider? Workspace = null,
-    IReadOnlyList<McpConnection>? BoardMcp = null);
+    IReadOnlyList<Connection>? Connections = null);
 
 /// <summary>A function_call_output to submit on the next round (call_id + the tool's result text).</summary>
 public sealed record PriorToolOutput(string CallId, string Output);
@@ -42,4 +42,5 @@ public sealed record RoundOutcome(
     string CompletionId,
     string? Error = null,
     IReadOnlyList<OutputOp>? OutputOps = null,
-    RunFailureClass? FailureClass = null);   // set alongside Error so the failure CLASS (not the raw text) drives the user message
+    RunFailureClass? FailureClass = null,    // set alongside Error so the failure CLASS (not the raw text) drives the user message
+    decimal? CostUsd = null);                // authoritative run cost when the engine reports it (Claude Code total_cost_usd); overrides the pricing catalog

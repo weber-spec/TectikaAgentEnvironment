@@ -87,6 +87,7 @@ builder.Services.AddSingleton<IWorkspaceSnapshotStore, BlobWorkspaceSnapshotStor
 builder.Services.AddSingleton<WorkspaceToolExecutor>();
 builder.Services.AddSingleton<TectikaAgents.Core.Interfaces.IMcpGateway, TectikaAgents.AgentRuntime.Mcp.McpGateway>();
 builder.Services.AddSingleton<TectikaAgents.AgentRuntime.Mcp.IFirstPartyConnector, TectikaAgents.AgentRuntime.Mcp.ResendEmailConnector>();
+builder.Services.AddSingleton<TectikaAgents.AgentRuntime.Mcp.IFirstPartyConnector, TectikaAgents.AgentRuntime.Mcp.SlackConnector>();
 builder.Services.AddSingleton<TectikaAgents.AgentRuntime.Mcp.McpToolExecutor>();
 
 // ── Agent runtime (Foundry or Mock) ──────────────────────────────────────────
@@ -102,9 +103,17 @@ else
 {
     builder.Services.AddTransient<IAgentRuntime, FoundryAgentRuntime>();
     builder.Services.AddTransient<IAgentProvisioner, FoundryAgentRuntime>();
+    // Claude Code engine: a second runtime selected per-role by the factory. Transient for the same
+    // per-call OnText reason as FoundryAgentRuntime. Not registered in mock mode → factory falls back
+    // to the mock runtime for ClaudeCode roles too.
+    builder.Services.AddTransient<ClaudeCodeAgentRuntime>();
 }
 
+// Resolves the runtime per role.ExecutionEngine (Foundry vs Claude Code).
+builder.Services.AddTransient<IAgentRuntimeFactory, AgentRuntimeFactory>();
+
 builder.Services.AddScoped<ContextManager>();
+builder.Services.AddTransient<RunCompactionService>();
 builder.Services.AddHttpClient();
 
 // ── OpenTelemetry ─────────────────────────────────────────────────────────────

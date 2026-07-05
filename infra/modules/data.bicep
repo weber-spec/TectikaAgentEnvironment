@@ -37,6 +37,8 @@ var containers = [
   { name: 'boards', pk: '/tenantId' }
   { name: 'tasks', pk: '/boardId' }
   { name: 'agentRoles', pk: '/tenantId' }
+  { name: 'connections', pk: '/tenantId' }
+  { name: 'toolPolicies', pk: '/tenantId' }
   { name: 'workflowRuns', pk: '/taskId' }
   { name: 'artifacts', pk: '/taskId' }
   { name: 'humanInteractions', pk: '/runId' }

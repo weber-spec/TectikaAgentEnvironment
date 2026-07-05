@@ -2,94 +2,93 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/primitives';
+import { BrandIcon } from '@/components/ui/brand-icons';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
-import type { McpCatalogEntry, McpConnection } from '@/lib/types';
-import { McpConnectModal } from './McpConnectModal';
+import type { Connection, ConnectionCatalogEntry } from '@/lib/types';
 import { EmailDomainsPanel } from './EmailDomainsPanel';
 
+/// Board integrations = enabling tenant connections for this board. Credentials live in the tenant registry
+/// (Connections page); here a board owner chooses which of them this board's agents may use.
 export function McpIntegrationsTab({ boardId }: { boardId: string }) {
-  const [catalog, setCatalog] = useState<McpCatalogEntry[] | null>(null);
-  const [connections, setConnections] = useState<McpConnection[]>([]);
-  const [connecting, setConnecting] = useState<McpCatalogEntry | null>(null);
+  const [conns, setConns] = useState<Connection[] | null>(null);
+  const [catMap, setCatMap] = useState<Record<string, ConnectionCatalogEntry>>({});
+  const [enabled, setEnabled] = useState<Set<string>>(new Set());
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const refreshConnections = useCallback(async () => {
-    try { setConnections(await api.mcp.connections(boardId)); } catch { /* surfaced via toast on actions */ }
+  const load = useCallback(async () => {
+    try {
+      const [all, cat, bindings] = await Promise.all([
+        api.connections.list(), api.connections.catalog(), api.boardConnections.list(boardId),
+      ]);
+      setConns(all.filter(c => c.category === 'agent-tool'));
+      setCatMap(Object.fromEntries(cat.map(c => [c.id, c])));
+      setEnabled(new Set(bindings.map(b => b.connectionId)));
+    } catch { setConns([]); }
   }, [boardId]);
 
-  useEffect(() => {
-    void api.mcp.catalog().then(setCatalog).catch(() => setCatalog([]));
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- refreshConnections only setState after an await (async), not synchronously
-    void refreshConnections();
-  }, [refreshConnections]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- load only setState after an await (async), not synchronously
+  useEffect(() => { void load(); }, [load]);
 
-  const disconnect = async (conn: McpConnection) => {
-    setBusyId(conn.connectionId);
+  const toggle = async (conn: Connection, on: boolean) => {
+    setBusyId(conn.id);
     try {
-      await api.mcp.disconnect(boardId, conn.connectionId);
-      toast('Disconnected', 'success');
-      await refreshConnections();
-    } catch { toast('Could not disconnect', 'error'); }
+      if (on) { await api.boardConnections.bind(boardId, conn.id); setEnabled(p => new Set(p).add(conn.id)); }
+      else { await api.boardConnections.unbind(boardId, conn.id); setEnabled(p => { const n = new Set(p); n.delete(conn.id); return n; }); }
+    } catch { toast('Could not update the board integration', 'error'); }
     finally { setBusyId(null); }
   };
 
-  if (catalog === null) return <p className="text-sm text-[var(--muted)]">Loading integrations…</p>;
+  if (conns === null) return <p className="text-sm text-[var(--muted)]">Loading integrations…</p>;
 
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm text-[var(--muted)]">
-        Connect external tools so agents on this board can use them. Connections are shared by the whole board;
-        actions run as the connected account. Enable an integration per-agent in the Agents editor.
+        Enable connections for this board. Define credentials once on the{' '}
+        <a href="/connections" className="underline text-[var(--primary)]">Connections</a> page; here you choose
+        which this board&apos;s agents may use. Actions run as the connected account.
       </p>
 
+      {conns.length === 0 && (
+        <p className="text-sm text-[var(--muted)]">
+          No tool connections defined yet. Create one on the{' '}
+          <a href="/connections" className="underline text-[var(--primary)]">Connections</a> page.
+        </p>
+      )}
+
       <div className="flex flex-col gap-2">
-        {catalog.map(entry => {
-          const conn = connections.find(c => c.catalogId === entry.id);
+        {conns.map(conn => {
+          const cat = catMap[conn.catalogId];
+          const on = enabled.has(conn.id);
           return (
-            <div key={entry.id} className="border border-[var(--border)] rounded-lg p-3">
+            <div key={conn.id} className="border border-[var(--border)] rounded-lg p-3">
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-[var(--foreground)]">{entry.displayName}</span>
-                    {conn && (
-                      conn.status === 'Connected'
-                        ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">connected</span>
-                        : <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-600 dark:text-red-400">error</span>
-                    )}
-                  </div>
-                  <div className="text-xs text-[var(--muted)] mt-0.5">{entry.description}</div>
-                  <div className="text-[11px] text-[var(--muted)] mt-0.5">
-                    {entry.readToolCount} read · {entry.writeToolCount} write {conn ? `· "${conn.displayName}"` : ''}
+                <div className="flex items-start gap-2 min-w-0">
+                  <BrandIcon name={cat?.iconKey ?? conn.catalogId} size={32} />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-[var(--foreground)]">{conn.displayName}</span>
+                      {on && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">enabled</span>}
+                    </div>
+                    <div className="text-xs text-[var(--muted)] mt-0.5">
+                      {cat?.displayName ?? conn.catalogId}
+                      {cat && <> · {cat.readToolCount} read · {cat.writeToolCount} write</>}
+                    </div>
                   </div>
                 </div>
                 <div className="shrink-0">
-                  {conn ? (
-                    <Button variant="danger" onClick={() => disconnect(conn)} disabled={busyId === conn.connectionId}>
-                      {busyId === conn.connectionId ? 'Disconnecting…' : 'Disconnect'}
-                    </Button>
-                  ) : (
-                    <Button variant="primary" onClick={() => setConnecting(entry)}>Connect</Button>
-                  )}
+                  <Button variant={on ? 'danger' : 'primary'} onClick={() => toggle(conn, !on)} disabled={busyId === conn.id}>
+                    {busyId === conn.id ? '…' : on ? 'Disable' : 'Enable'}
+                  </Button>
                 </div>
               </div>
-              {entry.id === 'email' && conn?.status === 'Connected' && (
-                <EmailDomainsPanel boardId={boardId} defaultFrom={conn.defaultFrom} />
+              {conn.catalogId === 'email' && on && (
+                <EmailDomainsPanel boardId={boardId} defaultFrom={conn.metadata?.defaultFrom} />
               )}
             </div>
           );
         })}
-        {catalog.length === 0 && <p className="text-sm text-[var(--muted)]">No integrations available.</p>}
       </div>
-
-      {connecting && (
-        <McpConnectModal
-          boardId={boardId}
-          entry={connecting}
-          onClose={() => setConnecting(null)}
-          onConnected={refreshConnections}
-        />
-      )}
     </div>
   );
 }

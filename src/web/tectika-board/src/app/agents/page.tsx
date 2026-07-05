@@ -2,16 +2,30 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
-import type { AgentRole, McpCatalogEntry } from '@/lib/types';
+import type { AgentRole, ExecutionEngine, Connection, ConnectionCatalogEntry, ToolItem } from '@/lib/types';
 import { colorFor } from '@/lib/palette';
 import { Avatar, Button, Skeleton, EmptyState, Tag } from '@/components/ui/primitives';
 import { Modal } from '@/components/ui/overlays';
 import { Icon } from '@/components/ui/icons';
+import { BrandIcon } from '@/components/ui/brand-icons';
 import { ModelSelect } from '@/components/ModelSelect';
 import { toast } from '@/lib/toast';
 
 /** Per-role sync state set after a successful upsert. */
 type SyncState = { synced: boolean; error?: string | null };
+
+/** Claude Code model choices (CLI `--model`). The default for a new Claude agent is Opus 4.8. */
+const CLAUDE_MODELS: { id: string; label: string }[] = [
+  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+];
+const DEFAULT_CLAUDE_MODEL = 'claude-opus-4-8';
+const CLAUDE_MODEL_IDS = CLAUDE_MODELS.map(m => m.id);
+// The always-present Foundry system connection id (mirrors backend ConnectionsController.FoundrySystemId).
+const FOUNDRY_CONN_ID = 'conn_foundry_system';
+// Foundry built-in tools an agent may attach (mirrors backend FoundryBuiltInTools.AgentSelectable).
+const FOUNDRY_SELECTABLE = ['code_interpreter', 'web_search'];
 
 export default function AgentsPage() {
   const [roles, setRoles] = useState<AgentRole[] | null>(null);
@@ -33,7 +47,7 @@ export default function AgentsPage() {
 
   const newAgent = (): AgentRole => ({
     id: `role-${Date.now().toString(36)}`, tenantId: 'default', displayName: 'New Agent',
-    systemPrompt: 'You are a helpful agent.', tools: [], mcpServers: [], mcpWriteEnabled: [],
+    systemPrompt: 'You are a helpful agent.', tools: [], connections: [], foundryTools: [],
     permissions: { canUseWorkspace: false, canPushCode: false, canDeploy: false, requiresOboFor: [], requiresApprovalFor: [] },
     modelOverride: 'gpt-4o',
   });
@@ -64,11 +78,13 @@ export default function AgentsPage() {
 }
 
 function RoleCard({ role, syncState, onEdit }: { role: AgentRole; syncState?: SyncState; onEdit: () => void }) {
-  // Derive a synced indicator: explicit syncState from last save takes priority,
-  // otherwise fall back to presence of foundryAgentId as a passive indicator.
-  const isSynced = syncState ? syncState.synced : !!role.foundryAgentId;
+  // Derive a synced indicator: explicit syncState from last save takes priority, otherwise fall back to
+  // a passive indicator — foundryAgentId (Foundry) or apiKeySecretName (Claude Code, = key stored).
+  const engine = role.executionEngine ?? 'Foundry';
+  const passiveSynced = engine === 'ClaudeCode' ? !!role.apiKeySecretName : !!role.foundryAgentId;
+  const isSynced = syncState ? syncState.synced : passiveSynced;
   const syncError = syncState?.error;
-  const showSyncBadge = syncState !== undefined || !!role.foundryAgentId;
+  const showSyncBadge = syncState !== undefined || passiveSynced;
 
   return (
     <div className="bg-[var(--background)] rounded-xl border border-[var(--border)] p-4 hover:shadow-md transition-shadow flex flex-col">
@@ -90,7 +106,7 @@ function RoleCard({ role, syncState, onEdit }: { role: AgentRole; syncState?: Sy
       <p className="text-xs text-[var(--muted)] line-clamp-3 mb-3 flex-1">{role.systemPrompt}</p>
       <div className="flex flex-wrap gap-1 mb-2">
         {role.tools.map(t => <Tag key={t} label={t} hex="#0086c0" />)}
-        {role.mcpServers.map(m => <Tag key={m} label={role.mcpWriteEnabled?.includes(m) ? `mcp:${m} ✎` : `mcp:${m}`} hex="#a25ddc" />)}
+        {role.connections?.map(c => <Tag key={c.connectionId} label={c.writeEnabled ? `${c.catalogId} ✎` : c.catalogId} hex="#a25ddc" />)}
         {role.githubPermissions && Object.values(role.githubPermissions).some(Boolean) && (
           <Tag label="GitHub" hex="#24292e" />
         )}
@@ -113,21 +129,59 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
   const setPerms = (p: Partial<typeof r.permissions>) =>
     setR(prev => ({ ...prev, permissions: { ...prev.permissions, ...p } }));
 
-  const [catalog, setCatalog] = useState<McpCatalogEntry[]>([]);
-  useEffect(() => { api.mcp.catalog().then(setCatalog).catch(() => setCatalog([])); }, []);
+  // Model provider comes from a tenant "model" connection: Foundry (system) is the default; a Claude
+  // (Anthropic) connection selects the Claude Code engine. No credential is entered here — it lives on the
+  // connection, so the Claude Code option only appears once an Anthropic connection exists.
+  const [modelConns, setModelConns] = useState<Connection[]>([]);
+  const engine: ExecutionEngine = r.executionEngine ?? 'Foundry';
+  const isClaude = engine === 'ClaudeCode';
 
-  const mcpEnabled = (id: string) => r.mcpServers.includes(id);
-  const toggleMcp = (id: string, on: boolean) =>
+  const onModelConnChange = (id: string) => setR(prev => {
+    const conn = modelConns.find(c => c.id === id);
+    const next: ExecutionEngine = conn?.catalogId === 'anthropic' ? 'ClaudeCode' : 'Foundry';
+    let model = prev.modelOverride;
+    if (next === 'ClaudeCode') model = model && CLAUDE_MODEL_IDS.includes(model) ? model : DEFAULT_CLAUDE_MODEL;
+    else if (model && CLAUDE_MODEL_IDS.includes(model)) model = undefined;
+    return { ...prev, modelConnectionId: id, executionEngine: next, modelOverride: model };
+  });
+
+  // Agent-tool connections come from the tenant registry (Connections page); the agent references specific
+  // instances by id. The catalog map supplies each connection's read/write tool counts + brand icon.
+  const [connections, setConnections] = useState<Connection[]>([]);
+  const [catMap, setCatMap] = useState<Record<string, ConnectionCatalogEntry>>({});
+  // Foundry built-in tools the agent may attach: only the globally-enabled, agent-selectable subset.
+  const [foundryToolOpts, setFoundryToolOpts] = useState<ToolItem[]>([]);
+  useEffect(() => {
+    api.connections.list().then(cs => {
+      setConnections(cs.filter(c => c.category === 'agent-tool'));
+      setModelConns(cs.filter(c => c.category === 'model'));
+    }).catch(() => { setConnections([]); setModelConns([]); });
+    api.connections.catalog().then(cat => setCatMap(Object.fromEntries(cat.map(c => [c.id, c])))).catch(() => setCatMap({}));
+    api.tools.catalog()
+      .then(tc => setFoundryToolOpts(tc.foundry.filter(t => FOUNDRY_SELECTABLE.includes(t.toolId.replace('foundry:', '')) && t.enabled)))
+      .catch(() => setFoundryToolOpts([]));
+  }, []);
+
+  const toggleFoundryTool = (id: string, on: boolean) => setR(prev => ({
+    ...prev,
+    foundryTools: on
+      ? [...new Set([...(prev.foundryTools ?? []), id])]
+      : (prev.foundryTools ?? []).filter(x => x !== id),
+  }));
+
+  const connRef = (id: string) => r.connections.find(c => c.connectionId === id);
+  const toggleConn = (conn: Connection, on: boolean) =>
     setR(prev => ({
       ...prev,
-      mcpServers: on ? [...new Set([...prev.mcpServers, id])] : prev.mcpServers.filter(x => x !== id),
-      // Disabling an integration also revokes its write opt-in.
-      mcpWriteEnabled: on ? prev.mcpWriteEnabled : prev.mcpWriteEnabled.filter(x => x !== id),
+      connections: on
+        ? [...prev.connections.filter(c => c.connectionId !== conn.id),
+           { connectionId: conn.id, catalogId: conn.catalogId, writeEnabled: false }]
+        : prev.connections.filter(c => c.connectionId !== conn.id),
     }));
-  const toggleMcpWrite = (id: string, on: boolean) =>
+  const toggleConnWrite = (id: string, on: boolean) =>
     setR(prev => ({
       ...prev,
-      mcpWriteEnabled: on ? [...new Set([...prev.mcpWriteEnabled, id])] : prev.mcpWriteEnabled.filter(x => x !== id),
+      connections: prev.connections.map(c => c.connectionId === id ? { ...c, writeEnabled: on } : c),
     }));
 
   const wsEnabled = r.permissions.canUseWorkspace;
@@ -151,7 +205,62 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
       <div className="flex flex-col gap-3">
         <L label="Display name"><input value={r.displayName} onChange={e => set({ displayName: e.target.value })} className="inp" /></L>
         <L label="System prompt"><textarea value={r.systemPrompt} onChange={e => set({ systemPrompt: e.target.value })} rows={4} className="inp resize-none" /></L>
-        <L label="Model"><ModelSelect value={r.modelOverride} onChange={v => set({ modelOverride: v || undefined })} selectClassName="inp" /></L>
+
+        {/* Model provider — a tenant "model" connection. Claude Code appears only if an Anthropic connection
+            exists; the credential lives on the connection, never here. */}
+        <L label="Model provider">
+          <select value={r.modelConnectionId ?? FOUNDRY_CONN_ID}
+            onChange={e => onModelConnChange(e.target.value)}
+            className="inp">
+            {modelConns.length === 0 && <option value={FOUNDRY_CONN_ID}>Azure Foundry</option>}
+            {modelConns.map(c => (
+              <option key={c.id} value={c.id}>
+                {c.catalogId === 'anthropic' ? `Claude Code — ${c.displayName}` : c.displayName}
+              </option>
+            ))}
+          </select>
+          {!modelConns.some(c => c.catalogId === 'anthropic') && (
+            <span className="text-[11px] text-[var(--muted)] block mt-1">
+              To run agents on Claude, add a <a href="/connections" className="underline text-[var(--primary)]">Claude (Anthropic) connection</a>.
+            </span>
+          )}
+        </L>
+
+        {/* Model — provider-dependent: Foundry's live catalog, or the Claude Code model list. */}
+        <L label="Model">
+          {isClaude ? (
+            <select value={r.modelOverride ?? DEFAULT_CLAUDE_MODEL}
+              onChange={e => set({ modelOverride: e.target.value })}
+              className="inp" aria-label="Model">
+              {CLAUDE_MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+          ) : (
+            <ModelSelect value={r.modelOverride} onChange={v => set({ modelOverride: v || undefined })} selectClassName="inp" />
+          )}
+        </L>
+
+        {/* Foundry built-in tools — only for Foundry agents, only globally-enabled selectable tools */}
+        {engine === 'Foundry' && foundryToolOpts.length > 0 && (
+          <div className="rounded-lg border border-[var(--border)] p-3">
+            <span className="text-[11px] uppercase tracking-wide text-[var(--muted)] font-semibold flex items-center gap-1.5 mb-2">
+              <Icon.bolt size={13} /> Foundry tools
+            </span>
+            <div className="flex flex-col gap-1.5">
+              {foundryToolOpts.map(t => {
+                const bare = t.toolId.replace('foundry:', '');
+                const on = (r.foundryTools ?? []).includes(bare);
+                return (
+                  <label key={t.toolId} className="flex items-center gap-2 text-sm text-[var(--foreground)]">
+                    <input type="checkbox" checked={on} onChange={e => toggleFoundryTool(bare, e.target.checked)} className="accent-[var(--primary)]" />
+                    {t.name}
+                    {t.needsSetup && <span className="text-[11px] text-[var(--muted)]">(needs a Foundry connection in the project)</span>}
+                  </label>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-[var(--muted)] mt-2">Enable tool types org-wide on the <a href="/tools" className="underline text-[var(--primary)]">Tools</a> page.</p>
+          </div>
+        )}
 
         {/* Layer 1: Workspace */}
         <div className="rounded-lg border border-[var(--border)] p-3">
@@ -186,28 +295,36 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
           </label>
         </div>
 
-        {/* Layer 3: MCP integrations */}
-        {catalog.length > 0 && (
-          <div className="rounded-lg border border-[var(--border)] p-3">
-            <span className="text-[11px] uppercase tracking-wide text-[var(--muted)] font-semibold flex items-center gap-1.5 mb-2">
-              <Icon.bolt size={13} /> Integrations
-            </span>
+        {/* Layer 3: Connections (agent tools) — reference tenant connections defined on the Connections page */}
+        <div className="rounded-lg border border-[var(--border)] p-3">
+          <span className="text-[11px] uppercase tracking-wide text-[var(--muted)] font-semibold flex items-center gap-1.5 mb-2">
+            <Icon.bolt size={13} /> Connections
+          </span>
+          {connections.length === 0 ? (
+            <p className="text-[12px] text-[var(--muted)]">
+              No tool connections yet. Create one on the <a href="/connections" className="underline text-[var(--primary)]">Connections</a> page, then enable it on a board.
+            </p>
+          ) : (
             <div className="flex flex-col gap-2">
-              {catalog.map(entry => {
-                const on = mcpEnabled(entry.id);
+              {connections.map(conn => {
+                const ref = connRef(conn.id);
+                const on = !!ref;
+                const cat = catMap[conn.catalogId];
+                const writable = (cat?.writeToolCount ?? 0) > 0;
                 return (
-                  <div key={entry.id} className="flex flex-col gap-1">
+                  <div key={conn.id} className="flex flex-col gap-1">
                     <label className="flex items-center gap-2 text-sm text-[var(--foreground)]">
                       <input type="checkbox" checked={on}
-                        onChange={e => toggleMcp(entry.id, e.target.checked)}
+                        onChange={e => toggleConn(conn, e.target.checked)}
                         className="accent-[var(--primary)]" />
-                      {entry.displayName}
-                      <span className="text-[11px] text-[var(--muted)]">({entry.readToolCount} read · {entry.writeToolCount} write)</span>
+                      <BrandIcon name={cat?.iconKey ?? conn.catalogId} size={18} />
+                      {conn.displayName}
+                      {cat && <span className="text-[11px] text-[var(--muted)]">({cat.readToolCount} read · {cat.writeToolCount} write)</span>}
                     </label>
-                    {on && entry.writeToolCount > 0 && (
+                    {on && writable && (
                       <label className="flex items-center gap-2 text-[13px] text-[var(--foreground)] ml-6">
-                        <input type="checkbox" checked={r.mcpWriteEnabled.includes(entry.id)}
-                          onChange={e => toggleMcpWrite(entry.id, e.target.checked)}
+                        <input type="checkbox" checked={ref?.writeEnabled ?? false}
+                          onChange={e => toggleConnWrite(conn.id, e.target.checked)}
                           className="accent-[var(--primary)]" />
                         Allow write actions
                         <span className="text-[11px] text-[var(--muted)]">(send/post/create)</span>
@@ -216,10 +333,10 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
                   </div>
                 );
               })}
+              <p className="text-[11px] text-[var(--muted)] mt-1">The connection must also be enabled on the board (Board Settings → Integrations) for the agent to use it.</p>
             </div>
-            <p className="text-[11px] text-[var(--muted)] mt-2">Connect integrations per board in Board Settings → Integrations.</p>
-          </div>
-        )}
+          )}
+        </div>
 
         <div className="flex gap-4 pt-1">
           <label className="flex items-center gap-2 text-sm text-[var(--foreground)]"><input type="checkbox" checked={r.permissions.canPushCode} onChange={e => setPerms({ canPushCode: e.target.checked })} className="accent-[var(--primary)]" /> Can push code</label>

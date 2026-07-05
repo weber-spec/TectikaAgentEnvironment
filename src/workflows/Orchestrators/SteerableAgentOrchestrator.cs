@@ -15,8 +15,9 @@ namespace TectikaAgents.Workflows.Orchestrators;
 /// </summary>
 public class SteerableAgentOrchestrator
 {
-    /// <summary>Hard cap on rounds per run (bounds cost / runaway loops).</summary>
-    private const int MaxRounds = 24;
+    /// <summary>Fallback round cap when the start trigger didn't supply one (older queued inputs). The
+    /// operational limit is the context budget; this is just the far safety net.</summary>
+    private const int DefaultMaxRounds = 48;
 
     /// <summary>How long to wait for a human reply on AwaitUser before finalizing the run. Bounds the
     /// orchestration (and the provisioned sandbox) so an unanswered request can't hang forever.</summary>
@@ -32,7 +33,9 @@ public class SteerableAgentOrchestrator
         try
         {
             var driver = new DurableRoundDriver(context, input);
-            var state = await SteerableRunCore.RunLoopAsync(driver, input.SeedMessage, MaxRounds);
+            var maxRounds = input.MaxRounds > 0 ? input.MaxRounds : DefaultMaxRounds;
+            var contextBudget = input.ContextBudgetTokens > 0 ? input.ContextBudgetTokens : int.MaxValue;
+            var state = await SteerableRunCore.RunLoopAsync(driver, input.SeedMessage, maxRounds, contextBudget);
             logger.LogInformation("[Steerable] done task={TaskId} run={RunId} state={State}", input.TaskId, input.RunId, state);
             return new SteerableRunResult(input.RunId, state.ToString());
         }
@@ -145,6 +148,14 @@ public class SteerableAgentOrchestrator
                     ErrorMessage: last?.Error, FailureClass: last?.FailureClass));
         }
 
+        public async Task<string?> CompactContextAsync()
+        {
+            var r = await _ctx.CallActivityAsync<CompactRunContextResult>(
+                nameof(CompactRunContextActivity),
+                new CompactRunContextInput(_in.RunId, _in.TaskId, _in.BoardId));
+            return string.IsNullOrWhiteSpace(r.SummaryBrief) ? null : r.SummaryBrief;
+        }
+
         public async Task OnExhaustedAsync(string reason, RunFailureClass cls, RoundOutcome? last)
         {
             // Preserve partial deliverables as a terminal artifact + mark the task Failed...
@@ -164,6 +175,10 @@ public record SteerableRunInput(
     string BoardId,
     string TenantId,
     string AgentRoleId,
-    string? SeedMessage);
+    string? SeedMessage,
+    // Operational context-token budget (soft limit) and hard round-cap safety net. Populated server-side
+    // by the start trigger from FoundrySettings; 0 means "unset" → orchestrator falls back to its defaults.
+    int ContextBudgetTokens = 0,
+    int MaxRounds = 0);
 
 public record SteerableRunResult(string RunId, string State);

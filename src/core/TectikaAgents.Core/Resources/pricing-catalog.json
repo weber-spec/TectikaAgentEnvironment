@@ -45,6 +45,16 @@
       "outputPerMillion": 0.60,
       "currency": "USD",
       "effectiveFrom": "2024-01-01T00:00:00Z"
+    },
+    {
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "inputPerMillion": 15.00,
+      "cachedInputPerMillion": 1.50,
+      "cacheCreationPerMillion": 18.75,
+      "outputPerMillion": 75.00,
+      "currency": "USD",
+      "effectiveFrom": "2026-01-01T00:00:00Z"
     }
   ]
 }

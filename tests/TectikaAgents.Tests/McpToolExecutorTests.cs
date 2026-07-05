@@ -17,15 +17,22 @@ public class McpToolExecutorTests
         return (new McpToolExecutor(gw, secrets), gw, secrets);
     }
 
-    private static List<McpConnection> SlackConn(string secretName = "s1") => new()
+    private static List<Connection> SlackConn(string secretName = "s1") => new()
     {
-        new McpConnection { CatalogId = "slack", SecretName = secretName, Status = McpConnectionStatus.Connected }
+        new Connection { Id = "c-slack", CatalogId = "slack", SecretName = secretName, Status = ConnectionStatus.Connected }
     };
 
-    private static List<McpConnection> EmailConn(string secretName = "e1") => new()
+    private static List<Connection> EmailConn(string secretName = "e1") => new()
     {
-        new McpConnection { CatalogId = "email", SecretName = secretName, Status = McpConnectionStatus.Connected }
+        new Connection { Id = "c-email", CatalogId = "email", SecretName = secretName, Status = ConnectionStatus.Connected }
     };
+
+    // Role helpers: an agent references a connection by (connectionId, catalogId); write is opt-in per ref.
+    private static AgentRole SlackRole(bool write = false) => new()
+    { Connections = { new AgentConnectionRef { ConnectionId = "c-slack", CatalogId = "slack", WriteEnabled = write } } };
+
+    private static AgentRole EmailRole(bool write = false) => new()
+    { Connections = { new AgentConnectionRef { ConnectionId = "c-email", CatalogId = "email", WriteEnabled = write } } };
 
     private const string EmailArgs =
         "{\"from\":\"onboarding@resend.dev\",\"to\":\"x@y.com\",\"subject\":\"Hi\",\"body\":\"yo\"}";
@@ -35,6 +42,15 @@ public class McpToolExecutorTests
         var gw = new FakeMcpGateway();
         var secrets = new FakeSecretProvider();
         var conn = new FakeFirstPartyConnector();
+        return (new McpToolExecutor(gw, secrets, new[] { conn }), gw, conn, secrets);
+    }
+
+    // Slack is now a first-party connector too (SlackConnector), so it routes through IFirstPartyConnector.
+    private static (McpToolExecutor exec, FakeMcpGateway gw, FakeFirstPartyConnector conn, FakeSecretProvider secrets) BuildWithSlack()
+    {
+        var gw = new FakeMcpGateway();
+        var secrets = new FakeSecretProvider();
+        var conn = new FakeFirstPartyConnector { CatalogId = "slack" };
         return (new McpToolExecutor(gw, secrets, new[] { conn }), gw, conn, secrets);
     }
 
@@ -49,69 +65,53 @@ public class McpToolExecutorTests
     }
 
     [Fact]
-    public async Task Read_tool_calls_gateway_with_resolved_token()
+    public async Task Read_tool_routes_to_connector_with_resolved_token()
     {
-        var (exec, gw, secrets) = Build();
+        var (exec, gw, conn, secrets) = BuildWithSlack();
         secrets.Store["s1"] = "xoxb-abc";
-        var role = new AgentRole { McpServers = { "slack" } };
 
-        var result = await exec.ExecuteAsync("slack__list_channels", Args("{}"), SlackConn(), role, CancellationToken.None);
+        var result = await exec.ExecuteAsync("slack__list_channels", Args("{}"), SlackConn(), SlackRole(), CancellationToken.None);
 
-        Assert.Equal("list_channels", gw.LastTool);
-        Assert.Equal("xoxb-abc", gw.LastTarget!.Token);
-        Assert.Equal("Bearer", gw.LastTarget!.AuthScheme);
-        Assert.Equal(gw.Result, result);
+        Assert.Equal("list_channels", conn.LastTool);
+        Assert.Equal("xoxb-abc", conn.LastToken);
+        Assert.Null(gw.LastTool);            // gateway untouched for first-party entries
+        Assert.Equal(conn.Result, result);
     }
 
     [Fact]
-    public async Task No_connection_returns_friendly_error_and_does_not_call_gateway()
+    public async Task No_connection_returns_friendly_error_and_does_not_call_connector()
     {
-        var (exec, gw, _) = Build();
-        var role = new AgentRole { McpServers = { "slack" } };
+        var (exec, _, conn, _) = BuildWithSlack();
 
-        var result = await exec.ExecuteAsync("slack__list_channels", Args("{}"), new List<McpConnection>(), role, CancellationToken.None);
+        var result = await exec.ExecuteAsync("slack__list_channels", Args("{}"), new List<Connection>(), SlackRole(), CancellationToken.None);
 
-        Assert.Contains("not connected", result);
-        Assert.Null(gw.LastTool);
+        Assert.Contains("not available", result);
+        Assert.Null(conn.LastTool);
     }
 
     [Fact]
     public async Task Write_tool_without_optin_is_refused()
     {
-        var (exec, gw, secrets) = Build();
+        var (exec, _, conn, secrets) = BuildWithSlack();
         secrets.Store["s1"] = "xoxb-abc";
-        var role = new AgentRole { McpServers = { "slack" } }; // no McpWriteEnabled
 
         var result = await exec.ExecuteAsync("slack__post_message",
-            Args("{\"channel\":\"#x\",\"text\":\"hi\"}"), SlackConn(), role, CancellationToken.None);
+            Args("{\"channel\":\"#x\",\"text\":\"hi\"}"), SlackConn(), SlackRole(write: false), CancellationToken.None);
 
         Assert.Contains("not permitted", result);
-        Assert.Null(gw.LastTool);
+        Assert.Null(conn.LastTool);
     }
 
     [Fact]
-    public async Task Write_tool_with_optin_calls_gateway()
+    public async Task Write_tool_with_optin_calls_connector()
     {
-        var (exec, gw, secrets) = Build();
+        var (exec, _, conn, secrets) = BuildWithSlack();
         secrets.Store["s1"] = "xoxb-abc";
-        var role = new AgentRole { McpServers = { "slack" }, McpWriteEnabled = { "slack" } };
 
         await exec.ExecuteAsync("slack__post_message",
-            Args("{\"channel\":\"#x\",\"text\":\"hi\"}"), SlackConn(), role, CancellationToken.None);
+            Args("{\"channel\":\"#x\",\"text\":\"hi\"}"), SlackConn(), SlackRole(write: true), CancellationToken.None);
 
-        Assert.Equal("post_message", gw.LastTool);
-    }
-
-    [Fact]
-    public async Task Gateway_exception_becomes_structured_error()
-    {
-        var secrets = new FakeSecretProvider();
-        secrets.Store["s1"] = "xoxb-abc";
-        var exec = new McpToolExecutor(new ThrowingGateway(), secrets);
-        var role = new AgentRole { McpServers = { "slack" } };
-
-        var result = await exec.ExecuteAsync("slack__list_channels", Args("{}"), SlackConn(), role, CancellationToken.None);
-        Assert.Contains("error", result);
+        Assert.Equal("post_message", conn.LastTool);
     }
 
     // ── First-party (Email/Resend) routing ────────────────────────────────────
@@ -129,9 +129,8 @@ public class McpToolExecutorTests
     {
         var (exec, gw, conn, secrets) = BuildWithEmail();
         secrets.Store["e1"] = "re_key";
-        var role = new AgentRole { McpServers = { "email" }, McpWriteEnabled = { "email" } };
 
-        var result = await exec.ExecuteAsync("email__send_email", Args(EmailArgs), EmailConn(), role, CancellationToken.None);
+        var result = await exec.ExecuteAsync("email__send_email", Args(EmailArgs), EmailConn(), EmailRole(write: true), CancellationToken.None);
 
         Assert.Equal("send_email", conn.LastTool);
         Assert.Equal("re_key", conn.LastToken);
@@ -144,9 +143,8 @@ public class McpToolExecutorTests
     {
         var (exec, _, conn, secrets) = BuildWithEmail();
         secrets.Store["e1"] = "re_key";
-        var role = new AgentRole { McpServers = { "email" } }; // no write opt-in
 
-        var result = await exec.ExecuteAsync("email__send_email", Args(EmailArgs), EmailConn(), role, CancellationToken.None);
+        var result = await exec.ExecuteAsync("email__send_email", Args(EmailArgs), EmailConn(), EmailRole(write: false), CancellationToken.None);
 
         Assert.Contains("not permitted", result);
         Assert.Null(conn.LastTool);
@@ -156,11 +154,10 @@ public class McpToolExecutorTests
     public async Task First_party_no_connection_returns_friendly_error_and_skips_connector()
     {
         var (exec, _, conn, _) = BuildWithEmail();
-        var role = new AgentRole { McpServers = { "email" }, McpWriteEnabled = { "email" } };
 
-        var result = await exec.ExecuteAsync("email__send_email", Args(EmailArgs), new List<McpConnection>(), role, CancellationToken.None);
+        var result = await exec.ExecuteAsync("email__send_email", Args(EmailArgs), new List<Connection>(), EmailRole(write: true), CancellationToken.None);
 
-        Assert.Contains("not connected", result);
+        Assert.Contains("not available", result);
         Assert.Null(conn.LastTool);
     }
 
@@ -170,16 +167,9 @@ public class McpToolExecutorTests
         var secrets = new FakeSecretProvider();
         secrets.Store["e1"] = "re_key";
         var exec = new McpToolExecutor(new FakeMcpGateway(), secrets); // no connectors registered
-        var role = new AgentRole { McpServers = { "email" }, McpWriteEnabled = { "email" } };
 
-        var result = await exec.ExecuteAsync("email__send_email", Args(EmailArgs), EmailConn(), role, CancellationToken.None);
+        var result = await exec.ExecuteAsync("email__send_email", Args(EmailArgs), EmailConn(), EmailRole(write: true), CancellationToken.None);
 
         Assert.Contains("unavailable", result);
-    }
-
-    private sealed class ThrowingGateway : TectikaAgents.Core.Interfaces.IMcpGateway
-    {
-        public Task<IReadOnlyList<TectikaAgents.Core.Interfaces.McpToolInfo>> ListToolsAsync(TectikaAgents.Core.Interfaces.McpServerTarget t, CancellationToken ct) => throw new System.Exception("boom");
-        public Task<string> CallToolAsync(TectikaAgents.Core.Interfaces.McpServerTarget t, string n, string a, CancellationToken ct) => throw new System.Exception("boom");
     }
 }

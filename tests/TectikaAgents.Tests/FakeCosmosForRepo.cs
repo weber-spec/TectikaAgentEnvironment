@@ -57,6 +57,14 @@ public sealed class FakeCosmosForRepo : ICosmosDbService
     public Task DeleteTaskAsync(string boardId, string taskId, CancellationToken ct = default) => throw new NotImplementedException();
     public Task PurgeTaskWorkDataAsync(string tenantId, string boardId, string taskId, CancellationToken ct = default) => throw new NotImplementedException();
 
+    // ── Connections ────────────────────────────────────────────────────────
+    public Task<IEnumerable<Connection>> GetConnectionsAsync(string tenantId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Connection?> GetConnectionAsync(string tenantId, string connectionId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Connection> UpsertConnectionAsync(Connection connection, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task DeleteConnectionAsync(string tenantId, string connectionId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<ToolPolicy?> GetToolPolicyAsync(string tenantId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<ToolPolicy> UpsertToolPolicyAsync(ToolPolicy policy, CancellationToken ct = default) => throw new NotImplementedException();
+
     // ── Agent Roles ────────────────────────────────────────────────────────
     public Task<IEnumerable<AgentRole>> GetAgentRolesAsync(string tenantId, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<AgentRole> UpsertAgentRoleAsync(AgentRole role, CancellationToken ct = default) => throw new NotImplementedException();

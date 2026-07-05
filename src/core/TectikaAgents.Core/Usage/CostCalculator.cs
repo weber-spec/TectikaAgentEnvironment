@@ -9,6 +9,7 @@ public sealed class CostResult
     public string CatalogVersion { get; init; } = "";
     public decimal InputPerMillion { get; init; }
     public decimal CachedInputPerMillion { get; init; }
+    public decimal CacheCreationPerMillion { get; init; }
     public decimal OutputPerMillion { get; init; }
     public string Currency { get; init; } = "USD";
 }
@@ -34,10 +35,14 @@ public sealed class CostCalculator
         if (price is null)
             return new CostResult { PricingMissing = true, CatalogVersion = _catalog.Version };
 
-        var nonCachedInput = Math.Max(0, usage.Input - usage.CachedInput);
+        // CachedInput (cache read) and CacheCreation (cache write) are subsets of Input, each billed at its
+        // own rate; the remainder is billed at the base input rate. Foundry reports CacheCreation=0 and its
+        // catalog rows omit cacheCreationPerMillion (0), so Foundry cost is unchanged.
+        var nonCachedInput = Math.Max(0, usage.Input - usage.CachedInput - usage.CacheCreation);
         var cost =
             nonCachedInput / 1_000_000m * price.InputPerMillion +
             usage.CachedInput / 1_000_000m * price.CachedInputPerMillion +
+            usage.CacheCreation / 1_000_000m * price.CacheCreationPerMillion +
             usage.Output / 1_000_000m * price.OutputPerMillion;
 
         return new CostResult
@@ -47,6 +52,7 @@ public sealed class CostCalculator
             CatalogVersion = _catalog.Version,
             InputPerMillion = price.InputPerMillion,
             CachedInputPerMillion = price.CachedInputPerMillion,
+            CacheCreationPerMillion = price.CacheCreationPerMillion,
             OutputPerMillion = price.OutputPerMillion,
             Currency = price.Currency,
         };

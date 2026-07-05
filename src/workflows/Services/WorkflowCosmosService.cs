@@ -45,6 +45,30 @@ public class WorkflowCosmosService
     public async Task UpsertAgentRoleAsync(AgentRole role, CancellationToken ct = default) =>
         await C("agentRoles").UpsertItemAsync(role, new PartitionKey(role.TenantId), cancellationToken: ct);
 
+    // ── Connections (tenant-level registry) ────────────────────────────────────
+
+    public async Task<IReadOnlyList<Connection>> GetConnectionsAsync(string tenantId, CancellationToken ct = default)
+    {
+        var query = new QueryDefinition("SELECT * FROM c WHERE c.tenantId = @tenantId").WithParameter("@tenantId", tenantId);
+        var it = C("connections").GetItemQueryIterator<Connection>(query,
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(tenantId) });
+        var list = new List<Connection>();
+        while (it.HasMoreResults) list.AddRange(await it.ReadNextAsync(ct));
+        return list;
+    }
+
+    // ── Tool policy (read-only in runtime, for global gating) ───────────────────
+
+    public async Task<ToolPolicy?> GetToolPolicyAsync(string tenantId, CancellationToken ct = default)
+    {
+        try
+        {
+            var res = await C("toolPolicies").ReadItemAsync<ToolPolicy>(tenantId, new PartitionKey(tenantId), cancellationToken: ct);
+            return res.Resource;
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
+    }
+
     // ── AgentTask ─────────────────────────────────────────────────────────────
 
     public async Task<AgentTask?> GetTaskAsync(string boardId, string taskId, CancellationToken ct = default)
@@ -319,6 +343,14 @@ public class WorkflowCosmosService
     public async Task PatchTaskThreadIdAsync(string boardId, string taskId, string threadId, CancellationToken ct = default)
     {
         var patchOps = new List<PatchOperation> { PatchOperation.Set("/foundryThreadId", threadId) };
+        await C("tasks").PatchItemAsync<AgentTask>(taskId, new PartitionKey(boardId), patchOps, cancellationToken: ct);
+    }
+
+    /// <summary>Persist the Claude Code session id for a task (captured from the first `claude -p` envelope,
+    /// reused via `--resume`). The ClaudeCode-engine analogue of PatchTaskThreadIdAsync.</summary>
+    public async Task PatchTaskClaudeSessionIdAsync(string boardId, string taskId, string sessionId, CancellationToken ct = default)
+    {
+        var patchOps = new List<PatchOperation> { PatchOperation.Set("/claudeSessionId", sessionId) };
         await C("tasks").PatchItemAsync<AgentTask>(taskId, new PartitionKey(boardId), patchOps, cancellationToken: ct);
     }
 

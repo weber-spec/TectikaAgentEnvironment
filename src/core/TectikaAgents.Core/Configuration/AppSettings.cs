@@ -31,6 +31,18 @@ public class FoundrySettings
     /// <summary>Per-turn output token cap passed to the Foundry run.</summary>
     public int MaxCompletionTokens { get; set; } = 4096;
 
+    /// <summary>The model's context window, in tokens. Used (with <see cref="ContextSoftLimitFraction"/>)
+    /// to derive the soft budget that triggers the steerable loop's smart context check.</summary>
+    public int ContextWindowTokens { get; set; } = 128_000;
+
+    /// <summary>Fraction of <see cref="ContextWindowTokens"/> at which the loop runs its smart check
+    /// (loop → diagnostic prompt; not-a-loop → compaction) instead of letting context overflow.</summary>
+    public double ContextSoftLimitFraction { get; set; } = 0.75;
+
+    /// <summary>Hard safety-net cap on rounds per run (bounds cost / runaway loops). The context budget
+    /// is the operational trigger; this is the far backstop. Was a hardcoded const in the orchestrator.</summary>
+    public int MaxRounds { get; set; } = 48;
+
     /// <summary>When true, use the no-Azure mock runtime/provisioner. Defaults to MockDatabase:Enabled in DI.</summary>
     public bool UseMock { get; set; }
 }

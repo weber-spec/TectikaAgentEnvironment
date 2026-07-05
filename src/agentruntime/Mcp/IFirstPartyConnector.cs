@@ -21,5 +21,5 @@ public interface IFirstPartyConnector
     /// write opt-in and connection resolution are enforced by the caller (McpToolExecutor) before this runs.
     /// Returns the tool result serialized as a JSON string.</summary>
     Task<string> CallAsync(string toolName, JsonElement args, string token,
-        TectikaAgents.Core.Models.McpConnection connection, CancellationToken ct);
+        TectikaAgents.Core.Models.Connection connection, CancellationToken ct);
 }

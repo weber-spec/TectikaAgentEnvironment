@@ -20,6 +20,7 @@ public class InMemoryCosmosDbService : ICosmosDbService
     private readonly ConcurrentDictionary<string, TaskEdge> _edges = new();
     private readonly ConcurrentDictionary<string, AgentTask> _tasks = new();
     private readonly ConcurrentDictionary<string, AgentRole> _agentRoles = new();
+    private readonly ConcurrentDictionary<string, Connection> _connections = new();
     private readonly ConcurrentDictionary<string, WorkflowRun> _runs = new();
     private readonly ConcurrentDictionary<string, Artifact> _artifacts = new();
     private readonly ConcurrentDictionary<string, HumanInteraction> _interactions = new();
@@ -117,6 +118,36 @@ public class InMemoryCosmosDbService : ICosmosDbService
         foreach (var u in _usageEvents.Values.Where(u => u.TaskId == taskId).ToList()) _usageEvents.TryRemove(u.Id, out _);
         _usageRollups.TryRemove(UsageRollup.TaskId(taskId), out _);
         return Task.CompletedTask;
+    }
+
+    // ── Connections (tenant-level registry) ──────────────────────────────────────
+    public Task<IEnumerable<Connection>> GetConnectionsAsync(string tenantId, CancellationToken ct = default) =>
+        Task.FromResult(_connections.Values.Where(c => c.TenantId == tenantId).AsEnumerable());
+
+    public Task<Connection?> GetConnectionAsync(string tenantId, string connectionId, CancellationToken ct = default) =>
+        Task.FromResult(_connections.TryGetValue(connectionId, out var c) && c.TenantId == tenantId ? c : null);
+
+    public Task<Connection> UpsertConnectionAsync(Connection connection, CancellationToken ct = default)
+    {
+        _connections[connection.Id] = connection;
+        return Task.FromResult(connection);
+    }
+
+    public Task DeleteConnectionAsync(string tenantId, string connectionId, CancellationToken ct = default)
+    {
+        if (_connections.TryGetValue(connectionId, out var c) && c.TenantId == tenantId)
+            _connections.TryRemove(connectionId, out _);
+        return Task.CompletedTask;
+    }
+
+    // ── Tool policy ──────────────────────────────────────────────────────────────
+    private readonly ConcurrentDictionary<string, ToolPolicy> _toolPolicies = new();
+    public Task<ToolPolicy?> GetToolPolicyAsync(string tenantId, CancellationToken ct = default) =>
+        Task.FromResult(_toolPolicies.TryGetValue(tenantId, out var p) ? p : null);
+    public Task<ToolPolicy> UpsertToolPolicyAsync(ToolPolicy policy, CancellationToken ct = default)
+    {
+        _toolPolicies[policy.TenantId] = policy;
+        return Task.FromResult(policy);
     }
 
     // ── Agent Roles ────────────────────────────────────────────────────────────

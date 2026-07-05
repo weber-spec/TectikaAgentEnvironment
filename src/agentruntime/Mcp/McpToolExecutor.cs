@@ -4,10 +4,11 @@ using TectikaAgents.Core.Models;
 
 namespace TectikaAgents.AgentRuntime.Mcp;
 
-/// <summary>Dispatches namespaced catalog tool calls (`{catalogId}__{tool}`) for a board. Resolves the
-/// board's connection + Key Vault token and enforces the write opt-in, then routes by the catalog entry's
-/// backend: remote MCP servers go through IMcpGateway, first-party integrations through an IFirstPartyConnector.
-/// Plugs into RoundExecutor via CanHandle/ExecuteAsync (same shape as the GitHub executor).</summary>
+/// <summary>Dispatches namespaced catalog tool calls (`{catalogId}__{tool}`). Resolves the effective tenant
+/// connection (already filtered to those enabled on the board AND referenced by the agent) + its Key Vault
+/// token and enforces the write opt-in, then routes by the catalog entry's backend: remote MCP servers go
+/// through IMcpGateway, first-party integrations through an IFirstPartyConnector. Plugs into RoundExecutor via
+/// CanHandle/ExecuteAsync (same shape as the GitHub executor).</summary>
 public sealed class McpToolExecutor
 {
     private readonly IMcpGateway _gateway;
@@ -28,7 +29,7 @@ public sealed class McpToolExecutor
         && McpCatalog.Find(cid)?.Tools.Any(t => t.Name == tool) == true;
 
     public async Task<string> ExecuteAsync(string toolName, JsonElement args,
-        IReadOnlyList<McpConnection>? boardConnections, AgentRole? role, CancellationToken ct)
+        IReadOnlyList<Connection>? connections, AgentRole? role, CancellationToken ct)
     {
         if (!McpToolNaming.TryParse(toolName, out var catalogId, out var tool))
             return Err($"'{toolName}' is not a valid MCP tool name.");
@@ -38,12 +39,12 @@ public sealed class McpToolExecutor
         if (entry is null || def is null)
             return Err($"Unknown MCP tool '{toolName}'.");
 
-        var conn = boardConnections?.FirstOrDefault(c =>
-            c.CatalogId == catalogId && c.Status == McpConnectionStatus.Connected);
+        var conn = connections?.FirstOrDefault(c =>
+            c.CatalogId == catalogId && c.Status == ConnectionStatus.Connected);
         if (conn is null)
-            return Err($"{entry.DisplayName} is not connected to this board. Ask a board admin to connect it in Board Settings → Integrations.");
+            return Err($"{entry.DisplayName} is not available here — connect it on the Connections page and enable it for this board.");
 
-        if (def.IsWrite && !(role?.McpWriteEnabled.Contains(catalogId) ?? false))
+        if (def.IsWrite && !(role?.Connections.Any(r => r.CatalogId == catalogId && r.WriteEnabled) ?? false))
             return Err($"Write actions for {entry.DisplayName} are not permitted for this agent.");
 
         try

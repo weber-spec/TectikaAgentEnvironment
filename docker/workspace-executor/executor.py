@@ -30,6 +30,11 @@ POST /bundle          {}   (no-repo durable snapshot: git-bundle /workspace/main
 POST /restore         {"bundle": "<base64>"}   (restore /workspace/main from a bundle on provision)
                       -> {"restored": true, "branch": "main"}
 GET  /worktree/list                         -> {"worktrees": [{"run_id":"...","path":"...","branch":"..."},...]}
+POST /job/start       {"cmd":"...","run_id":"...","job_id":"...","env":{"ANTHROPIC_API_KEY":"..."}}
+                      -> {"started": true, "job_id":"..."}   (detached; no timeout-kill — for `claude -p`)
+                      env is injected into the CHILD process only (never this server's environ).
+POST /job/status      {"job_id":"..."}      -> {"status":"running"|"exited"|"unknown","exit_code"?:N}
+POST /job/result      {"job_id":"...","run_id":"..."}  -> {"stdout":"...","stderr":"...","exit_code":N}
 GET  /health                                -> 200 "ok"
 
 Auth: Authorization: Bearer <EXECUTOR_TOKEN>  (env var; if empty, auth is skipped for dev)
@@ -51,6 +56,12 @@ WORKSPACE_MAIN = "/workspace/main"
 WORKSPACE_RUNS = "/workspace/runs"
 MAX_LIMIT = 500
 _MERGE_LOCK = threading.Lock()   # serialize merges into /workspace/main (one container per board)
+
+# Detached long-running jobs (e.g. `claude -p`), keyed by job_id. The synchronous /run path SIGKILLs on
+# its timeout, so it can't host a multi-minute agent run; /job/* spawns a detached process, captures its
+# stdout/stderr to files, and lets the caller poll. job_id → {"proc", "out", "err"}.
+_JOBS = {}
+_JOBS_LOCK = threading.Lock()
 
 
 def _resolve_workdir(body: dict) -> str:
@@ -161,6 +172,9 @@ class Handler(BaseHTTPRequestHandler):
             "/worktree/merge": self._handle_worktree_merge,
             "/bundle":  self._handle_bundle,
             "/restore": self._handle_restore,
+            "/job/start":  self._handle_job_start,
+            "/job/status": self._handle_job_status,
+            "/job/result": self._handle_job_result,
         }
         handler = dispatch.get(self.path)
         if handler is None:
@@ -208,6 +222,82 @@ class Handler(BaseHTTPRequestHandler):
                 "stderr": (stderr or "") + f"\nCommand timed out after {timeout}s (process group killed)",
                 "exit_code": -1,
             }
+
+    # ── Detached job handlers (long-running agents like `claude -p`) ───────────
+
+    def _handle_job_start(self, body):
+        cmd = body.get("cmd", "")
+        job_id = body.get("job_id", "")
+        env_extra = body.get("env") or {}
+        if not job_id:
+            return {"error": "job_id is required"}
+        workdir = _resolve_workdir(body)  # raises if the run's worktree is missing
+        job_dir = os.path.join(workdir, ".claude-job")
+        os.makedirs(job_dir, exist_ok=True)
+        out_path = os.path.join(job_dir, f"{job_id}.out")
+        err_path = os.path.join(job_dir, f"{job_id}.err")
+
+        # Per-invocation secrets (e.g. ANTHROPIC_API_KEY) are injected into the CHILD env only — never into
+        # this server's os.environ — so they can't leak to a later /run on the shared container.
+        child_env = {**os.environ, **{str(k): str(v) for k, v in env_extra.items()}}
+
+        out_f = open(out_path, "w")
+        err_f = open(err_path, "w")
+        try:
+            # Detached: no communicate(), no timeout-kill. stdin=DEVNULL keeps it non-interactive;
+            # start_new_session isolates the process group. stdout/stderr go to SEPARATE files so the
+            # JSON envelope on stdout stays clean (stderr noise doesn't corrupt it).
+            proc = subprocess.Popen(
+                cmd, shell=True, cwd=workdir,
+                stdin=subprocess.DEVNULL, stdout=out_f, stderr=err_f,
+                text=True, start_new_session=True, env=child_env,
+            )
+        except Exception as ex:
+            out_f.close(); err_f.close()
+            return {"started": False, "error": f"failed to start job: {ex}"}
+
+        with _JOBS_LOCK:
+            _JOBS[job_id] = {"proc": proc, "out": out_path, "err": err_path, "out_f": out_f, "err_f": err_f}
+        return {"started": True, "job_id": job_id}
+
+    def _handle_job_status(self, body):
+        job_id = body.get("job_id", "")
+        with _JOBS_LOCK:
+            job = _JOBS.get(job_id)
+        if job is None:
+            return {"status": "unknown"}
+        rc = job["proc"].poll()
+        if rc is None:
+            return {"status": "running"}
+        return {"status": "exited", "exit_code": rc}
+
+    def _handle_job_result(self, body):
+        job_id = body.get("job_id", "")
+        with _JOBS_LOCK:
+            job = _JOBS.get(job_id)
+        if job is None:
+            return {"error": f"unknown job_id '{job_id}'"}
+        rc = job["proc"].poll()
+        if rc is None:
+            return {"error": "job still running"}
+        # Flush + close the redirect handles, then read the captured streams.
+        for key in ("out_f", "err_f"):
+            try: job[key].close()
+            except Exception: pass
+        stdout = stderr = ""
+        try:
+            with open(job["out"], encoding="utf-8", errors="replace") as f:
+                stdout = f.read()
+        except OSError:
+            pass
+        try:
+            with open(job["err"], encoding="utf-8", errors="replace") as f:
+                stderr = f.read()
+        except OSError:
+            pass
+        with _JOBS_LOCK:
+            _JOBS.pop(job_id, None)
+        return {"stdout": stdout, "stderr": stderr, "exit_code": rc}
 
     def _handle_read(self, body):
         path = body.get("path", "")

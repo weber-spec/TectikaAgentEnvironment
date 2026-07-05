@@ -140,15 +140,16 @@ public class RoundExecutorTests
     [Fact]
     public async Task Routes_mcp_tool_call_to_executor()
     {
-        var gw = new FakeMcpGateway { Result = "{\"channels\":[]}" };
         var secrets = new FakeSecretProvider();
         secrets.Store["s1"] = "xoxb-abc";
-        var mcp = new TectikaAgents.AgentRuntime.Mcp.McpToolExecutor(gw, secrets);
-        var conns = new System.Collections.Generic.List<TectikaAgents.Core.Models.McpConnection>
+        var slack = new FakeFirstPartyConnector { CatalogId = "slack", Result = "{\"channels\":[]}" };
+        var mcp = new TectikaAgents.AgentRuntime.Mcp.McpToolExecutor(new FakeMcpGateway(), secrets, new[] { slack });
+        var conns = new System.Collections.Generic.List<TectikaAgents.Core.Models.Connection>
         {
-            new() { CatalogId = "slack", SecretName = "s1", Status = TectikaAgents.Core.Models.McpConnectionStatus.Connected }
+            new() { Id = "c-slack", CatalogId = "slack", SecretName = "s1", Status = TectikaAgents.Core.Models.ConnectionStatus.Connected }
         };
-        var role = new TectikaAgents.Core.Models.AgentRole { McpServers = { "slack" } };
+        var role = new TectikaAgents.Core.Models.AgentRole
+        { Connections = { new TectikaAgents.Core.Models.AgentConnectionRef { ConnectionId = "c-slack", CatalogId = "slack" } } };
         var resp = RoundResponse.Tools(new[] { new ToolCall("slack__list_channels", "{}", "call-1") });
 
         var result = await RoundExecutor.ExecuteOneRoundAsync(
@@ -156,10 +157,10 @@ public class RoundExecutorTests
             gitHub: null, boardRepo: null, role: role,
             workspace: null, workspaceProvider: null,
             ct: System.Threading.CancellationToken.None,
-            mcp: mcp, boardMcp: conns);
+            mcp: mcp, connections: conns);
 
         Assert.Single(result.ToolOutputs);
         Assert.Contains("channels", result.ToolOutputs[0].Output);
-        Assert.Equal("list_channels", gw.LastTool);
+        Assert.Equal("list_channels", slack.LastTool);
     }
 }

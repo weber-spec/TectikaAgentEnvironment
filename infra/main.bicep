@@ -57,6 +57,13 @@ param apiClientId string = ''
 @description('Web/platform SPA app registration client id (from entra.ps1).')
 param platformClientId string = ''
 
+@description('HMAC signing key for per-run board-tools MCP tokens. Shared by the API (validator) and the workflows (minter). Generate once; keep stable.')
+@secure()
+param mcpSigningKey string = ''
+
+@description('Public base URL of the API container app, used by the workflows to point Claude Code at the board-tools MCP endpoint (<url>/mcp). The container app is created after the function app, so set this on a second deploy pass (or via the deploy script) from the apiUrl output.')
+param mcpApiBaseUrl string = ''
+
 // ── Resource group ────────────────────────────────────────────────────────────
 resource rg 'Microsoft.Resources/resourceGroups@2024-11-01' = {
   name: resourceGroupName
@@ -123,6 +130,8 @@ module functionApp 'modules/functionapp.bicep' = {
     foundryProjectName: foundry.outputs.projectName
     foundryProjectEndpoint: foundry.outputs.projectEndpoint
     modelName: modelName
+    mcpSigningKey: mcpSigningKey
+    mcpApiBaseUrl: mcpApiBaseUrl
   }
 }
 
@@ -150,6 +159,7 @@ module containerApps 'modules/containerapps.bicep' = {
     foundryProjectName: foundry.outputs.projectName
     foundryProjectEndpoint: foundry.outputs.projectEndpoint
     modelName: modelName
+    mcpSigningKey: mcpSigningKey
     functionAppUrl: functionApp.outputs.defaultUrl
     workflowsFunctionKeySecretUri: '${data.outputs.keyVaultUri}secrets/workflows-function-key'
     workflowsManagementKeySecretUri: '${data.outputs.keyVaultUri}secrets/workflows-management-key'
