@@ -1,5 +1,5 @@
 {
-  "version": "2026-06-25",
+  "version": "2026-07-05",
   "prices": [
     {
       "provider": "azure-foundry",
@@ -49,12 +49,22 @@
     {
       "provider": "anthropic",
       "model": "claude-opus-4-8",
-      "inputPerMillion": 15.00,
-      "cachedInputPerMillion": 1.50,
-      "cacheCreationPerMillion": 18.75,
-      "outputPerMillion": 75.00,
+      "inputPerMillion": 5.00,
+      "cachedInputPerMillion": 0.50,
+      "cacheCreationPerMillion": 6.25,
+      "outputPerMillion": 25.00,
       "currency": "USD",
       "effectiveFrom": "2026-01-01T00:00:00Z"
+    },
+    {
+      "provider": "anthropic",
+      "model": "claude-fable-5",
+      "inputPerMillion": 10.00,
+      "cachedInputPerMillion": 1.00,
+      "cacheCreationPerMillion": 12.50,
+      "outputPerMillion": 50.00,
+      "currency": "USD",
+      "effectiveFrom": "2026-06-25T00:00:00Z"
     }
   ]
 }

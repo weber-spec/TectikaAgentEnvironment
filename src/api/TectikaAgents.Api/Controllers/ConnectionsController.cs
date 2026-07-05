@@ -35,16 +35,18 @@ public class ConnectionsController : ControllerBase
     private readonly IMcpGateway _gateway;
     private readonly ISecretProvider _secrets;
     private readonly TectikaAgents.AgentRuntime.FoundryConnectionsCatalog _foundry;
+    private readonly IClaudeModelCatalog _claudeModels;
     private readonly IReadOnlyDictionary<string, IFirstPartyConnector> _connectors;
 
     public ConnectionsController(ICosmosDbService cosmos, IMcpGateway gateway, ISecretProvider secrets,
-        TectikaAgents.AgentRuntime.FoundryConnectionsCatalog foundry,
+        TectikaAgents.AgentRuntime.FoundryConnectionsCatalog foundry, IClaudeModelCatalog claudeModels,
         IEnumerable<IFirstPartyConnector>? connectors = null)
     {
         _cosmos = cosmos;
         _gateway = gateway;
         _secrets = secrets;
         _foundry = foundry;
+        _claudeModels = claudeModels;
         _connectors = (connectors ?? Array.Empty<IFirstPartyConnector>())
             .ToDictionary(c => c.CatalogId, StringComparer.Ordinal);
     }
@@ -163,6 +165,21 @@ public class ConnectionsController : ControllerBase
         conn.LastValidatedAt = DateTimeOffset.UtcNow;
         var saved = await _cosmos.UpsertConnectionAsync(conn, ct);
         return Ok(saved);
+    }
+
+    // ── Live model list for a Claude (Anthropic) connection ──────────────────────
+    /// <summary>Model ids available to this Anthropic connection, fetched live from Anthropic's /v1/models
+    /// (curated fallback for OAuth connections or on failure). Powers the Claude model picker.</summary>
+    [HttpGet("{connectionId}/models")]
+    public async Task<IActionResult> Models(string connectionId, CancellationToken ct)
+    {
+        var conn = await _cosmos.GetConnectionAsync(TenantId, connectionId, ct);
+        if (conn is null) return NotFound();
+        if (!string.Equals(conn.CatalogId, "anthropic", StringComparison.Ordinal))
+            return BadRequest(new { error = "NotAClaudeConnection" });
+        // The catalog degrades to a curated list internally and never throws; the 502 is a defensive net.
+        try { return Ok(await _claudeModels.ListModelsAsync(conn, ct)); }
+        catch (Exception) { return StatusCode(StatusCodes.Status502BadGateway, new { error = "Could not load Claude models." }); }
     }
 
     [HttpDelete("{connectionId}")]

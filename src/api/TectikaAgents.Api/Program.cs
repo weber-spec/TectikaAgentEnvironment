@@ -168,6 +168,10 @@ else
 // when Foundry isn't reachable, so it's safe to register in both mock and real modes.
 builder.Services.AddSingleton<TectikaAgents.AgentRuntime.FoundryConnectionsCatalog>();
 
+// Live Claude model catalog for the Claude model picker (Anthropic /v1/models per connection). Degrades to a
+// curated fallback on OAuth connections or any failure, so it's safe to register in both mock and real modes.
+builder.Services.AddSingleton<IClaudeModelCatalog, TectikaAgents.AgentRuntime.ClaudeModelCatalog>();
+
 // ── SSE + Service Bus ────────────────────────────────────────────────────────
 builder.Services.AddSingleton<SseConnectionManager>();
 builder.Services.AddHostedService<ServiceBusListenerService>();

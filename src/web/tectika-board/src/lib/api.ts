@@ -225,6 +225,9 @@ export const api = {
       fetchApi<Connection>('/api/connections', { method: 'POST', body: JSON.stringify(input) }),
     validate: (connectionId: string) =>
       fetchApi<Connection>(`/api/connections/${connectionId}/validate`, { method: 'POST' }),
+    /** Live Claude model ids for an Anthropic connection (curated fallback for OAuth / on failure). */
+    models: (connectionId: string) =>
+      fetchApi<string[]>(`/api/connections/${connectionId}/models`),
     remove: (connectionId: string) =>
       fetchApi<void>(`/api/connections/${connectionId}`, { method: 'DELETE' }),
   },

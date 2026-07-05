@@ -9,19 +9,14 @@ import { Modal } from '@/components/ui/overlays';
 import { Icon } from '@/components/ui/icons';
 import { BrandIcon } from '@/components/ui/brand-icons';
 import { ModelSelect } from '@/components/ModelSelect';
+import type { ModelFetchStatus } from '@/lib/model-options';
+import { CLAUDE_MODEL_IDS, DEFAULT_CLAUDE_MODEL, buildClaudeModelOptions } from '@/lib/claude-model-options';
 import { toast } from '@/lib/toast';
 
 /** Per-role sync state set after a successful upsert. */
 type SyncState = { synced: boolean; error?: string | null };
 
-/** Claude Code model choices (CLI `--model`). The default for a new Claude agent is Opus 4.8. */
-const CLAUDE_MODELS: { id: string; label: string }[] = [
-  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
-  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
-];
-const DEFAULT_CLAUDE_MODEL = 'claude-opus-4-8';
-const CLAUDE_MODEL_IDS = CLAUDE_MODELS.map(m => m.id);
+// Claude model ids/labels + the picker's option builder live in @/lib/claude-model-options.
 // The always-present Foundry system connection id (mirrors backend ConnectionsController.FoundrySystemId).
 const FOUNDRY_CONN_ID = 'conn_foundry_system';
 // Foundry built-in tools an agent may attach (mirrors backend FoundryBuiltInTools.AgentSelectable).
@@ -123,6 +118,23 @@ function RoleCard({ role, syncState, onEdit }: { role: AgentRole; syncState?: Sy
   );
 }
 
+/** Fetches the live Claude model list for an Anthropic connection (mirrors ModelSelect's useModels). A null
+ *  id (Foundry role) or a failed fetch surfaces as status !== 'ready', so the picker uses the curated fallback. */
+function useClaudeModels(connectionId: string | null | undefined): { models: string[]; status: ModelFetchStatus } {
+  const [models, setModels] = useState<string[]>([]);
+  const [status, setStatus] = useState<ModelFetchStatus>('loading');
+  useEffect(() => {
+    if (!connectionId) { setModels([]); setStatus('error'); return; }
+    let cancelled = false;
+    setStatus('loading');
+    api.connections.models(connectionId)
+      .then(m => { if (!cancelled) { setModels(m); setStatus('ready'); } })
+      .catch(() => { if (!cancelled) setStatus('error'); });
+    return () => { cancelled = true; };
+  }, [connectionId]);
+  return { models, status };
+}
+
 function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: AgentRole) => void | Promise<void>; onClose: () => void }) {
   const [r, setR] = useState<AgentRole>(role);
   const set = (p: Partial<AgentRole>) => setR(prev => ({ ...prev, ...p }));
@@ -135,6 +147,8 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
   const [modelConns, setModelConns] = useState<Connection[]>([]);
   const engine: ExecutionEngine = r.executionEngine ?? 'Foundry';
   const isClaude = engine === 'ClaudeCode';
+  // Live Claude model list for the selected Anthropic connection (fallback to curated list otherwise).
+  const claudeModels = useClaudeModels(isClaude ? r.modelConnectionId : null);
 
   const onModelConnChange = (id: string) => setR(prev => {
     const conn = modelConns.find(c => c.id === id);
@@ -231,8 +245,10 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
           {isClaude ? (
             <select value={r.modelOverride ?? DEFAULT_CLAUDE_MODEL}
               onChange={e => set({ modelOverride: e.target.value })}
+              disabled={claudeModels.status === 'loading'}
               className="inp" aria-label="Model">
-              {CLAUDE_MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+              {buildClaudeModelOptions({ models: claudeModels.models, saved: r.modelOverride ?? DEFAULT_CLAUDE_MODEL, status: claudeModels.status })
+                .map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           ) : (
             <ModelSelect value={r.modelOverride} onChange={v => set({ modelOverride: v || undefined })} selectClassName="inp" />
