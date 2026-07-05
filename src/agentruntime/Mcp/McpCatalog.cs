@@ -30,7 +30,7 @@ public sealed record AuthField(string Name, string Label, string Type, string Hi
 /// whenever the catalog changes so AgentInstructionsHash republishes affected agents.</summary>
 public static class McpCatalog
 {
-    public const string Version = "mcp-catalog-v4";  // was v3 — added categories/icons/auth-fields + anthropic entry
+    public const string Version = "mcp-catalog-v5";  // was v4 — Slack moved to first-party (SlackConnector) + github entry
 
     /// <summary>Reuses TectikaToolSchema.ToolProp for property shapes so projection stays consistent.</summary>
     public sealed record CatalogTool(
@@ -61,10 +61,11 @@ public static class McpCatalog
 
     public static readonly IReadOnlyList<CatalogEntry> Entries = new CatalogEntry[]
     {
-        // NOTE (curation): confirm the production Slack MCP endpoint before shipping; tests use a fake gateway,
-        // so the URL does not affect them. Slack bot tokens auth via `Authorization: Bearer xoxb-…`.
+        // Slack — first-party: executed in-process by SlackConnector against the Slack Web API (auth.test /
+        // conversations.list / chat.postMessage) with the workspace's Bot User OAuth token. No remote MCP
+        // server; the bot token is the connection credential.
         new("slack", "Slack", "Read channels and post messages to a connected Slack workspace.",
-            Endpoint: "https://mcp.slack.example/mcp", AuthHeader: "Authorization", AuthScheme: "Bearer",
+            Endpoint: "", AuthHeader: "", AuthScheme: "",
             TokenHint: "Slack Bot Token (xoxb-…)", HelpUrl: "https://api.slack.com/authentication/token-types",
             Tools: new CatalogTool[]
             {
@@ -78,6 +79,7 @@ public static class McpCatalog
                     },
                     ["channel", "text"], IsWrite: true),
             },
+            Backend: McpBackend.FirstParty,
             Category: ConnectionCategory.AgentTool, IconKey: "slack"),
 
         // Claude (Anthropic) — a MODEL provider, not a tool integration (no tools). Powers ClaudeCode agents.

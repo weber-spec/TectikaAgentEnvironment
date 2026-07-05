@@ -23,8 +23,8 @@ public class McpCatalogTests
     }
 
     [Fact]
-    public void Slack_entry_is_a_remote_mcp_backend()
-        => Assert.Equal(McpBackend.Mcp, McpCatalog.Find("slack")!.Backend);
+    public void Slack_entry_is_a_first_party_backend()
+        => Assert.Equal(McpBackend.FirstParty, McpCatalog.Find("slack")!.Backend);
 
     [Fact]
     public void Find_returns_null_for_unknown_id()

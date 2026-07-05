@@ -140,10 +140,10 @@ public class RoundExecutorTests
     [Fact]
     public async Task Routes_mcp_tool_call_to_executor()
     {
-        var gw = new FakeMcpGateway { Result = "{\"channels\":[]}" };
         var secrets = new FakeSecretProvider();
         secrets.Store["s1"] = "xoxb-abc";
-        var mcp = new TectikaAgents.AgentRuntime.Mcp.McpToolExecutor(gw, secrets);
+        var slack = new FakeFirstPartyConnector { CatalogId = "slack", Result = "{\"channels\":[]}" };
+        var mcp = new TectikaAgents.AgentRuntime.Mcp.McpToolExecutor(new FakeMcpGateway(), secrets, new[] { slack });
         var conns = new System.Collections.Generic.List<TectikaAgents.Core.Models.Connection>
         {
             new() { Id = "c-slack", CatalogId = "slack", SecretName = "s1", Status = TectikaAgents.Core.Models.ConnectionStatus.Connected }
@@ -161,6 +161,6 @@ public class RoundExecutorTests
 
         Assert.Single(result.ToolOutputs);
         Assert.Contains("channels", result.ToolOutputs[0].Output);
-        Assert.Equal("list_channels", gw.LastTool);
+        Assert.Equal("list_channels", slack.LastTool);
     }
 }
