@@ -1,12 +1,15 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
-import type { ToolItem, ToolsCatalog, ToolSource } from '@/lib/types';
-import { Spinner } from '@/components/ui/primitives';
+import type { ToolItem, ToolsCatalog } from '@/lib/types';
+import { Button, EmptyState, Spinner } from '@/components/ui/primitives';
 import { Icon } from '@/components/ui/icons';
 import { BrandIcon } from '@/components/ui/brand-icons';
 import { toast } from '@/lib/toast';
+
+type Tab = 'system' | 'foundry' | 'integration';
 
 const BOARD_GROUP_ORDER = ['Explore', 'Control', 'Workspace', 'GitHub'];
 const BOARD_GROUP_LABEL: Record<string, string> = {
@@ -36,32 +39,46 @@ function ToggleSwitch({ on, disabled, onChange }: { on: boolean; disabled?: bool
   );
 }
 
-function ToolRow({ tool, onToggle }: { tool: ToolItem; onToggle: (t: ToolItem, enabled: boolean) => void }) {
+function ToolCard({ tool, onToggle }: { tool: ToolItem; onToggle: (t: ToolItem, enabled: boolean) => void }) {
   const hint = setupHint(tool);
   return (
-    <div className="flex items-start gap-3 bg-[var(--background)] rounded-xl border border-[var(--border)] px-4 py-3">
-      {tool.source !== 'board' && <BrandIcon name={tool.iconKey ?? 'foundry'} size={30} />}
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-medium text-[var(--foreground)] font-mono">{tool.name}</span>
-          {tool.isWrite === true && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 font-medium">write</span>}
-          {tool.isWrite === false && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--surface)] text-[var(--muted)] font-medium">read</span>}
-          {hint && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--surface)] text-[var(--muted)] font-medium">{hint}</span>}
+    <div className="flex flex-col bg-[var(--background)] rounded-xl border border-[var(--border)] p-4 hover:border-[var(--primary)] transition-colors">
+      <div className="flex items-start gap-2.5">
+        {tool.source !== 'board' && <BrandIcon name={tool.iconKey ?? 'foundry'} size={28} />}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-sm font-medium text-[var(--foreground)] font-mono break-all">{tool.name}</span>
+            {tool.isWrite === true && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 font-medium">write</span>}
+            {tool.isWrite === false && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--surface)] text-[var(--muted)] font-medium">read</span>}
+          </div>
+          {hint && <span className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-[var(--surface)] text-[var(--muted)] font-medium mt-1">{hint}</span>}
         </div>
-        <p className="text-[12px] text-[var(--muted)] mt-0.5 line-clamp-2">{tool.description}</p>
       </div>
-      {tool.lockable ? (
-        <ToggleSwitch on={tool.enabled} onChange={v => onToggle(tool, v)} />
-      ) : (
-        <span className="flex items-center gap-1 text-[11px] text-[var(--muted)] shrink-0" title="Core tool — always on">
-          <Icon.unlock size={13} /> always on
-        </span>
-      )}
+      <p className="text-[12px] text-[var(--muted)] mt-2 line-clamp-3 flex-1">{tool.description}</p>
+      <div className="flex items-center justify-end mt-3 pt-3 border-t border-[var(--border)]">
+        {tool.lockable ? (
+          <ToggleSwitch on={tool.enabled} onChange={v => onToggle(tool, v)} />
+        ) : (
+          <span className="flex items-center gap-1 text-[11px] text-[var(--muted)]" title="Core tool — always on">
+            <Icon.unlock size={13} /> always on
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CardGrid({ tools, onToggle }: { tools: ToolItem[]; onToggle: (t: ToolItem, enabled: boolean) => void }) {
+  return (
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
+      {tools.map(t => <ToolCard key={t.toolId} tool={t} onToggle={onToggle} />)}
     </div>
   );
 }
 
 export default function ToolsPage() {
+  const router = useRouter();
+  const [tab, setTab] = useState<Tab>('system');
   const [catalog, setCatalog] = useState<ToolsCatalog | null>(null);
 
   useEffect(() => { api.tools.catalog().then(setCatalog).catch(() => toast('Could not load tools', 'error')); }, []);
@@ -84,49 +101,84 @@ export default function ToolsPage() {
     catch { setCatalog(prev); toast('Could not update the tool', 'error'); }
   };
 
-  const Section = ({ title, tools, blurb }: { title: string; tools: ToolItem[]; blurb?: string }) => (
-    <section>
-      <h2 className="text-[11px] uppercase tracking-wide text-[var(--muted)] font-semibold mb-1">{title}</h2>
-      {blurb && <p className="text-[12px] text-[var(--muted)] mb-3">{blurb}</p>}
-      <div className="flex flex-col gap-2">{tools.map(t => <ToolRow key={t.toolId} tool={t} onToggle={onToggle} />)}</div>
-    </section>
-  );
+  const TABS: [Tab, string, number][] = [
+    ['system', 'System', catalog?.board.length ?? 0],
+    ['foundry', 'Foundry', catalog?.foundry.length ?? 0],
+    ['integration', 'Integrations', catalog?.integration.length ?? 0],
+  ];
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {/* Header */}
       <div className="px-8 pt-6 pb-3 shrink-0">
         <h1 className="text-2xl font-bold text-[var(--foreground)]">Tools</h1>
         <p className="text-sm text-[var(--muted)] mt-1">
           Every capability your agents can use — board tools, Foundry built-ins, and connected integrations.
           Toggle availability org-wide here; enable per agent in the agent editor.
         </p>
+        {/* Tabs */}
+        <div className="flex gap-1 mt-4 border-b border-[var(--border)]">
+          {TABS.map(([id, label, count]) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors ${
+                tab === id
+                  ? 'border-[var(--primary)] text-[var(--primary)]'
+                  : 'border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              {label}
+              {count > 0 && <span className="ml-1.5 text-[11px] text-[var(--muted)]">{count}</span>}
+            </button>
+          ))}
+        </div>
       </div>
 
+      {/* Body */}
       <div className="flex-1 overflow-auto px-8 pb-8">
         {!catalog ? (
           <div className="flex items-center justify-center h-40"><Spinner size={24} /></div>
-        ) : (
-          <div className="flex flex-col gap-8 pt-2">
-            {/* Board tools — grouped */}
-            <div className="flex flex-col gap-6">
-              <h2 className="text-sm font-bold text-[var(--foreground)]">Board tools <span className="text-[var(--muted)] font-normal">· Tectika</span></h2>
-              {boardByGroup.map(({ group, tools }) => (
-                <Section key={group} title={BOARD_GROUP_LABEL[group] ?? group} tools={tools} />
-              ))}
-            </div>
-
-            <Section
-              title="Foundry built-in · Foundry agents"
-              blurb="Generic capabilities the Azure AI Foundry platform provides. Off by default — enable to make them available, then turn them on per Foundry agent."
-              tools={catalog.foundry}
-            />
-
-            <Section
-              title="Integration tools · connected services"
-              blurb="Tools reached through a connection (Connections page). Actions run as the connected account."
-              tools={catalog.integration}
-            />
+        ) : tab === 'system' ? (
+          <div className="flex flex-col gap-6 pt-4">
+            <p className="text-[12px] text-[var(--muted)] -mb-2">
+              Board tools built into Tectika. Core tools are always on; the rest can be toggled org-wide.
+            </p>
+            {boardByGroup.map(({ group, tools }) => (
+              <section key={group}>
+                <h2 className="text-[11px] uppercase tracking-wide text-[var(--muted)] font-semibold mb-3">
+                  {BOARD_GROUP_LABEL[group] ?? group}
+                </h2>
+                <CardGrid tools={tools} onToggle={onToggle} />
+              </section>
+            ))}
           </div>
+        ) : tab === 'foundry' ? (
+          <div className="pt-4">
+            <p className="text-[12px] text-[var(--muted)] mb-4">
+              Generic capabilities the Azure AI Foundry platform provides. Off by default — enable to make them
+              available, then turn them on per Foundry agent.
+            </p>
+            <CardGrid tools={catalog.foundry} onToggle={onToggle} />
+          </div>
+        ) : (
+          catalog.integration.length === 0 ? (
+            <div className="pt-10">
+              <EmptyState
+                icon={<Icon.link size={48} />}
+                title="No integration tools yet"
+                description="Integration tools appear here once you connect a service on the Connections page."
+                action={<Button variant="primary" onClick={() => router.push('/connections')}>Go to Connections</Button>}
+              />
+            </div>
+          ) : (
+            <div className="pt-4">
+              <p className="text-[12px] text-[var(--muted)] mb-4">
+                Tools reached through a connection (Connections page). Actions run as the connected account.
+              </p>
+              <CardGrid tools={catalog.integration} onToggle={onToggle} />
+            </div>
+          )
         )}
       </div>
     </div>
