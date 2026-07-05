@@ -127,9 +127,18 @@ public sealed class ClaudeCodeAgentRuntime : IAgentRuntime
             // is best-effort: if the session is gone (container recycled), Claude errors and we fall back to
             // a fresh prompt on the next round (the activity rebuilds full context when ClaudeSessionId is null).
             var resume = string.IsNullOrEmpty(req.ThreadId) ? "" : $" --resume {req.ThreadId}";
+            var errPath = $".claude-job/{jobId}.err";
+            // Capture claude's stderr to a file. On success stdout carries the clean JSON envelope; on the
+            // usual failure shape (empty stdout — auth rejected, a --resume of a dead session, or a root/
+            // sandbox refusal) echo the exit code + stderr to stdout so the real cause flows back in the
+            // result instead of an empty, unparseable response. `exit $rc` preserves claude's real exit code.
+            var claude =
+                $"claude -p \"$(cat {promptPath})\" --output-format json --model {model} --max-turns {MaxTurns}" +
+                $" --dangerously-skip-permissions{mcpFlag}{resume}";
             var cmd =
-                $"mkdir -p .claude-job && claude -p \"$(cat {promptPath})\"" +
-                $" --output-format json --model {model} --max-turns {MaxTurns} --dangerously-skip-permissions{mcpFlag}{resume}";
+                $"mkdir -p .claude-job; out=$({claude} 2>{errPath}); rc=$?; " +
+                $"if [ -n \"$out\" ]; then printf '%s' \"$out\"; " +
+                $"else echo \"claude exited $rc with no stdout. stderr:\"; cat {errPath} 2>/dev/null; fi; exit $rc";
 
             _logger.LogInformation("[ClaudeCode] starting job {JobId} model={Model} resume={Resume}",
                 jobId, model, !string.IsNullOrEmpty(req.ThreadId));
@@ -146,8 +155,8 @@ public sealed class ClaudeCodeAgentRuntime : IAgentRuntime
             if (resultJson is null)
                 return Fail(id, "Claude Code run exceeded the time limit.", RunFailureClass.Exhaustion);
 
-            var (stdout, exitCode) = resultJson.Value;
-            return ParseEnvelope(stdout, exitCode, id, credential);
+            var (stdout, stderr, exitCode) = resultJson.Value;
+            return ParseEnvelope(stdout, stderr, exitCode, id, credential);
         }
         catch (Exception ex)
         {
@@ -157,8 +166,8 @@ public sealed class ClaudeCodeAgentRuntime : IAgentRuntime
     }
 
     /// <summary>Poll /job/status until the job exits or the deadline passes; then fetch /job/result.
-    /// Returns (stdout, exitCode) or null on deadline. Safe in a Durable activity (real IO + delays).</summary>
-    private async Task<(string Stdout, int ExitCode)?> PollJobAsync(WorkspaceConnection conn, string runIdShort, string jobId, CancellationToken ct)
+    /// Returns (stdout, stderr, exitCode) or null on deadline. Safe in a Durable activity (real IO + delays).</summary>
+    private async Task<(string Stdout, string Stderr, int ExitCode)?> PollJobAsync(WorkspaceConnection conn, string runIdShort, string jobId, CancellationToken ct)
     {
         var deadline = DateTimeOffset.UtcNow + PollDeadline;
         while (DateTimeOffset.UtcNow < deadline)
@@ -174,22 +183,30 @@ public sealed class ClaudeCodeAgentRuntime : IAgentRuntime
                     new { job_id = jobId, run_id = runIdShort }, ct).ConfigureAwait(false);
                 using var rdoc = JsonDocument.Parse(resultJson);
                 var stdout = rdoc.RootElement.TryGetProperty("stdout", out var so) ? so.GetString() ?? "" : "";
+                var stderr = rdoc.RootElement.TryGetProperty("stderr", out var se) ? se.GetString() ?? "" : "";
                 var exit = rdoc.RootElement.TryGetProperty("exit_code", out var ec) ? ec.GetInt32() : 0;
-                return (stdout, exit);
+                return (stdout, stderr, exit);
             }
         }
         return null;
     }
 
     /// <summary>Map the `claude -p --output-format json` result envelope onto a RoundOutcome.</summary>
-    private RoundOutcome ParseEnvelope(string stdout, int exitCode, string id, string credential)
+    private RoundOutcome ParseEnvelope(string stdout, string stderr, int exitCode, string id, string credential)
     {
         ClaudeResult? env = null;
         try { env = JsonSerializer.Deserialize<ClaudeResult>(stdout, Json); }
         catch (Exception ex) { _logger.LogWarning(ex, "[ClaudeCode] could not parse result envelope"); }
 
         if (env is null)
-            return Fail(id, "Claude Code returned an unrecognized response.", RunFailureClass.ModelProvider);
+        {
+            // The CLI wrote no parseable JSON — it usually died before producing output (auth rejected, a
+            // --resume of a dead session, or a root/sandbox refusal), writing the real cause to stderr and
+            // exiting non-zero. Surface a scrubbed, bounded snippet so the failure reason says WHY.
+            var reason = UnparseableReason(stdout, stderr, exitCode, credential);
+            _logger.LogWarning("[ClaudeCode] unparseable result envelope — {Reason}", reason);
+            return Fail(id, reason, RunFailureClass.ModelProvider);
+        }
 
         var usage = ExtractUsage(env);
         // Claude Code already computed the REAL cost from the actual Anthropic responses — record it as
@@ -269,6 +286,21 @@ public sealed class ClaudeCodeAgentRuntime : IAgentRuntime
 
     private static RoundOutcome Fail(string id, string error, RunFailureClass cls) =>
         new(RoundKind.Final, "", [], null, null, null, null, [], new TokenUsage(), id, Error: error, FailureClass: cls);
+
+    /// <summary>Dev-facing reason for an unparseable claude result: bounded, credential-scrubbed snippets of
+    /// stderr (where the CLI writes the real cause) and stdout, plus the exit code. Lands in the RunFailed
+    /// event Detail so a run shows WHY, not just "unrecognized response".</summary>
+    private string UnparseableReason(string stdout, string stderr, int exitCode, string credential)
+    {
+        string Snippet(string s)
+        {
+            var t = Scrub(s ?? "", credential).Trim();
+            if (t.Length == 0) return "(empty)";
+            return t.Length > 500 ? t[..500] + "…" : t;
+        }
+        return $"Claude Code returned an unrecognized response (exit {exitCode}). " +
+               $"stderr: {Snippet(stderr)} | stdout: {Snippet(stdout)}";
+    }
 
     /// <summary>Redact the API key value and any sk-ant- token so a secret never lands in an artifact,
     /// RunEvent, or log line.</summary>
