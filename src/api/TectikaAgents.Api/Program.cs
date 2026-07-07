@@ -176,6 +176,11 @@ builder.Services.AddSingleton<IClaudeModelCatalog, TectikaAgents.AgentRuntime.Cl
 builder.Services.AddSingleton<SseConnectionManager>();
 builder.Services.AddHostedService<ServiceBusListenerService>();
 
+// ── Channels (internal Slack-like messaging) ──────────────────────────────────
+builder.Services.AddSingleton<ChannelConnectionManager>();
+builder.Services.AddScoped<IChannelService, ChannelService>();
+builder.Services.AddScoped<IChannelProvisioningService, ChannelProvisioningService>();
+
 // ── Notifications ─────────────────────────────────────────────────────────────
 builder.Services.AddSingleton<NotificationConnectionManager>();
 if (!useMockDatabase)

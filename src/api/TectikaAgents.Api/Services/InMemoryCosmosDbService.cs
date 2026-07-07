@@ -63,6 +63,13 @@ public class InMemoryCosmosDbService : ICosmosDbService
     {
         foreach (var key in _tasks.Keys.Where(k => _tasks.TryGetValue(k, out var t) && t.BoardId == boardId).ToList())
             _tasks.TryRemove(key, out _);
+        // Delete the board's channel(s) + their messages (a board and its channel share a lifecycle).
+        foreach (var ch in _channels.Values.Where(c => c.BoardId == boardId).ToList())
+        {
+            foreach (var mkey in _channelMessages.Keys.Where(k => _channelMessages.TryGetValue(k, out var m) && m.ChannelId == ch.Id).ToList())
+                _channelMessages.TryRemove(mkey, out _);
+            _channels.TryRemove(ch.Id, out _);
+        }
         _boards.TryRemove(boardId, out _);
         return Task.CompletedTask;
     }
@@ -392,6 +399,58 @@ public class InMemoryCosmosDbService : ICosmosDbService
     {
         _comments[comment.Id] = comment;
         return Task.FromResult(comment);
+    }
+
+    // ── Channels ────────────────────────────────────────────────────────────────
+    private readonly ConcurrentDictionary<string, Channel> _channels = new();
+    private readonly ConcurrentDictionary<string, ChannelMessage> _channelMessages = new();
+
+    public Task<Channel> CreateChannelAsync(Channel channel, CancellationToken ct = default)
+    {
+        _channels[channel.Id] = channel;
+        return Task.FromResult(channel);
+    }
+
+    public Task<IReadOnlyList<Channel>> GetChannelsByTenantAsync(string tenantId, CancellationToken ct = default) =>
+        Task.FromResult((IReadOnlyList<Channel>)_channels.Values
+            .Where(c => c.TenantId == tenantId)
+            .OrderBy(c => c.CreatedAt)
+            .ToList());
+
+    public Task<Channel?> GetChannelAsync(string tenantId, string channelId, CancellationToken ct = default) =>
+        Task.FromResult(_channels.TryGetValue(channelId, out var c) && c.TenantId == tenantId ? c : null);
+
+    public Task<Channel> UpsertChannelAsync(Channel channel, CancellationToken ct = default)
+    {
+        _channels[channel.Id] = channel;
+        return Task.FromResult(channel);
+    }
+
+    public Task<IReadOnlyList<Channel>> GetChannelsForBoardAsync(string tenantId, string boardId, CancellationToken ct = default) =>
+        Task.FromResult((IReadOnlyList<Channel>)_channels.Values
+            .Where(c => c.TenantId == tenantId && c.BoardId == boardId)
+            .ToList());
+
+    // ── Channel messages ─────────────────────────────────────────────────────────
+    public Task<ChannelMessage> CreateChannelMessageAsync(ChannelMessage message, CancellationToken ct = default)
+    {
+        _channelMessages[message.Id] = message;
+        return Task.FromResult(message);
+    }
+
+    public Task<IReadOnlyList<ChannelMessage>> GetChannelMessagesAsync(string channelId, DateTimeOffset? since = null, CancellationToken ct = default) =>
+        Task.FromResult((IReadOnlyList<ChannelMessage>)_channelMessages.Values
+            .Where(m => m.ChannelId == channelId && (since is null || m.CreatedAt > since))
+            .OrderBy(m => m.CreatedAt)
+            .ToList());
+
+    public Task<ChannelMessage?> GetChannelMessageAsync(string channelId, string messageId, CancellationToken ct = default) =>
+        Task.FromResult(_channelMessages.TryGetValue(messageId, out var m) && m.ChannelId == channelId ? m : null);
+
+    public Task<ChannelMessage> UpsertChannelMessageAsync(ChannelMessage message, CancellationToken ct = default)
+    {
+        _channelMessages[message.Id] = message;
+        return Task.FromResult(message);
     }
 
     // ── Preview Sessions ──────────────────────────────────────────────────────────

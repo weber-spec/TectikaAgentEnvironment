@@ -13,20 +13,32 @@ public class TasksController : ControllerBase
     private readonly ICosmosDbService _cosmos;
     private readonly IRunStartService _runStart;
     private readonly IChatService _chat;
+    private readonly IChannelProvisioningService _channels;
 
-    public TasksController(ICosmosDbService cosmos, IRunStartService runStart, IChatService chat)
+    public TasksController(ICosmosDbService cosmos, IRunStartService runStart, IChatService chat,
+        IChannelProvisioningService channels)
     {
         _cosmos = cosmos;
         _runStart = runStart;
         _chat = chat;
+        _channels = channels;
     }
 
     private string TenantId => User.FindFirst("tid")?.Value ?? "default";
     private string UserId => User.FindFirst("preferred_username")?.Value ?? "unknown";
 
+    /// <summary>Reflect a task assignee into the board channel's membership (best-effort, idempotent).</summary>
+    private Task SyncAssigneeToChannelAsync(string boardId, TaskAssignee? assignee, CancellationToken ct)
+    {
+        if (assignee is null || string.IsNullOrEmpty(assignee.Id)) return Task.CompletedTask;
+        var memberType = assignee.Type == AssigneeType.Agent ? MemberTypes.Agent : MemberTypes.Human;
+        return _channels.SyncMemberAsync(TenantId, boardId, assignee.Id, memberType, ct);
+    }
+
     [HttpGet]
     public async Task<IActionResult> GetAll(string boardId, CancellationToken ct) =>
-        Ok(await _cosmos.GetTasksByBoardAsync(boardId, ct));
+        // Hidden channel-chat host tasks never appear in board views.
+        Ok((await _cosmos.GetTasksByBoardAsync(boardId, ct)).Where(t => !ChannelTaskMeta.IsChannelChat(t)));
 
     [HttpGet("{taskId}")]
     public async Task<IActionResult> Get(string boardId, string taskId, CancellationToken ct)
@@ -82,6 +94,7 @@ public class TasksController : ControllerBase
         };
 
         var created = await _cosmos.CreateTaskAsync(task, ct);
+        await SyncAssigneeToChannelAsync(boardId, created.Assignee, ct);
         return CreatedAtAction(nameof(Get), new { boardId, taskId = created.Id }, created);
     }
 
@@ -95,7 +108,7 @@ public class TasksController : ControllerBase
         if (req.Description is not null) task.Description = req.Description;
         if (req.Status is not null) task.Status = req.Status.Value;
         if (req.Priority is not null) task.Priority = req.Priority.Value;
-        if (req.Assignee is not null) task.Assignee = req.Assignee;
+        if (req.Assignee is not null) { task.Assignee = req.Assignee; await SyncAssigneeToChannelAsync(boardId, req.Assignee, ct); }
         if (req.DueAt is not null) task.DueAt = req.DueAt.Value.UtcDateTime == default ? null : req.DueAt;
         if (req.HumanAuditorId is not null) task.HumanAuditorId = req.HumanAuditorId;
         if (req.CanvasPosition is not null) task.CanvasPosition = req.CanvasPosition;

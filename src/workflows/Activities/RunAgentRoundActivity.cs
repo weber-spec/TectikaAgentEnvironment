@@ -34,6 +34,19 @@ public class RunAgentRoundActivity
     private readonly string _provider;
     private readonly ILogger<RunAgentRoundActivity> _logger;
 
+    /// <summary>Hard directive prepended to every channel-chat round so the agent answers like a teammate
+    /// in chat, not like a task worker. Board context is available via read-only tools; it must NOT produce
+    /// artifacts/files.</summary>
+    private const string ChannelChatPreamble =
+        "You are replying in a team chat channel — this is a live conversation, NOT a task to deliver. " +
+        "Someone mentioned you and is waiting for a reply. " +
+        "Use only read-only board tools (e.g. get_board_overview, search_tasks, get_task, get_artifact, " +
+        "read_team_notes) if you need to know what's happening on the board. " +
+        "Answer conversationally and concisely, as a chat message. " +
+        "Do NOT call declare_output/update_output/remove_output, do NOT build an artifact or deliverable, " +
+        "do NOT write files or code, and do NOT produce a 'Summary of work / Deliverables' report. " +
+        "Just reply directly to what was asked, and ask a follow-up question if useful.";
+
     public RunAgentRoundActivity(
         WorkflowCosmosService cosmos,
         IAgentRuntimeFactory runtimeFactory,
@@ -81,6 +94,9 @@ public class RunAgentRoundActivity
 
         var runtime = _runtimeFactory.ForRole(role);
         var isClaudeCode = role.ExecutionEngine == ExecutionEngine.ClaudeCode;
+        // Channel agent chat: the run hosts a conversational reply in a chat channel — reply in prose,
+        // no artifact/deliverable, no files, minimal read-only tools. Flagged on the hidden host task.
+        var isChannelChat = ChannelTaskMeta.IsChannelChat(task);
 
         // EnsureThreadAsync mutates task.FoundryThreadId in place, so capture whether it existed
         // BEFORE the call. Otherwise the guard never fires, the thread is never persisted, and every
@@ -128,7 +144,9 @@ public class RunAgentRoundActivity
             //   - Always on a new thread (!hadThread) — covers both button-triggered and chat-triggered first runs.
             //   - On existing threads when there is no user seed message (button re-trigger reminder).
             // NOT sent on chat continuations on existing threads (agent already knows the workspace from history).
-            if (!hadThread || string.IsNullOrEmpty(input.UserInput))
+            // Channel-chat runs are conversational — skip the workspace/branch orientation (it frames the
+            // run as code/deliverable work, the opposite of a chat reply).
+            if ((!hadThread || string.IsNullOrEmpty(input.UserInput)) && !isChannelChat)
             {
                 var branch = $"agent/{input.RunId[..Math.Min(8, input.RunId.Length)]}";
                 // Claude Code brings its own tools (Edit/Bash/Read/…), so the Foundry tool-table prompt
@@ -138,6 +156,10 @@ public class RunAgentRoundActivity
                     : WorkspacePrompt(role.Permissions.CanUseWorkspace, board.GitHub is not null, role.Permissions.CanPushCode, branch);
             }
         }
+
+        // Prepend the hard channel-chat directive on every round so the reply stays conversational.
+        if (isChannelChat)
+            userInput = ChannelChatPreamble + "\n\n---\n\n" + userInput;
 
         // Claude Code always needs the worktree (it runs `claude` there), regardless of the legacy
         // CanUseWorkspace flag, so old roles flipped to Claude still get a sandbox.
@@ -207,6 +229,12 @@ public class RunAgentRoundActivity
             // artifact and don't leave it stranded InProgress. The run itself is marked Failed by the
             // orchestrator (OnStateAsync) carrying this same error message, so the user sees why it stopped.
             await _cosmos.UpdateTaskStatusAsync(input.BoardId, input.TaskId, AgentTaskStatus.Failed, input.RunId, ct);
+        }
+        else if (outcome.Kind == RoundKind.Final && isChannelChat)
+        {
+            // Conversational channel reply — NO artifact, no push, no deliverable. The reply itself is the
+            // AgentMessage run event (emitted below) which the channel mirrors as a chat message.
+            await _cosmos.UpdateTaskStatusAsync(input.BoardId, input.TaskId, AgentTaskStatus.Done, input.RunId, ct);
         }
         else if (outcome.Kind == RoundKind.Final)
         {

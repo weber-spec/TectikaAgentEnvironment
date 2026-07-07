@@ -637,6 +637,55 @@ export interface Person {
 export type CommentKind = 'note' | 'message';
 export type NoteType = 'decision' | 'open_question' | 'note';
 
+// ── Channels (internal Slack-like messaging) ──────────────────────────────────
+export type ChannelType = 'channel' | 'dm';
+export type MemberType = 'human' | 'agent';
+export type ChannelMessageKind = 'message' | 'agent_message' | 'artifact' | 'system';
+
+export interface ChannelMember {
+  id: string;                 // human: Entra id (email/UPN/oid); agent: role id
+  memberType: MemberType;
+  role: 'owner' | 'member';
+  addedAt: string;
+  lastReadAt?: string;
+  hostTaskId?: string;        // agent members: the board task hosting this agent's runs
+}
+
+export interface Channel {
+  id: string;
+  tenantId: string;
+  type: ChannelType;
+  name: string;
+  description: string;
+  boardId?: string;
+  isBoardChannel: boolean;
+  members: ChannelMember[];
+  createdBy: string;
+  createdAt: string;
+  archivedAt?: string;
+}
+
+export interface ChannelMessage {
+  id: string;
+  channelId: string;
+  tenantId: string;
+  authorId: string;
+  authorType: MemberType;
+  kind: ChannelMessageKind;
+  body: string;
+  mentions: string[];
+  reactions?: Record<string, string[]>;   // emoji -> memberIds
+  threadParentId?: string;
+  runId?: string;
+  taskId?: string;
+  artifactId?: string;
+  sourceRunEventId?: string;
+  createdAt: string;
+  editedBy?: string;
+  updatedAt?: string;
+  deletedAt?: string;
+}
+
 export interface Comment {
   id: string;
   taskId: string;

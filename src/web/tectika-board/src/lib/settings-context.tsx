@@ -40,6 +40,7 @@ export const TRANSLATIONS = {
   en: {
     // Nav
     boards: 'Boards',
+    channels: 'Channels',
     agents: 'Agents',
     connections: 'Connections',
     tools: 'Tools',
@@ -59,6 +60,16 @@ export const TRANSLATIONS = {
     colCreated: 'Created',
     openBoard: 'Open board',
     canvas: 'Canvas',
+    // Channels page
+    channelsSubtitle: 'Team & agent conversations',
+    directMessages: 'Direct Messages',
+    newChannel: 'New channel',
+    addMember: 'Add member',
+    channelMembers: 'Members',
+    messagePlaceholder: 'Message',
+    noChannelSelected: 'Select a channel to start chatting',
+    noMessagesYet: 'No messages yet — say hello',
+    startDm: 'Start a direct message',
     // Settings page
     settingsTitle: 'Settings',
     settingsSubtitle: 'Manage your preferences for AgentBoard',
@@ -96,6 +107,7 @@ export const TRANSLATIONS = {
   he: {
     // Nav
     boards: 'לוחות',
+    channels: 'ערוצים',
     agents: 'סוכנים',
     connections: 'חיבורים',
     tools: 'כלים',
@@ -115,6 +127,16 @@ export const TRANSLATIONS = {
     colCreated: 'נוצר',
     openBoard: 'פתח לוח',
     canvas: 'קנבס',
+    // Channels page
+    channelsSubtitle: 'שיחות צוות וסוכנים',
+    directMessages: 'הודעות ישירות',
+    newChannel: 'ערוץ חדש',
+    addMember: 'הוסף משתתף',
+    channelMembers: 'משתתפים',
+    messagePlaceholder: 'הודעה',
+    noChannelSelected: 'בחר ערוץ כדי להתחיל לשוחח',
+    noMessagesYet: 'אין עדיין הודעות — תגיד שלום',
+    startDm: 'התחל שיחה ישירה',
     // Settings page
     settingsTitle: 'הגדרות',
     settingsSubtitle: 'נהל את ההעדפות שלך ב-AgentBoard',

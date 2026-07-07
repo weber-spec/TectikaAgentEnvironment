@@ -102,4 +102,13 @@ internal sealed class FakeCosmosForBoard : ICosmosDbService
     public Task<IReadOnlyList<TaskComment>> GetCommentsByTaskAsync(string taskId, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<TaskComment?> GetCommentAsync(string taskId, string commentId, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<TaskComment> UpsertCommentAsync(TaskComment comment, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Channel> CreateChannelAsync(Channel channel, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<IReadOnlyList<Channel>> GetChannelsByTenantAsync(string tenantId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Channel?> GetChannelAsync(string tenantId, string channelId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Channel> UpsertChannelAsync(Channel channel, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<IReadOnlyList<Channel>> GetChannelsForBoardAsync(string tenantId, string boardId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<ChannelMessage> CreateChannelMessageAsync(ChannelMessage message, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<IReadOnlyList<ChannelMessage>> GetChannelMessagesAsync(string channelId, DateTimeOffset? since = null, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<ChannelMessage?> GetChannelMessageAsync(string channelId, string messageId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<ChannelMessage> UpsertChannelMessageAsync(ChannelMessage message, CancellationToken ct = default) => throw new NotImplementedException();
 }

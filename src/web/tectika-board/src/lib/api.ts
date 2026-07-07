@@ -6,6 +6,7 @@ import type {
   UsageRollup, UsageEventsPage, PricingCatalog, UsageTimePoint, AgentUsage,
   PreviewSession, BoardWorkspaceStatusDto, ResetBoardResult,
   Comment, CommentKind, NoteType,
+  Channel, ChannelMessage,
   ResendDomain,
   Connection, ConnectionCatalogEntry, CreateConnectionInput, BoardConnectionBinding, ToolsCatalog,
 } from './types';
@@ -183,6 +184,29 @@ export const api = {
       fetchApi<{ lastReadAt: string }>(`/api/boards/${boardId}/tasks/${taskId}/comments/read`, { method: 'POST' }),
   },
 
+  /** Internal Slack-like channels + DMs. */
+  channels: {
+    list: () => fetchApi<Channel[]>('/api/channels'),
+    get: (channelId: string) => fetchApi<Channel>(`/api/channels/${channelId}`),
+    create: (input: { name: string; description?: string; memberIds?: string[] }) =>
+      fetchApi<Channel>('/api/channels', { method: 'POST', body: JSON.stringify(input) }),
+    addMember: (channelId: string, memberId: string, memberType?: 'human' | 'agent') =>
+      fetchApi<Channel>(`/api/channels/${channelId}/members`, { method: 'POST', body: JSON.stringify({ memberId, memberType }) }),
+    removeMember: (channelId: string, memberId: string) =>
+      fetchApi<Channel>(`/api/channels/${channelId}/members/${encodeURIComponent(memberId)}`, { method: 'DELETE' }),
+    /** Get-or-create a DM (deterministic id — never duplicated). */
+    dm: (otherMemberId: string, otherMemberType?: 'human' | 'agent') =>
+      fetchApi<Channel>('/api/channels/dm', { method: 'POST', body: JSON.stringify({ otherMemberId, otherMemberType }) }),
+    messages: (channelId: string, since?: string) =>
+      fetchApi<ChannelMessage[]>(`/api/channels/${channelId}/messages${since ? `?since=${encodeURIComponent(since)}` : ''}`),
+    postMessage: (channelId: string, body: string, mentions?: string[]) =>
+      fetchApi<ChannelMessage>(`/api/channels/${channelId}/messages`, { method: 'POST', body: JSON.stringify({ body, mentions }) }),
+    react: (channelId: string, messageId: string, emoji: string) =>
+      fetchApi<ChannelMessage>(`/api/channels/${channelId}/messages/${messageId}/reactions`, { method: 'POST', body: JSON.stringify({ emoji }) }),
+    markRead: (channelId: string) =>
+      fetchApi<{ lastReadAt: string }>(`/api/channels/${channelId}/read`, { method: 'POST' }),
+  },
+
   edges: {
     list: (boardId: string) => fetchApi<TaskEdge[]>(`/api/boards/${boardId}/edges`),
     create: (boardId: string, body: { sourceTaskId: string; targetTaskId: string; kind?: EdgeKind; label?: string }) =>
@@ -299,6 +323,15 @@ export const api = {
     const es = new EventSource(`${API_BASE}/api/runs/${runId}/stream`);
     es.onmessage = (e) => {
       try { onEvent(JSON.parse(e.data)); } catch { /* skip malformed */ }
+    };
+    return () => es.close();
+  },
+
+  // SSE stream for live channel messages.
+  streamChannel: (channelId: string, onMessage: (message: ChannelMessage) => void): (() => void) => {
+    const es = new EventSource(`${API_BASE}/api/channels/${channelId}/stream`);
+    es.onmessage = (e) => {
+      try { onMessage(JSON.parse(e.data)); } catch { /* skip malformed */ }
     };
     return () => es.close();
   },

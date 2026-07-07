@@ -59,6 +59,11 @@ public class Board
 
     [JsonPropertyName("workspaceLastUsedAt")]
     public DateTimeOffset? WorkspaceLastUsedAt { get; set; }
+
+    /// <summary>Backing board auto-created to host channel agent chat for a DM / non-board channel.
+    /// Hidden from the Boards list — it exists only to give the run pipeline a board context.</summary>
+    [JsonPropertyName("hidden")]
+    public bool Hidden { get; set; }
 }
 
 /// <summary>Binds a tenant connection to a board (enables it) plus per-board config — e.g. for GitHub the

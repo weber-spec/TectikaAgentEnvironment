@@ -25,7 +25,8 @@ public class BoardStateController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> Get(string boardId, CancellationToken ct)
     {
-        var tasks = (await _cosmos.GetTasksByBoardAsync(boardId, ct)).ToList();
+        // Hidden channel-chat host tasks are excluded from the board snapshot (they never show on the board).
+        var tasks = (await _cosmos.GetTasksByBoardAsync(boardId, ct)).Where(t => !ChannelTaskMeta.IsChannelChat(t)).ToList();
         var edges = (await _cosmos.GetEdgesByBoardAsync(boardId, ct)).ToList();
         var tenantId = TenantId;
 

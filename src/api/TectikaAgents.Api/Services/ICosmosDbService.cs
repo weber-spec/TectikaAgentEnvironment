@@ -107,4 +107,19 @@ public interface ICosmosDbService
     Task<IReadOnlyList<TaskComment>> GetCommentsByTaskAsync(string taskId, CancellationToken ct = default);
     Task<TaskComment?> GetCommentAsync(string taskId, string commentId, CancellationToken ct = default);
     Task<TaskComment> UpsertCommentAsync(TaskComment comment, CancellationToken ct = default);
+
+    // ── Channels ───────────────────────────────────────────────────────────────
+    Task<Channel> CreateChannelAsync(Channel channel, CancellationToken ct = default);
+    Task<IReadOnlyList<Channel>> GetChannelsByTenantAsync(string tenantId, CancellationToken ct = default);
+    Task<Channel?> GetChannelAsync(string tenantId, string channelId, CancellationToken ct = default);
+    Task<Channel> UpsertChannelAsync(Channel channel, CancellationToken ct = default);
+    /// <summary>Channels bound to a board (usually 0 or 1 — the auto-created board channel).</summary>
+    Task<IReadOnlyList<Channel>> GetChannelsForBoardAsync(string tenantId, string boardId, CancellationToken ct = default);
+
+    // ── Channel messages ───────────────────────────────────────────────────────
+    Task<ChannelMessage> CreateChannelMessageAsync(ChannelMessage message, CancellationToken ct = default);
+    /// <summary>Messages in a channel oldest-first; optionally only those created after <paramref name="since"/>.</summary>
+    Task<IReadOnlyList<ChannelMessage>> GetChannelMessagesAsync(string channelId, DateTimeOffset? since = null, CancellationToken ct = default);
+    Task<ChannelMessage?> GetChannelMessageAsync(string channelId, string messageId, CancellationToken ct = default);
+    Task<ChannelMessage> UpsertChannelMessageAsync(ChannelMessage message, CancellationToken ct = default);
 }

@@ -33,6 +33,8 @@ public class CosmosDbService : ICosmosDbService
     public const string UsageRollupsContainer = "usageRollups";
     public const string PreviewSessionsContainer = "previewSessions";
     public const string TaskCommentsContainer = "taskComments";
+    public const string ChannelsContainer = "channels";
+    public const string ChannelMessagesContainer = "channelMessages";
 
     /// <summary>Authoritative list of Cosmos containers this app requires (name + partition key).
     /// Source of truth for <see cref="EnsureInfrastructureAsync"/> and kept in sync with infra/modules/data.bicep.</summary>
@@ -55,6 +57,8 @@ public class CosmosDbService : ICosmosDbService
         (UsageRollupsContainer,      "/tenantId"),
         (PreviewSessionsContainer,   "/boardId"),
         (TaskCommentsContainer,      "/taskId"),
+        (ChannelsContainer,          "/tenantId"),
+        (ChannelMessagesContainer,   "/channelId"),
     };
 
     public CosmosDbService(CosmosClient client, IOptions<CosmosDbSettings> settings, ILogger<CosmosDbService> logger)
@@ -113,6 +117,21 @@ public class CosmosDbService : ICosmosDbService
         var tasks = await GetTasksByBoardAsync(boardId, ct);
         await System.Threading.Tasks.Task.WhenAll(tasks.Select(t =>
             GetContainer(TasksContainer).DeleteItemAsync<AgentTask>(t.Id, new PartitionKey(boardId), cancellationToken: ct)));
+
+        // Delete the board's channel(s) + all their messages — a board and its channel share a lifecycle.
+        try
+        {
+            var channels = await GetChannelsForBoardAsync(tenantId, boardId, ct);
+            foreach (var ch in channels)
+            {
+                var msgs = await GetChannelMessagesAsync(ch.Id, null, ct);
+                await System.Threading.Tasks.Task.WhenAll(msgs.Select(m =>
+                    GetContainer(ChannelMessagesContainer).DeleteItemAsync<ChannelMessage>(m.Id, new PartitionKey(ch.Id), cancellationToken: ct)));
+                await GetContainer(ChannelsContainer).DeleteItemAsync<Channel>(ch.Id, new PartitionKey(tenantId), cancellationToken: ct);
+            }
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { /* already gone */ }
+        catch (Exception ex) { _logger.LogWarning(ex, "[Channels] board channel cleanup failed {BoardId}", boardId); }
 
         try
         {
@@ -733,6 +752,93 @@ public class CosmosDbService : ICosmosDbService
     {
         var res = await GetContainer(TaskCommentsContainer)
             .UpsertItemAsync(comment, new PartitionKey(comment.TaskId), cancellationToken: ct);
+        return res.Resource;
+    }
+
+    // ── Channels ───────────────────────────────────────────────────────────────
+
+    public async Task<Channel> CreateChannelAsync(Channel channel, CancellationToken ct = default)
+    {
+        var res = await GetContainer(ChannelsContainer)
+            .CreateItemAsync(channel, new PartitionKey(channel.TenantId), cancellationToken: ct);
+        return res.Resource;
+    }
+
+    public async Task<IReadOnlyList<Channel>> GetChannelsByTenantAsync(string tenantId, CancellationToken ct = default)
+    {
+        var query = new QueryDefinition("SELECT * FROM c WHERE c.tenantId = @tenantId")
+            .WithParameter("@tenantId", tenantId);
+        try { return (await QueryAsync<Channel>(ChannelsContainer, query, tenantId, ct)).ToList(); }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            // Container not provisioned yet (needs a control-plane create the app identity may lack) —
+            // degrade to empty instead of 500. Self-heals once the container exists.
+            _logger.LogWarning("[Cosmos] container {Container} missing — returning empty (create it out-of-band)", ChannelsContainer);
+            return [];
+        }
+    }
+
+    public async Task<Channel?> GetChannelAsync(string tenantId, string channelId, CancellationToken ct = default)
+    {
+        try
+        {
+            var res = await GetContainer(ChannelsContainer)
+                .ReadItemAsync<Channel>(channelId, new PartitionKey(tenantId), cancellationToken: ct);
+            return res.Resource;
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
+    }
+
+    public async Task<Channel> UpsertChannelAsync(Channel channel, CancellationToken ct = default)
+    {
+        var res = await GetContainer(ChannelsContainer)
+            .UpsertItemAsync(channel, new PartitionKey(channel.TenantId), cancellationToken: ct);
+        return res.Resource;
+    }
+
+    public async Task<IReadOnlyList<Channel>> GetChannelsForBoardAsync(string tenantId, string boardId, CancellationToken ct = default)
+    {
+        var query = new QueryDefinition("SELECT * FROM c WHERE c.tenantId = @tenantId AND c.boardId = @boardId")
+            .WithParameter("@tenantId", tenantId).WithParameter("@boardId", boardId);
+        try { return (await QueryAsync<Channel>(ChannelsContainer, query, tenantId, ct)).ToList(); }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return []; }
+    }
+
+    // ── Channel messages ───────────────────────────────────────────────────────
+
+    public async Task<ChannelMessage> CreateChannelMessageAsync(ChannelMessage message, CancellationToken ct = default)
+    {
+        var res = await GetContainer(ChannelMessagesContainer)
+            .CreateItemAsync(message, new PartitionKey(message.ChannelId), cancellationToken: ct);
+        return res.Resource;
+    }
+
+    public async Task<IReadOnlyList<ChannelMessage>> GetChannelMessagesAsync(string channelId, DateTimeOffset? since = null, CancellationToken ct = default)
+    {
+        var query = since is null
+            ? new QueryDefinition("SELECT * FROM c WHERE c.channelId = @channelId ORDER BY c.createdAt ASC")
+                .WithParameter("@channelId", channelId)
+            : new QueryDefinition("SELECT * FROM c WHERE c.channelId = @channelId AND c.createdAt > @since ORDER BY c.createdAt ASC")
+                .WithParameter("@channelId", channelId).WithParameter("@since", since);
+        try { return (await QueryAsync<ChannelMessage>(ChannelMessagesContainer, query, channelId, ct)).ToList(); }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return []; }
+    }
+
+    public async Task<ChannelMessage?> GetChannelMessageAsync(string channelId, string messageId, CancellationToken ct = default)
+    {
+        try
+        {
+            var res = await GetContainer(ChannelMessagesContainer)
+                .ReadItemAsync<ChannelMessage>(messageId, new PartitionKey(channelId), cancellationToken: ct);
+            return res.Resource;
+        }
+        catch (CosmosException e) when (e.StatusCode == System.Net.HttpStatusCode.NotFound) { return null; }
+    }
+
+    public async Task<ChannelMessage> UpsertChannelMessageAsync(ChannelMessage message, CancellationToken ct = default)
+    {
+        var res = await GetContainer(ChannelMessagesContainer)
+            .UpsertItemAsync(message, new PartitionKey(message.ChannelId), cancellationToken: ct);
         return res.Resource;
     }
 

@@ -16,16 +16,19 @@ public class BoardsController : ControllerBase
     private readonly IWorkspaceService _workspaceService;
     private readonly IBoardMaintenanceService _maintenance;
     private readonly IWorkspaceControlService _workspaceControl;
+    private readonly IChannelProvisioningService _channels;
     private readonly ILogger<BoardsController> _logger;
 
     public BoardsController(ICosmosDbService cosmos, ISecretProvider secrets, IWorkspaceService workspaceService,
-        IBoardMaintenanceService maintenance, IWorkspaceControlService workspaceControl, ILogger<BoardsController> logger)
+        IBoardMaintenanceService maintenance, IWorkspaceControlService workspaceControl,
+        IChannelProvisioningService channels, ILogger<BoardsController> logger)
     {
         _cosmos = cosmos;
         _secrets = secrets;
         _workspaceService = workspaceService;
         _maintenance = maintenance;
         _workspaceControl = workspaceControl;
+        _channels = channels;
         _logger = logger;
     }
 
@@ -34,7 +37,8 @@ public class BoardsController : ControllerBase
 
     [HttpGet]
     public async Task<IActionResult> GetAll(CancellationToken ct) =>
-        Ok(await _cosmos.GetBoardsAsync(TenantId, ct));
+        // Hidden boards (auto-created to host channel agent chat) never appear in the Boards list.
+        Ok((await _cosmos.GetBoardsAsync(TenantId, ct)).Where(b => !b.Hidden));
 
     [HttpGet("{boardId}")]
     public async Task<IActionResult> Get(string boardId, CancellationToken ct)
@@ -84,6 +88,7 @@ public class BoardsController : ControllerBase
         };
 
         var created = await _cosmos.CreateBoardAsync(board, ct);
+        await _channels.EnsureBoardChannelAsync(created, ct);   // auto-create the board's channel
         return CreatedAtAction(nameof(Get), new { boardId = created.Id }, created);
     }
     [HttpPut("{boardId}/github")]

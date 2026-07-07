@@ -121,4 +121,13 @@ public sealed class FakeCosmosForRepo : ICosmosDbService
     public Task<IReadOnlyList<TectikaAgents.Core.Models.TaskComment>> GetCommentsByTaskAsync(string taskId, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<TectikaAgents.Core.Models.TaskComment?> GetCommentAsync(string taskId, string commentId, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<TectikaAgents.Core.Models.TaskComment> UpsertCommentAsync(TectikaAgents.Core.Models.TaskComment comment, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<TectikaAgents.Core.Models.Channel> CreateChannelAsync(TectikaAgents.Core.Models.Channel channel, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<IReadOnlyList<TectikaAgents.Core.Models.Channel>> GetChannelsByTenantAsync(string tenantId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<TectikaAgents.Core.Models.Channel?> GetChannelAsync(string tenantId, string channelId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<TectikaAgents.Core.Models.Channel> UpsertChannelAsync(TectikaAgents.Core.Models.Channel channel, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<IReadOnlyList<TectikaAgents.Core.Models.Channel>> GetChannelsForBoardAsync(string tenantId, string boardId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<TectikaAgents.Core.Models.ChannelMessage> CreateChannelMessageAsync(TectikaAgents.Core.Models.ChannelMessage message, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<IReadOnlyList<TectikaAgents.Core.Models.ChannelMessage>> GetChannelMessagesAsync(string channelId, DateTimeOffset? since = null, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<TectikaAgents.Core.Models.ChannelMessage?> GetChannelMessageAsync(string channelId, string messageId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<TectikaAgents.Core.Models.ChannelMessage> UpsertChannelMessageAsync(TectikaAgents.Core.Models.ChannelMessage message, CancellationToken ct = default) => throw new NotImplementedException();
 }
