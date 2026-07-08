@@ -323,6 +323,13 @@ export interface AgentUpsertResult {
   error?: string | null;
 }
 
+/** 409 body from DELETE /api/agentroles/{id} when the agent is still referenced and cannot be deleted. */
+export interface AgentInUse {
+  error: 'AgentInUse';
+  tasks: { boardId: string; boardName: string; taskId: string; title: string }[];
+  channels: { id: string; name: string }[];
+}
+
 /** A turn in the interactive agent workspace conversation. */
 export interface ChatTurn {
   id: string;

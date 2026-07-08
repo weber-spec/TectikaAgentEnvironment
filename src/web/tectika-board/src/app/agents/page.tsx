@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { api } from '@/lib/api';
-import type { AgentRole, ExecutionEngine, Connection, ConnectionCatalogEntry, ToolItem } from '@/lib/types';
+import { api, ApiError } from '@/lib/api';
+import type { AgentRole, AgentInUse, ExecutionEngine, Connection, ConnectionCatalogEntry, ToolItem } from '@/lib/types';
 import { colorFor } from '@/lib/palette';
 import { Avatar, Button, Skeleton, EmptyState, Tag } from '@/components/ui/primitives';
 import { Modal } from '@/components/ui/overlays';
@@ -40,6 +40,14 @@ export default function AgentsPage() {
     } catch { toast('Could not save agent', 'error'); }
   };
 
+  // Rethrows so the editor can surface a 409 "in use" payload in its confirm modal.
+  const remove = async (role: AgentRole) => {
+    await api.agentRoles.remove(role.id);
+    setRoles(prev => (prev ?? []).filter(r => r.id !== role.id));
+    setEditing(null);
+    toast('Agent deleted', 'success');
+  };
+
   const newAgent = (): AgentRole => ({
     id: `role-${Date.now().toString(36)}`, tenantId: 'default', displayName: 'New Agent',
     systemPrompt: 'You are a helpful agent.', tools: [], connections: [], foundryTools: [],
@@ -67,7 +75,7 @@ export default function AgentsPage() {
           </div>
         )}
       </div>
-      {editing && <RoleEditor role={editing} onSave={save} onClose={() => setEditing(null)} />}
+      {editing && <RoleEditor role={editing} onSave={save} onDelete={remove} onClose={() => setEditing(null)} />}
     </div>
   );
 }
@@ -135,7 +143,7 @@ function useClaudeModels(connectionId: string | null | undefined): { models: str
   return { models, status };
 }
 
-function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: AgentRole) => void | Promise<void>; onClose: () => void }) {
+function RoleEditor({ role, onSave, onDelete, onClose }: { role: AgentRole; onSave: (r: AgentRole) => void | Promise<void>; onDelete: (r: AgentRole) => void | Promise<void>; onClose: () => void }) {
   const [r, setR] = useState<AgentRole>(role);
   const set = (p: Partial<AgentRole>) => setR(prev => ({ ...prev, ...p }));
   const setPerms = (p: Partial<typeof r.permissions>) =>
@@ -213,9 +221,40 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
     try { await onSave(r); }
     finally { savingRef.current = false; setSaving(false); }
   };
+
+  // Delete lives behind a confirmation modal, offered only for an already-saved agent
+  // (not the transient "New Agent" draft). The backend also removes the Foundry agent.
+  const isExisting = role.displayName !== 'New Agent';
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  // Populated when the backend refuses deletion (409) because the agent is still assigned/used.
+  const [blockedBy, setBlockedBy] = useState<AgentInUse | null>(null);
+  const deletingRef = useRef(false);
+  const closeConfirm = () => { setConfirmDelete(false); setBlockedBy(null); };
+  const handleDelete = async () => {
+    if (deletingRef.current) return;
+    deletingRef.current = true;
+    setDeleting(true);
+    setBlockedBy(null);
+    try { await onDelete(role); }
+    catch (e) {
+      if (e instanceof ApiError && e.status === 409 && (e.body as AgentInUse | undefined)?.error === 'AgentInUse')
+        setBlockedBy(e.body as AgentInUse);
+      else toast('Could not delete agent', 'error');
+    }
+    finally { deletingRef.current = false; setDeleting(false); }
+  };
   return (
+    <>
     <Modal open onClose={onClose} width={560} title={<span className="flex items-center gap-2"><Icon.robot size={18} /> {role.displayName === 'New Agent' ? 'New agent' : 'Edit agent'}</span>}
-      footer={<><Button onClick={onClose} disabled={saving}>Cancel</Button><Button variant="primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save agent'}</Button></>}>
+      footer={<>
+        {isExisting && (
+          <button type="button" onClick={() => setConfirmDelete(true)} disabled={saving}
+            className="mr-auto text-sm text-[#e2445c] hover:underline inline-flex items-center gap-1.5 disabled:opacity-50">
+            <Icon.trash size={14} /> Delete agent
+          </button>
+        )}
+        <Button onClick={onClose} disabled={saving}>Cancel</Button><Button variant="primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save agent'}</Button></>}>
       <div className="flex flex-col gap-3">
         <L label="Display name"><input value={r.displayName} onChange={e => set({ displayName: e.target.value })} className="inp" /></L>
         <L label="System prompt"><textarea value={r.systemPrompt} onChange={e => set({ systemPrompt: e.target.value })} rows={4} className="inp resize-none" /></L>
@@ -360,6 +399,45 @@ function RoleEditor({ role, onSave, onClose }: { role: AgentRole; onSave: (r: Ag
         </div>
       </div>
     </Modal>
+    {confirmDelete && (
+      <Modal open onClose={closeConfirm} title="Delete agent?" width={440} z={1300}
+        footer={blockedBy ? (
+          <Button variant="ghost" onClick={closeConfirm}>Close</Button>
+        ) : (<>
+          <Button variant="ghost" onClick={closeConfirm} disabled={deleting}>Cancel</Button>
+          <Button variant="primary" onClick={handleDelete} disabled={deleting}
+            style={{ background: '#e2445c', borderColor: '#e2445c' }}>
+            {deleting ? 'Deleting…' : 'Delete agent'}
+          </Button>
+        </>)}>
+        {blockedBy ? (
+          <div className="flex flex-col gap-3 text-sm text-[var(--foreground)]">
+            <p><strong>{r.displayName}</strong> is still in use and can&apos;t be deleted. Unassign it from the following, then try again:</p>
+            {blockedBy.tasks.length > 0 && (
+              <div>
+                <div className="text-[11px] font-semibold text-[var(--muted)] uppercase tracking-wide mb-1">Tasks ({blockedBy.tasks.length})</div>
+                <ul className="list-disc pl-5 space-y-0.5">
+                  {blockedBy.tasks.map(t => <li key={t.taskId}>{t.title || 'Untitled'} <span className="text-[var(--muted)]">· {t.boardName}</span></li>)}
+                </ul>
+              </div>
+            )}
+            {blockedBy.channels.length > 0 && (
+              <div>
+                <div className="text-[11px] font-semibold text-[var(--muted)] uppercase tracking-wide mb-1">Channels ({blockedBy.channels.length})</div>
+                <ul className="list-disc pl-5 space-y-0.5">
+                  {blockedBy.channels.map(c => <li key={c.id}>#{c.name}</li>)}
+                </ul>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-[var(--foreground)]">
+            This permanently deletes <strong>{r.displayName}</strong>{engine === 'Foundry' ? ' and its underlying Foundry agent' : ''}. This cannot be undone.
+          </p>
+        )}
+      </Modal>
+    )}
+    </>
   );
 }
 

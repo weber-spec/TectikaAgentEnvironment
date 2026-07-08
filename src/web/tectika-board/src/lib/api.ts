@@ -26,11 +26,14 @@ const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5138').re
 
 export class ApiError extends Error {
   readonly status: number;
+  /** Parsed JSON error body when the server returned one (e.g. a 409 { error, … } payload); undefined otherwise. */
+  readonly body: unknown;
   // Plain field assignment (not a TS parameter property) so the file is importable under
   // Node's `--experimental-strip-types` test runner, which can't transform param properties.
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, body?: unknown) {
     super(message);
     this.status = status;
+    this.body = body;
     this.name = 'ApiError';
   }
 }
@@ -51,7 +54,9 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
     if (!res.ok) {
       const text = await res.text();
       trackEvent('[ApiError]', { method, path, status: res.status, body: redact(text) });
-      throw new ApiError(res.status, `API ${res.status}: ${text}`);
+      let parsed: unknown;
+      try { parsed = text ? JSON.parse(text) : undefined; } catch { /* non-JSON body */ }
+      throw new ApiError(res.status, `API ${res.status}: ${text}`, parsed);
     }
     if (res.status === 204) return undefined as T;
     const text = await res.text();
@@ -229,6 +234,9 @@ export const api = {
     /** Upserts an agent role and returns the full {role, synced, error} response. */
     upsertFull: (role: AgentRole, anthropicApiKey?: string): Promise<AgentUpsertResult> =>
       fetchApi<AgentUpsertResult>('/api/agentroles', { method: 'POST', body: JSON.stringify({ role, anthropicApiKey }) }),
+    /** Deletes an agent role. The backend also removes the underlying Foundry agent (best-effort). */
+    remove: (roleId: string) =>
+      fetchApi<void>(`/api/agentroles/${roleId}`, { method: 'DELETE' }),
   },
 
   /** Per-board bindings: which tenant connections a board enabled (+ per-board config, e.g. the GitHub repo). */

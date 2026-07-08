@@ -123,6 +123,16 @@ public class AgentRolesController : ControllerBase
     {
         var role = await _cosmos.GetAgentRoleAsync(TenantId, id, ct);
         if (role is null) return NotFound();
+
+        // Refuse deletion while the agent is still referenced, so we never leave a dangling task assignee
+        // or an orphaned channel member — the caller unassigns/removes it first, then retries (409).
+        // NB: the agent's credential is intentionally NOT touched here — ApiKeySecretName points at the
+        // shared Anthropic connection secret (see Upsert), owned by ConnectionsController and reused by
+        // other agents; deleting it would break them.
+        var (tasks, channels) = await FindReferencesAsync(id, ct);
+        if (tasks.Count > 0 || channels.Count > 0)
+            return Conflict(new { error = "AgentInUse", tasks, channels });
+
         await _provisioner.DeleteAgentAsync(role.FoundryAgentId, ct);
         await _cosmos.DeleteAgentRoleAsync(TenantId, id, ct);
 
@@ -137,6 +147,27 @@ public class AgentRolesController : ControllerBase
         await _notificationManager.BroadcastAsync(notif, ct);
 
         return NoContent();
+    }
+
+    /// <summary>Everything that still references this agent role: real board tasks assigned to it
+    /// (excluding hidden channel-chat host tasks — those are covered by the channel membership below) and
+    /// channels it is a member of. Both empty ⇒ safe to delete.</summary>
+    private async Task<(List<object> Tasks, List<object> Channels)> FindReferencesAsync(string roleId, CancellationToken ct)
+    {
+        var tasks = new List<object>();
+        foreach (var board in await _cosmos.GetBoardsAsync(TenantId, ct))
+        {
+            foreach (var t in await _cosmos.GetTasksByBoardAsync(board.Id, ct))
+            {
+                if (t.Assignee.Type == AssigneeType.Agent && t.Assignee.Id == roleId && !ChannelTaskMeta.IsChannelChat(t))
+                    tasks.Add(new { boardId = board.Id, boardName = board.Name, taskId = t.Id, title = t.Title });
+            }
+        }
+        var channels = (await _cosmos.GetChannelsByTenantAsync(TenantId, ct))
+            .Where(c => c.Members.Any(m => m.MemberType == MemberTypes.Agent && m.Id == roleId))
+            .Select(c => (object)new { id = c.Id, name = string.IsNullOrEmpty(c.Name) ? c.Id : c.Name })
+            .ToList();
+        return (tasks, channels);
     }
 }
 
