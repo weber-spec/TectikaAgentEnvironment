@@ -16,7 +16,7 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: 'AgentBoard — Tectika',
+  title: 'chains.team — Tectika',
   description: 'AI Agent task management platform by Tectika',
 };
 

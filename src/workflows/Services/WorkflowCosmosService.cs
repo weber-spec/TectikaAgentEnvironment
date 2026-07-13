@@ -3,6 +3,7 @@ using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TectikaAgents.Core.Configuration;
+using TectikaAgents.Core.Interfaces;
 using TectikaAgents.Core.Models;
 using TectikaAgents.Core.Usage;
 
@@ -10,8 +11,11 @@ namespace TectikaAgents.Workflows.Services;
 
 /// <summary>
 /// Slim Cosmos DB access layer לשימוש מתוך Durable Function Activities.
+/// Implements <see cref="ITaskGraphReader"/> so the Durable cascade can share
+/// <see cref="Core.Scheduling.TaskStartGate"/> with the API instead of carrying its own copy
+/// of the "may this task start?" rule.
 /// </summary>
-public class WorkflowCosmosService
+public class WorkflowCosmosService : ITaskGraphReader
 {
     private readonly CosmosClient _client;
     private readonly string _db;
@@ -94,7 +98,7 @@ public class WorkflowCosmosService
 
     // ── Edges ─────────────────────────────────────────────────────────────────
 
-    public async Task<List<string>> GetUpstreamTaskIdsAsync(string boardId, string taskId, CancellationToken ct = default)
+    public async Task<IReadOnlyList<string>> GetUpstreamTaskIdsAsync(string boardId, string taskId, CancellationToken ct = default)
     {
         var ids = new List<string>();
         var q = new QueryDefinition(
@@ -106,7 +110,7 @@ public class WorkflowCosmosService
         return ids;
     }
 
-    public async Task<List<string>> GetDownstreamTaskIdsAsync(string boardId, string taskId, CancellationToken ct = default)
+    public async Task<IReadOnlyList<string>> GetDownstreamTaskIdsAsync(string boardId, string taskId, CancellationToken ct = default)
     {
         var ids = new List<string>();
         var q = new QueryDefinition(

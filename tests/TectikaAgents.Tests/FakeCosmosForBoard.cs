@@ -79,6 +79,8 @@ internal sealed class FakeCosmosForBoard : ICosmosDbService
     public Task<IEnumerable<HumanInteraction>> GetPendingInteractionsAsync(string tenantId, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<TaskEdge> CreateEdgeAsync(TaskEdge edge, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<IEnumerable<TaskEdge>> GetEdgesByBoardAsync(string boardId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<IReadOnlyList<string>> GetUpstreamTaskIdsAsync(string boardId, string taskId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<IReadOnlyList<string>> GetDownstreamTaskIdsAsync(string boardId, string taskId, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<TaskEdge?> GetEdgeAsync(string boardId, string edgeId, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<TaskEdge> UpdateEdgeAsync(TaskEdge edge, CancellationToken ct = default) => throw new NotImplementedException();
     public Task DeleteEdgeAsync(string boardId, string edgeId, CancellationToken ct = default) => throw new NotImplementedException();

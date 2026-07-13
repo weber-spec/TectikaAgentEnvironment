@@ -1,3 +1,4 @@
+using TectikaAgents.Core.Interfaces;
 using TectikaAgents.Core.Models;
 using TectikaAgents.Core.Usage;
 
@@ -7,8 +8,12 @@ namespace TectikaAgents.Api.Services;
 /// Data-access contract for the platform's persisted entities. Implemented by
 /// <see cref="CosmosDbService"/> (real Cosmos DB) and <see cref="InMemoryCosmosDbService"/>
 /// (toggleable in-memory mock — see the "MockDatabase" config section).
+///
+/// Extends <see cref="ITaskGraphReader"/> so the API can hand itself to
+/// <see cref="Core.Scheduling.TaskStartGate"/> — the shared "may this task start?" rule —
+/// without a second abstraction. That contributes GetTaskAsync and the Get{Up,Down}streamTaskIds pair.
 /// </summary>
-public interface ICosmosDbService
+public interface ICosmosDbService : ITaskGraphReader
 {
     // ── Bootstrap ──────────────────────────────────────────────────────────────
     Task EnsureInfrastructureAsync();
@@ -22,7 +27,7 @@ public interface ICosmosDbService
 
     // ── Tasks ──────────────────────────────────────────────────────────────────
     Task<AgentTask> CreateTaskAsync(AgentTask task, CancellationToken ct = default);
-    Task<AgentTask?> GetTaskAsync(string boardId, string taskId, CancellationToken ct = default);
+    // GetTaskAsync comes from ITaskGraphReader.
     Task<IEnumerable<AgentTask>> GetTasksByBoardAsync(string boardId, CancellationToken ct = default);
     Task<AgentTask> UpdateTaskAsync(AgentTask task, CancellationToken ct = default);
     /// <summary>Atomically transition a task Backlog→InProgress and link the run, only if it is still

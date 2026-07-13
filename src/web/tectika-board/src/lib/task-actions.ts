@@ -24,12 +24,16 @@ export async function resetTaskForRerun(boardId: string, taskId: string): Promis
  * retried) the agent's conversation is cleared first — a fresh start, same as the per-task
  * "Reset & run" — so a poisoned thread can't carry a failure into the retry. Backlog tasks
  * (`reset` false) start as-is and keep any existing conversation.
+ *
+ * `respectDependencies` is passed through to the server, which re-checks that every Dependency
+ * parent is Done and refuses the start otherwise — the board snapshot this fan-out is based on
+ * can be a poll interval out of date.
  */
 export async function startTaskRun(
   boardId: string,
   taskId: string,
-  { reset }: { reset: boolean },
+  { reset, respectDependencies = false }: { reset: boolean; respectDependencies?: boolean },
 ): Promise<{ runId: string; taskId: string; status: string; streamUrl: string }> {
   if (reset) await resetTaskForRerun(boardId, taskId);
-  return api.runs.start(boardId, taskId);
+  return api.runs.start(boardId, taskId, { respectDependencies });
 }

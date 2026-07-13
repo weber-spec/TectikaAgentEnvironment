@@ -126,3 +126,31 @@ test('startTaskRun(reset=false) starts directly — no clear, no status change',
   assert.ok(!calls.some(c => c.url.endsWith('/status')), 'a non-retry task keeps its status');
   assert.ok(calls.some(c => c.url.endsWith('/runs/start')), 'should start the run');
 });
+
+// respectDependencies asks the server to re-check that every Dependency parent is Done. The board run
+// sets it (its snapshot can be a poll interval stale); a manual run must NOT, or it would lose the
+// ability to force a task ahead of unfinished upstream work.
+test('startTaskRun passes respectDependencies through to /runs/start', async () => {
+  const { calls, restore } = stubFetch();
+  try {
+    await startTaskRun('b1', 't1', { reset: false, respectDependencies: true });
+  } finally {
+    restore();
+  }
+
+  const start = calls.find(c => c.url.endsWith('/runs/start'));
+  assert.ok(start, 'should start the run');
+  assert.equal(JSON.parse(start!.body ?? '{}').respectDependencies, true);
+});
+
+test('startTaskRun defaults respectDependencies to false (manual runs can force)', async () => {
+  const { calls, restore } = stubFetch();
+  try {
+    await startTaskRun('b1', 't1', { reset: false });
+  } finally {
+    restore();
+  }
+
+  const start = calls.find(c => c.url.endsWith('/runs/start'));
+  assert.equal(JSON.parse(start!.body ?? '{}').respectDependencies, false);
+});

@@ -355,10 +355,23 @@ export const api = {
 
   runs: {
     get: (taskId: string, runId: string) => fetchApi<WorkflowRun>(`/api/runs/${taskId}/${runId}`),
-    start: (boardId: string, taskId: string) =>
+    /**
+     * `respectDependencies` asks the server to refuse the start unless every Dependency parent is
+     * Done. Run Board sets it (it fans out over a board snapshot that can be a poll interval stale);
+     * a manual per-task run omits it and keeps its ability to force a run over unmet dependencies.
+     */
+    start: (boardId: string, taskId: string, opts?: { respectDependencies?: boolean }) =>
       fetchApi<{ runId: string; taskId: string; status: string; streamUrl: string }>(
         '/api/runs/start',
-        { method: 'POST', body: JSON.stringify({ boardId, taskId, pipeline: null }) }
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            boardId,
+            taskId,
+            pipeline: null,
+            respectDependencies: opts?.respectDependencies ?? false,
+          }),
+        }
       ),
   },
 

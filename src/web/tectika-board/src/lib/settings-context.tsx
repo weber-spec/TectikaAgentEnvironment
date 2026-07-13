@@ -72,9 +72,9 @@ export const TRANSLATIONS = {
     startDm: 'Start a direct message',
     // Settings page
     settingsTitle: 'Settings',
-    settingsSubtitle: 'Manage your preferences for AgentBoard',
+    settingsSubtitle: 'Manage your preferences for chains.team',
     appearance: 'Appearance',
-    appearanceDesc: 'Choose how AgentBoard looks',
+    appearanceDesc: 'Choose how chains.team looks',
     theme: 'Theme',
     light: 'Light',
     dark: 'Dark',
@@ -139,9 +139,9 @@ export const TRANSLATIONS = {
     startDm: 'התחל שיחה ישירה',
     // Settings page
     settingsTitle: 'הגדרות',
-    settingsSubtitle: 'נהל את ההעדפות שלך ב-AgentBoard',
+    settingsSubtitle: 'נהל את ההעדפות שלך ב-chains.team',
     appearance: 'מראה',
-    appearanceDesc: 'בחר את נראות ה-AgentBoard',
+    appearanceDesc: 'בחר את נראות ה-chains.team',
     theme: 'ערכת נושא',
     light: 'בהיר',
     dark: 'כהה',

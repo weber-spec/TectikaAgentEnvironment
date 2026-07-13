@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Options;
 using TectikaAgents.Core.Configuration;
 using TectikaAgents.Core.Models;
+using TectikaAgents.Core.Scheduling;
 
 namespace TectikaAgents.Api.Services;
 
@@ -13,7 +14,14 @@ public interface IRunStartService
     /// and triggers the Durable Functions pipeline. Returns null if the task is not
     /// eligible (not found, not Backlog, or has no assigned agent).
     /// </summary>
-    Task<WorkflowRun?> StartAsync(string boardId, string taskId, string tenantId, CancellationToken ct = default);
+    /// <param name="respectDependencies">
+    /// When true, also refuse to start unless every Dependency parent is Done. Run Board sets this:
+    /// it fans out from a board snapshot that can be seconds stale, and this is the server's chance to
+    /// notice a parent that regressed. A manual per-task run leaves it false and keeps its ability to
+    /// force a run over unmet dependencies — that is a feature, not an oversight.
+    /// </param>
+    Task<WorkflowRun?> StartAsync(string boardId, string taskId, string tenantId,
+                                  bool respectDependencies = false, CancellationToken ct = default);
 }
 
 public class RunStartService : IRunStartService
@@ -35,7 +43,8 @@ public class RunStartService : IRunStartService
         _logger = logger;
     }
 
-    public async Task<WorkflowRun?> StartAsync(string boardId, string taskId, string tenantId, CancellationToken ct = default)
+    public async Task<WorkflowRun?> StartAsync(string boardId, string taskId, string tenantId,
+                                               bool respectDependencies = false, CancellationToken ct = default)
     {
         _logger.LogInformation("[RunStart] StartAsync board={BoardId} task={TaskId} tenant={TenantId}", boardId, taskId, tenantId);
 
@@ -59,6 +68,23 @@ public class RunStartService : IRunStartService
         {
             _logger.LogWarning("[RunStart] could not start run for task {TaskId} (no assigned agent)", taskId);
             return null;
+        }
+
+        // ── 3.5 Dependency gate (Run Board only) ──────────────────────────────
+        // Run Board fans out over a board snapshot that can be up to a poll interval stale, so re-check
+        // against Cosmos truth. This must run BEFORE the claim below: a blocked task should never flip to
+        // InProgress and then need restoring.
+        if (respectDependencies)
+        {
+            var (satisfied, blocking, missing) = await TaskStartGate.DependenciesSatisfiedAsync(_cosmos, boardId, taskId, ct);
+            if (!satisfied)
+            {
+                if (missing)
+                    _logger.LogWarning("[RunStart] task {TaskId} depends on task {UpstreamId}, which no longer exists (dangling edge)", taskId, blocking);
+                else
+                    _logger.LogInformation("[RunStart] task {TaskId} not started — upstream {UpstreamId} is not Done", taskId, blocking);
+                return null;
+            }
         }
 
         // ── 4. Atomically claim the task (Backlog→InProgress) BEFORE persisting the run ──

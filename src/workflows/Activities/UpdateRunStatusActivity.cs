@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using TectikaAgents.AgentRuntime.GitHub;
 using TectikaAgents.Core.Interfaces;
 using TectikaAgents.Core.Models;
+using TectikaAgents.Core.Scheduling;
 using TectikaAgents.Workflows.Services;
 
 namespace TectikaAgents.Workflows.Activities;
@@ -348,7 +349,7 @@ public class UpdateRunStatusActivity
             return;
         }
 
-        List<string> downstreamIds;
+        IReadOnlyList<string> downstreamIds;
         try
         {
             downstreamIds = await _cosmos.GetDownstreamTaskIdsAsync(boardId, taskId, ct);
@@ -363,41 +364,16 @@ public class UpdateRunStatusActivity
         {
             try
             {
-                var downstreamTask = await _cosmos.GetTaskAsync(boardId, downstreamId, ct);
-                if (downstreamTask is null)
+                // Backlog + agent-assigned + every Dependency parent Done. Shared with the in-process
+                // cascade (TasksController) and Run Board's validation, so the rule can't drift again.
+                var decision = await TaskStartGate.EvaluateAsync(_cosmos, boardId, downstreamId, ct);
+                if (!decision.CanStart)
                 {
-                    _logger.LogWarning("[Downstream] task {DownstreamId} not found — skipping", downstreamId);
-                    continue;
-                }
-
-                if (downstreamTask.Status != AgentTaskStatus.Backlog)
-                {
-                    _logger.LogDebug("[Downstream] task {DownstreamId} is {Status} (not Backlog) — skipping", downstreamId, downstreamTask.Status);
-                    continue;
-                }
-
-                if (downstreamTask.Assignee.Type != AssigneeType.Agent)
-                {
-                    _logger.LogDebug("[Downstream] task {DownstreamId} has no agent assignee — skipping", downstreamId);
-                    continue;
-                }
-
-                // All upstream tasks must be Done
-                var upstreamIds = await _cosmos.GetUpstreamTaskIdsAsync(boardId, downstreamId, ct);
-                var allUpstreamDone = true;
-                foreach (var upstreamId in upstreamIds)
-                {
-                    var upstreamTask = await _cosmos.GetTaskAsync(boardId, upstreamId, ct);
-                    if (upstreamTask is null || upstreamTask.Status != AgentTaskStatus.Done)
-                    {
-                        allUpstreamDone = false;
-                        break;
-                    }
-                }
-
-                if (!allUpstreamDone)
-                {
-                    _logger.LogDebug("[Downstream] task {DownstreamId} has unfinished upstream dependencies — skipping", downstreamId);
+                    if (decision.UpstreamMissing)
+                        _logger.LogWarning("[Downstream] task {DownstreamId} depends on task {UpstreamId}, which no longer exists (dangling edge) — it can never start from a cascade",
+                            downstreamId, decision.BlockingUpstreamId);
+                    else
+                        _logger.LogDebug("[Downstream] task {DownstreamId} not eligible ({Block}) — skipping", downstreamId, decision.Block);
                     continue;
                 }
 
@@ -405,7 +381,11 @@ public class UpdateRunStatusActivity
                 // Session consistency doesn't guarantee visibility across different client sessions.
                 await Task.Delay(TimeSpan.FromSeconds(2), ct);
 
-                // All checks passed — trigger the downstream run
+                // All checks passed — trigger the downstream run.
+                // Deliberately NOT sending respectDependencies: we just evaluated the gate here, and the
+                // API would re-evaluate it in a *different* Cosmos session, where this run's Done write may
+                // not be visible yet (the very reason for the delay above). A second check there would drop
+                // cascades silently and non-deterministically. Leave this body alone.
                 var body = JsonSerializer.Serialize(new { boardId, taskId = downstreamId });
                 var content = new StringContent(body, Encoding.UTF8, "application/json");
                 var http = _httpClientFactory.CreateClient();

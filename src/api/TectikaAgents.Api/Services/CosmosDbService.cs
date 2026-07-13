@@ -538,6 +538,25 @@ public class CosmosDbService : ICosmosDbService
             await DeleteEdgeAsync(boardId, e.Id, ct);
     }
 
+    // ── Task graph (ITaskGraphReader) ──────────────────────────────────────────
+    // Dependency edges only: a QaFeedback edge is a loop-back arc, not a prerequisite.
+
+    public async Task<IReadOnlyList<string>> GetUpstreamTaskIdsAsync(string boardId, string taskId, CancellationToken ct = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT VALUE c.sourceTaskId FROM c WHERE c.boardId = @boardId AND c.targetTaskId = @taskId AND c.kind = 'Dependency'")
+            .WithParameter("@boardId", boardId).WithParameter("@taskId", taskId);
+        return (await QueryAsync<string>(TaskEdgesContainer, query, boardId, ct)).ToList();
+    }
+
+    public async Task<IReadOnlyList<string>> GetDownstreamTaskIdsAsync(string boardId, string taskId, CancellationToken ct = default)
+    {
+        var query = new QueryDefinition(
+            "SELECT VALUE c.targetTaskId FROM c WHERE c.boardId = @boardId AND c.sourceTaskId = @taskId AND c.kind = 'Dependency'")
+            .WithParameter("@boardId", boardId).WithParameter("@taskId", taskId);
+        return (await QueryAsync<string>(TaskEdgesContainer, query, boardId, ct)).ToList();
+    }
+
     // ── Run trace ──────────────────────────────────────────────────────────────
 
     public async Task<IReadOnlyList<RunEvent>> GetRunEventsAsync(string taskId, int? sinceRound = null, CancellationToken ct = default)
