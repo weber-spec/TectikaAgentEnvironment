@@ -7,6 +7,7 @@ import { useSettings } from '@/lib/settings-context';
 import { CURRENT_USER } from '@/lib/collaboration';
 import { Avatar } from '@/components/ui/primitives';
 import { Icon, type IconName } from '@/components/ui/icons';
+import { Wordmark } from './Wordmark';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 
@@ -103,7 +104,7 @@ export function UserPanel({ open, onClose }: { open: boolean; onClose: () => voi
 
         {/* footer */}
         <div className="shrink-0 border-t border-[var(--border)] p-4 flex items-center justify-between">
-          <span className="text-[10px] text-[var(--muted-2)]">AgentBoard v0.1.0</span>
+          <span className="text-[10px] text-[var(--muted-2)] inline-flex items-baseline gap-1"><Wordmark size={11} /> v0.1.0</span>
           <button onClick={() => { toast('Signed out', 'info'); onClose(); }}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium text-[#e2445c] border border-[#e2445c]/30 hover:bg-[#e2445c11] transition-colors">
             <Icon.x size={14} /> Sign out
