@@ -21,6 +21,8 @@ public class SseBoardFanoutTests
         }
 
         // Everything else just forwards.
+        public Task<IReadOnlyList<string>> GetUpstreamTaskIdsAsync(string b, string t, CancellationToken ct = default) => inner.GetUpstreamTaskIdsAsync(b, t, ct);
+        public Task<IReadOnlyList<string>> GetDownstreamTaskIdsAsync(string b, string t, CancellationToken ct = default) => inner.GetDownstreamTaskIdsAsync(b, t, ct);
         public Task EnsureInfrastructureAsync() => inner.EnsureInfrastructureAsync();
         public Task<Board> CreateBoardAsync(Board b, CancellationToken ct = default) => inner.CreateBoardAsync(b, ct);
         public Task<IEnumerable<Board>> GetBoardsAsync(string t, CancellationToken ct = default) => inner.GetBoardsAsync(t, ct);
