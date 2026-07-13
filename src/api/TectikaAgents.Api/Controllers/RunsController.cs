@@ -52,11 +52,11 @@ public class RunsController : ControllerBase
     public async Task<IActionResult> Start([FromBody] StartRunRequest req, CancellationToken ct)
     {
         _logger.LogInformation("[RunStart] received start request board={BoardId} task={TaskId}", req.BoardId, req.TaskId);
-        var savedRun = await _runStart.StartAsync(req.BoardId, req.TaskId, TenantId, ct);
+        var savedRun = await _runStart.StartAsync(req.BoardId, req.TaskId, TenantId, req.RespectDependencies, ct);
         if (savedRun is null)
         {
-            _logger.LogWarning("[RunStart] task {TaskId} on board {BoardId} has no agent assigned or is already running", req.TaskId, req.BoardId);
-            return BadRequest("Task has no agent assigned or is already running.");
+            _logger.LogWarning("[RunStart] task {TaskId} on board {BoardId} has no agent assigned, is already running, or has unfinished dependencies", req.TaskId, req.BoardId);
+            return BadRequest("Task has no agent assigned, is already running, or has unfinished dependencies.");
         }
 
         _logger.LogInformation("[RunStart] run {RunId} started for task {TaskId} status={Status}", savedRun.Id, req.TaskId, savedRun.Status);
@@ -94,6 +94,10 @@ public class RunsController : ControllerBase
     }
 }
 
+/// <param name="RespectDependencies">Refuse to start unless every Dependency parent is Done. Run Board
+/// sets it; a manual per-task run omits it and keeps its ability to force a run over unmet dependencies.
+/// Absent in the JSON ⇒ false ⇒ the pre-existing force behaviour, so older clients are unaffected.</param>
 public record StartRunRequest(
     string TaskId,
-    string BoardId);
+    string BoardId,
+    bool RespectDependencies = false);

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TectikaAgents.Api.Services;
 using TectikaAgents.Core.Models;
+using TectikaAgents.Core.Scheduling;
 
 namespace TectikaAgents.Api.Controllers;
 
@@ -145,46 +146,21 @@ public class TasksController : ControllerBase
         return Ok(updated);
     }
 
+    /// <summary>
+    /// A task just reached Done by hand (drag on the kanban / status edit) — start whichever children
+    /// that unblocks. The agent-driven path does the same from UpdateRunStatusActivity, behind a merge
+    /// gate; both share <see cref="TaskStartGate"/> so the eligibility rule stays in one place.
+    /// </summary>
     private async System.Threading.Tasks.Task TriggerDownstreamAsync(string boardId, string completedTaskId, string tenantId, CancellationToken ct)
     {
-        var allEdges = (await _cosmos.GetEdgesByBoardAsync(boardId, ct)).ToList();
-
-        // Find tasks that have completedTaskId as a dependency
-        var downstreamEdges = allEdges
-            .Where(e => e.SourceTaskId == completedTaskId && e.Kind == EdgeKind.Dependency)
-            .ToList();
-
-        foreach (var edge in downstreamEdges)
+        foreach (var downstreamId in await _cosmos.GetDownstreamTaskIdsAsync(boardId, completedTaskId, ct))
         {
-            var targetTaskId = edge.TargetTaskId;
+            var decision = await TaskStartGate.EvaluateAsync(_cosmos, boardId, downstreamId, ct);
+            if (!decision.CanStart) continue;
 
-            var targetTask = await _cosmos.GetTaskAsync(boardId, targetTaskId, ct);
-
-            // Skip if not found, not Backlog, or not assigned to an agent
-            if (targetTask is null) continue;
-            if (targetTask.Status != AgentTaskStatus.Backlog) continue;
-            if (targetTask.Assignee.Type != AssigneeType.Agent) continue;
-
-            // Collect all upstream dependency IDs for this target task
-            var upstreamIds = allEdges
-                .Where(e => e.TargetTaskId == targetTaskId && e.Kind == EdgeKind.Dependency)
-                .Select(e => e.SourceTaskId)
-                .ToList();
-
-            // Check that every upstream task is Done
-            var allUpstreamDone = true;
-            foreach (var upstreamId in upstreamIds)
-            {
-                var upstreamTask = await _cosmos.GetTaskAsync(boardId, upstreamId, ct);
-                if (upstreamTask is null || upstreamTask.Status != AgentTaskStatus.Done)
-                {
-                    allUpstreamDone = false;
-                    break;
-                }
-            }
-
-            if (allUpstreamDone)
-                await _runStart.StartAsync(boardId, targetTaskId, tenantId, ct);
+            // respectDependencies: false — the gate just ran, on this same Cosmos session. Asking
+            // StartAsync to re-check would only repeat the reads.
+            await _runStart.StartAsync(boardId, downstreamId, tenantId, respectDependencies: false, ct);
         }
     }
 

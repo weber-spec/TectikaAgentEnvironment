@@ -16,7 +16,7 @@ import { Modal } from '@/components/ui/overlays';
  * mode="button": labelled pill (item-panel header). mode="icon": compact icon (board cards).
  */
 export function RunTaskButton({ task, mode = 'button' }: { task: AgentTask; mode?: 'button' | 'icon' }) {
-  const { runTask, stopTask, resetAndRun, isTaskRunning, upstreamIds } = useBoard();
+  const { runTask, stopTask, resetAndRun, isTaskRunning, unmetUpstreamIds } = useBoard();
   const [hovered, setHovered] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
@@ -25,7 +25,9 @@ export function RunTaskButton({ task, mode = 'button' }: { task: AgentTask; mode
 
   const running = isTaskRunning(task);
   const needsReset = !running && task.status !== 'Backlog';   // Done/Failed/Review/paused → Reset
-  const hasUnmetDep = (upstreamIds[task.id]?.length ?? 0) > 0;
+  // Only parents that aren't Done. A task whose dependencies are all satisfied gets the plain
+  // tooltip — the warning used to fire on any upstream edge, satisfied or not.
+  const hasUnmetDep = (unmetUpstreamIds[task.id]?.length ?? 0) > 0;
   const title = running
     ? 'Stop this run'
     : needsReset

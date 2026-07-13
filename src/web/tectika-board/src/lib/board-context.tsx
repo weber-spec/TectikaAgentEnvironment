@@ -15,6 +15,7 @@ import { STATUS_CONFIG, PRIORITY_CONFIG } from './palette';
 import { toast } from './toast';
 import { runAutomations } from './automations';
 import { resetTaskForRerun, startTaskRun } from './task-actions';
+import { computeUnmetUpstreamIds, isRunnableOnBoard } from './board-scheduling';
 
 /**
  * Run statuses where the run is no longer actively executing — finished
@@ -158,6 +159,8 @@ interface BoardContextValue {
   upstreamIds: Record<string, string[]>;
   /** Dependency-edge downstream ids per taskId (targets the task routes output TO). */
   downstreamIds: Record<string, string[]>;
+  /** Upstream ids that aren't Done yet, per taskId. Absent key = every dependency is satisfied. */
+  unmetUpstreamIds: Record<string, string[]>;
   connectEdge: (source: string, target: string) => Promise<TaskEdge | undefined>;
   disconnectEdge: (edgeId: string) => Promise<void>;
   updateEdge: (edgeId: string, patch: Partial<Pick<TaskEdge, 'kind' | 'label' | 'maxIterations'>>) => Promise<void>;
@@ -466,6 +469,13 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     return { upstreamIds: up, downstreamIds: down };
   }, [edges]);
 
+  // Dependency parents that aren't Done yet, per task — the client's mirror of the server's
+  // TaskStartGate. Drives both what a board run launches and the per-task button's tooltip.
+  const unmetUpstreamIds = useMemo(
+    () => computeUnmetUpstreamIds(upstreamIds, tasksById),
+    [upstreamIds, tasksById],
+  );
+
   const cellContext: CellContext = useMemo(
     () => ({ roles, peopleById, runsById, usageByTaskId, customCells: cfg.customCells, tasksById, upstreamIds, downstreamIds }),
     [roles, peopleById, runsById, usageByTaskId, cfg.customCells, tasksById, upstreamIds, downstreamIds],
@@ -692,17 +702,12 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     try { await api.edges.update(boardId, edgeId, patch); } catch { toast('Could not update edge', 'error'); }
   }, [boardId]);
 
-  // Tasks eligible for a board run: agent-owned roots that are ready to make progress —
-  // Backlog tasks (start fresh) and Failed tasks (reset to Backlog, then retry), mirroring
-  // the per-task button, which offers Run on Backlog and Reset on a failed task. Tasks with
-  // an upstream Dependency edge are excluded; the backend's dependency cascade kicks them off
-  // as their inputs complete, so a board run only launches the roots.
+  // Tasks eligible for a board run — see isRunnableOnBoard for the rule and why it is "every
+  // Dependency parent is Done" rather than "has no incoming dependency edge". Tasks whose parents
+  // are still working are excluded here and get started by the backend cascade as their inputs land.
   const runnable = useMemo(
-    () => tasks.filter(t =>
-      t.assignee?.type === 'Agent' &&
-      (t.status === 'Backlog' || t.status === 'Failed') &&
-      !edges.some(e => e.targetTaskId === t.id && e.kind === 'Dependency')),
-    [tasks, edges],
+    () => tasks.filter(t => isRunnableOnBoard(t, unmetUpstreamIds)),
+    [tasks, unmetUpstreamIds],
   );
   const runnableTaskIds = useMemo(() => runnable.map(t => t.id), [runnable]);
   // The subset that needs a reset-to-Backlog before starting (drives the confirm dialog).
@@ -729,8 +734,11 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     // Failed tasks get a true fresh start before re-running (same as resetAndRun): back to
     // Backlog AND a cleared conversation, so a poisoned thread can't doom the retry. Backlog
     // tasks start directly. Per-task failures are isolated by allSettled.
+    // respectDependencies: the batch was chosen from a snapshot that can be a poll interval stale,
+    // so the server re-checks each task's parents and refuses any whose upstream regressed
+    // (a QA loop reset it, someone edited a status). Those land in the failed-to-start path below.
     const results = await Promise.allSettled(ids.map(id =>
-      startTaskRun(boardId, id, { reset: retry.has(id) })));
+      startTaskRun(boardId, id, { reset: retry.has(id), respectDependencies: true })));
     // Record each started run on its task so the spinner reflects the run immediately
     // and completion detection can follow each run to a terminal state.
     const started = new Map<string, string>();
@@ -830,7 +838,7 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     collapsedGroups: cfg.collapsedGroups, toggleGroup,
     selectedIds, toggleSelect, selectAll, clearSelection,
     updateTask, refreshTask, refreshUsage, setStatus, setCustomCell, addTask, deleteTasks, moveCanvas,
-    edges, upstreamIds, downstreamIds, connectEdge, disconnectEdge, updateEdge,
+    edges, upstreamIds, downstreamIds, unmetUpstreamIds, connectEdge, disconnectEdge, updateEdge,
     runBoard, stopBoard, runPhase, boardRunnableCount: runnableTaskIds.length, boardRetryCount: retryTaskIds.length, runTask, resetAndRun, stopTask, isTaskRunning,
     saveRole, chatThreads: cfg.chatThreads, pushChatTurns,
     liveEnabled, liveState, toggleLive,

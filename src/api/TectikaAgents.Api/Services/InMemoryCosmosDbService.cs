@@ -250,6 +250,19 @@ public class InMemoryCosmosDbService : ICosmosDbService
         return Task.CompletedTask;
     }
 
+    // ── Task graph (ITaskGraphReader) ──────────────────────────────────────────
+    // Dependency edges only: a QaFeedback edge is a loop-back arc, not a prerequisite.
+
+    public Task<IReadOnlyList<string>> GetUpstreamTaskIdsAsync(string boardId, string taskId, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<string>>(_edges.Values
+            .Where(e => e.BoardId == boardId && e.TargetTaskId == taskId && e.Kind == EdgeKind.Dependency)
+            .Select(e => e.SourceTaskId).ToList());
+
+    public Task<IReadOnlyList<string>> GetDownstreamTaskIdsAsync(string boardId, string taskId, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<string>>(_edges.Values
+            .Where(e => e.BoardId == boardId && e.SourceTaskId == taskId && e.Kind == EdgeKind.Dependency)
+            .Select(e => e.TargetTaskId).ToList());
+
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, RunEvent> _runEvents = new();
     public Task<IReadOnlyList<RunEvent>> GetRunEventsAsync(string taskId, int? sinceRound = null, CancellationToken ct = default)
         => Task.FromResult((IReadOnlyList<RunEvent>)_runEvents.Values
