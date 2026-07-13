@@ -48,6 +48,12 @@ $LOCAL_SUB = if ($env:TECTIKA_LOCAL_SB_SUB) { $env:TECTIKA_LOCAL_SB_SUB } else {
 $API_PORT  = if ($env:TECTIKA_API_PORT)     { $env:TECTIKA_API_PORT }     else { '5138' }   # project convention (launchSettings + web .env.local)
 $Grant     = -not $NoGrant
 
+# The subscription/tenant that own $RG. Pinned rather than inherited from whatever `az account show`
+# happens to return: on a machine signed in to several tenants, running setup against the wrong one
+# silently generates config (and role grants) for the wrong resources. dev-local.ps1 pins the same pair.
+$TENANT_ID = if ($env:TECTIKA_TENANT)       { $env:TECTIKA_TENANT }       else { '134f5740-154b-4915-9e20-7f25e65d6edc' }
+$SUB_ID    = if ($env:TECTIKA_SUBSCRIPTION) { $env:TECTIKA_SUBSCRIPTION } else { '929e4f09-f929-4ebe-b146-3723b1e283b5' }
+
 $ROOT     = Split-Path -Parent $PSScriptRoot
 $FUNC_APP = "func-$PREFIX-workflows"
 
@@ -83,12 +89,33 @@ else {
   Warn '.NET 9 runtime not installed - workflows (net9) will run on a newer runtime via DOTNET_ROLL_FORWARD=Major (dev-local.ps1 handles this).'
 }
 
-az account show 2>$null | Out-Null
-if ($LASTEXITCODE -ne 0) { Die "not logged in to az - run 'az login' first" }
-$SUB      = az account show --query id   -o tsv
-$SUB_NAME = az account show --query name -o tsv
+# az writes its diagnostics to stderr, which PowerShell 5.1 turns into a terminating
+# NativeCommandError under $ErrorActionPreference='Stop' - the raw traceback would replace the
+# guidance in Die below. Routing through cmd keeps stderr out of the pipeline.
+function Invoke-Az  ([string] $Arguments) { & $env:ComSpec /c "az $Arguments >nul 2>&1"; return $LASTEXITCODE }
+function Get-AzValue([string] $Arguments) { (& $env:ComSpec /c "az $Arguments 2>nul") | Select-Object -First 1 }
+
+if ((Invoke-Az 'account show') -ne 0) { Die "not logged in to az - run 'az login --tenant $TENANT_ID' first" }
+
+# Select the project subscription rather than trusting the active one, then prove the signed-in
+# account can actually mint a token in its tenant. Without that proof setup happily generates config
+# (and role grants) against the wrong resources, and the stack still starts: every AAD-backed
+# dependency (Foundry, Key Vault, Service Bus) fails at runtime while Cosmos keeps working off its
+# connection string - a silent, partial breakage that reads like a product bug.
+if ((Get-AzValue 'account show --query id -o tsv') -ne $SUB_ID) {
+  Warn "az is on '$(Get-AzValue 'account show --query name -o tsv')' - switching to the project subscription"
+  if ((Invoke-Az "account set --subscription $SUB_ID") -ne 0) {
+    Die "az has no access to subscription $SUB_ID - run 'az login --tenant $TENANT_ID'"
+  }
+}
+if ((Invoke-Az "account get-access-token --tenant $TENANT_ID --scope https://ai.azure.com/.default") -ne 0) {
+  Die "az is signed in as '$(Get-AzValue 'account show --query user.name -o tsv')', which cannot get a token in tenant $TENANT_ID - run 'az login --tenant $TENANT_ID'"
+}
+
+$SUB      = Get-AzValue 'account show --query id   -o tsv'
+$SUB_NAME = Get-AzValue 'account show --query name -o tsv'
 Ok "az logged in: $SUB_NAME"
-Ok "subscription: $SUB"
+Ok "subscription: $SUB (tenant $TENANT_ID)"
 
 # --------------------------------------------------------------------------------------------------
 # 2. Read live deployed config (source of truth for endpoints)

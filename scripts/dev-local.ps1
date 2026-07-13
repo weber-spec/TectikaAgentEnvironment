@@ -42,6 +42,13 @@ $BATDIR   = Join-Path $RUNDIR 'bat'
 $API_PORT  = 5138   # matches launchSettings.json + web .env.local + workflows Api__BaseUrl
 $FUNC_PORT = 7071
 $WEB_PORT  = 3000
+# Tenant that owns the Azure resources (cosmos-agentteam, Foundry, Key Vault). Pinned because
+# DefaultAzureCredential walks a chain of sources (env -> broker/WAM cache -> VS -> Azure CLI) and,
+# on a machine signed in to several tenants, an earlier source can hand back a token from the wrong
+# one. Cosmos then rejects it with 401/5007 ("token issued by authority [...] which is not trusted"),
+# non-deterministically between runs. AZURE_TENANT_ID constrains the whole chain to this tenant.
+$TENANT_ID       = '134f5740-154b-4915-9e20-7f25e65d6edc'
+$SUBSCRIPTION_ID = '929e4f09-f929-4ebe-b146-3723b1e283b5'   # "Visual Studio Enterprise - MPN", owns rg-agentteam-dev-001
 New-Item -ItemType Directory -Force -Path $LOGDIR, $PIDDIR, $BATDIR | Out-Null
 
 # --------------------------------------------------------------------------------------------------
@@ -113,6 +120,57 @@ function Start-Svc {
   '   started {0,-9} log={1}' -f $Name, $log | Write-Host
 }
 
+# Fail fast if the Azure CLI cannot mint tokens for $TENANT_ID.
+#
+# AZURE_TENANT_ID (below) only tells DefaultAzureCredential WHICH tenant to ask for; it cannot make
+# the signed-in az account a member of it. When az is left on a subscription from another tenant, the
+# chain still reaches AzureCliCredential, which fails with AADSTS90072 ("user ... does not exist in
+# tenant"). The failure is silent and PARTIAL: Cosmos keeps working (it falls back to a connection
+# string), so boards and tasks load normally while every AAD-backed dependency is dead - Foundry
+# (GET /api/models -> 502 "Could not load models from Foundry", agents cannot be provisioned or run),
+# Key Vault, and Service Bus. That looks like a product bug, so check it up front instead.
+#
+# Every az call is routed through cmd (same trick as Stop-Tree): az writes its diagnostics to stderr,
+# and under $ErrorActionPreference='Stop' PowerShell 5.1 turns those lines into a terminating
+# NativeCommandError - which would abort with az's raw traceback instead of the guidance below.
+function Invoke-Az([string] $Arguments) {
+  & $env:ComSpec /c "az $Arguments >nul 2>&1"
+  return $LASTEXITCODE
+}
+function Get-AzValue([string] $Arguments) {
+  $out = & $env:ComSpec /c "az $Arguments 2>nul"
+  return ($out | Select-Object -First 1)
+}
+
+function Assert-AzContext {
+  if ((Invoke-Az 'account show') -ne 0) {
+    Write-Error "not signed in to az - run: az login --tenant $TENANT_ID"
+  }
+
+  if ((Get-AzValue 'account show --query id -o tsv') -ne $SUBSCRIPTION_ID) {
+    Write-Host "   az is on '$(Get-AzValue 'account show --query name -o tsv')' - switching to the project subscription"
+    if ((Invoke-Az "account set --subscription $SUBSCRIPTION_ID") -ne 0) {
+      Write-Error "az has no access to subscription $SUBSCRIPTION_ID - run: az login --tenant $TENANT_ID"
+    }
+  }
+
+  # Selecting the subscription is not proof: az keeps entries for subscriptions the signed-in account
+  # can no longer authenticate against. Only a real token request settles it. ai.azure.com is the
+  # scope the Foundry model catalog uses, i.e. the first thing that breaks.
+  if ((Invoke-Az "account get-access-token --tenant $TENANT_ID --scope https://ai.azure.com/.default") -ne 0) {
+    $who = Get-AzValue 'account show --query user.name -o tsv'
+    Write-Error @"
+az is signed in as '$who', which cannot get a token in tenant $TENANT_ID.
+Foundry, Key Vault and Service Bus would all fail while Cosmos kept working off its connection
+string, so the stack would come up looking healthy and then break on the first agent run.
+Fix it, then re-run:
+
+    az login --tenant $TENANT_ID
+"@
+  }
+  Write-Host "   az context OK (subscription $SUBSCRIPTION_ID, tenant $TENANT_ID)"
+}
+
 # --------------------------------------------------------------------------------------------------
 # Commands
 # --------------------------------------------------------------------------------------------------
@@ -121,6 +179,8 @@ function Invoke-Up {
   if (-not (Test-Path (Join-Path $ROOT 'src\workflows\local.settings.json'))) {
     Write-Error 'Missing local config - run scripts/dev-local-setup.sh (under WSL) first.'
   }
+
+  Assert-AzContext
 
   # Idempotent start: stop tracked instances and free the app ports first.
   Stop-Tracked
@@ -159,6 +219,7 @@ function Invoke-Up {
     ASPNETCORE_ENVIRONMENT          = 'Development'
     ASPNETCORE_URLS                 = "http://localhost:$API_PORT"
     DOTNET_USE_POLLING_FILE_WATCHER = 'true'
+    AZURE_TENANT_ID                 = $TENANT_ID
   } 'dotnet watch --non-interactive run --no-launch-profile --property:UseAppHost=false'
 
   # web is Node/Next - it never touches the .NET build, so start it now to compile in parallel.
@@ -173,6 +234,7 @@ function Invoke-Up {
 
   Start-Svc 'workflows' (Join-Path $ROOT 'src\workflows') @{
     DOTNET_ROLL_FORWARD = 'Major'
+    AZURE_TENANT_ID     = $TENANT_ID
   } "func start --port $FUNC_PORT"
 
   @"
