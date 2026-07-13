@@ -11,13 +11,13 @@ namespace TectikaAgents.Api.Controllers;
 public class ChannelsController : ControllerBase
 {
     private readonly IChannelService _channels;
-    private readonly ChannelConnectionManager _sse;
+    private readonly SseHub _hub;
     private readonly ILogger<ChannelsController> _logger;
 
-    public ChannelsController(IChannelService channels, ChannelConnectionManager sse, ILogger<ChannelsController> logger)
+    public ChannelsController(IChannelService channels, SseHub hub, ILogger<ChannelsController> logger)
     {
         _channels = channels;
-        _sse = sse;
+        _hub = hub;
         _logger = logger;
     }
 
@@ -117,26 +117,8 @@ public class ChannelsController : ControllerBase
     /// <summary>Per-channel SSE stream — pushes ChannelMessage as JSON events.</summary>
     [HttpGet("{channelId}/stream")]
     [AllowAnonymous]
-    public async Task Stream(string channelId, CancellationToken ct)
-    {
-        Response.Headers.Append("Content-Type", "text/event-stream");
-        Response.Headers.Append("Cache-Control", "no-cache");
-        Response.Headers.Append("X-Accel-Buffering", "no");
-
-        var client = new SseClient(new StreamWriter(Response.Body), ct);
-        _sse.AddClient(channelId, client);
-        _logger.LogInformation("[ChannelsController] SSE client subscribed channel={Channel}", channelId);
-
-        try
-        {
-            await Task.Delay(Timeout.Infinite, ct);
-        }
-        catch (OperationCanceledException) { }
-        finally
-        {
-            _sse.RemoveClient(channelId, client);
-        }
-    }
+    public Task Stream(string channelId, CancellationToken ct) =>
+        SseEndpoint.RunAsync(Response, _hub, SseKeys.Channel(channelId), ct, _logger);
 }
 
 public record CreateChannelRequest(string? Name, string? Description, List<string>? MemberIds);

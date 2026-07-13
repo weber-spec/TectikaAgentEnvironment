@@ -1,72 +1,49 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
 using TectikaAgents.Core.Models;
 
 namespace TectikaAgents.Api.Services;
 
 /// <summary>
-/// מנהל SSE connections — כל run יכול להיות מנוטר על ידי מספר clients.
+/// Run-event fan-out. Every event goes to two key-spaces at once: the run's own stream
+/// (<c>/api/runs/{runId}/stream</c>, kept for the CLI and for compatibility) and the multiplexed board
+/// stream (<c>/api/boards/{boardId}/stream</c>) that the web app subscribes to exactly once per board.
+///
+/// The board page used to open one EventSource per task-with-a-run, which blew past the browser's ~6
+/// connections-per-origin cap on HTTP/1.1 and left every subsequent fetch hanging forever. This is the
+/// server half of that fix — see <see cref="SseHub"/> and <see cref="IRunBoardResolver"/>.
 /// </summary>
 public class SseConnectionManager
 {
-    private readonly ConcurrentDictionary<string, List<SseClient>> _connections = new();
+    private readonly SseHub _hub;
+    private readonly IRunBoardResolver _resolver;
     private readonly ILogger<SseConnectionManager> _logger;
 
-    public SseConnectionManager(ILogger<SseConnectionManager> logger) => _logger = logger;
-
-    public void AddClient(string runId, SseClient client)
+    public SseConnectionManager(SseHub hub, IRunBoardResolver resolver, ILogger<SseConnectionManager> logger)
     {
-        var clients = _connections.AddOrUpdate(runId,
-            _ => [client],
-            (_, existing) => { existing.Add(client); return existing; });
-        _logger.LogInformation("[Sse] client connected channel={Channel} total={Count}", runId, clients.Count);
+        _hub = hub;
+        _resolver = resolver;
+        _logger = logger;
     }
 
-    public void RemoveClient(string runId, SseClient client)
-    {
-        if (_connections.TryGetValue(runId, out var clients))
-        {
-            clients.Remove(client);
-            _logger.LogInformation("[Sse] client disconnected channel={Channel} total={Count}", runId, clients.Count);
-        }
-    }
+    public void AddClient(string runId, SseClient client) => _hub.Add(SseKeys.Run(runId), client);
+    public void RemoveClient(string runId, SseClient client) => _hub.Remove(SseKeys.Run(runId), client);
+
+    /// <summary>Seed the run→board map. Called wherever a run is persisted, so the resolver's Cosmos
+    /// fallback stays the exception rather than the rule.</summary>
+    public void Remember(string runId, string? taskId, string boardId) => _resolver.Remember(runId, taskId, boardId);
 
     public async Task BroadcastAsync(AgentEvent agentEvent, CancellationToken ct = default)
     {
-        if (!_connections.TryGetValue(agentEvent.RunId, out var clients) || clients.Count == 0)
-            return;
-
-        _logger.LogDebug("[Sse] broadcast event={Event} to {Count} clients on channel={Channel}", agentEvent.Type, clients.Count, agentEvent.RunId);
+        var boardId = await _resolver.ResolveBoardIdAsync(agentEvent.RunId, agentEvent.TaskId, ct);
 
         var json = JsonSerializer.Serialize(agentEvent);
-        var data = $"data: {json}\n\n";
+        var frame = $"data: {json}\n\n";
 
-        var deadClients = new List<SseClient>();
+        _logger.LogDebug("[Sse] broadcast event={Event} run={RunId} board={BoardId}",
+            agentEvent.Type, agentEvent.RunId, boardId ?? "-");
 
-        foreach (var client in clients.ToList())
-        {
-            try
-            {
-                await client.Writer.WriteAsync(data.AsMemory(), ct);
-                await client.Writer.FlushAsync(ct);
-            }
-            catch (Exception ex) when (ex is ObjectDisposedException or IOException or OperationCanceledException)
-            {
-                // Expected at run handoff / tab close: the client's response body is gone. Drop it quietly
-                // rather than logging a warning on every disconnect race (QA S3 §4.1).
-                _logger.LogDebug("[Sse] client gone channel={Channel}", agentEvent.RunId);
-                deadClients.Add(client);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[Sse] client write failed channel={Channel}", agentEvent.RunId);
-                deadClients.Add(client);
-            }
-        }
-
-        foreach (var dead in deadClients)
-            clients.Remove(dead);
+        await _hub.BroadcastAsync(frame, ct,
+            SseKeys.Run(agentEvent.RunId),
+            boardId is null ? null : SseKeys.Board(boardId));
     }
 }
-
-public record SseClient(TextWriter Writer, CancellationToken CancellationToken);

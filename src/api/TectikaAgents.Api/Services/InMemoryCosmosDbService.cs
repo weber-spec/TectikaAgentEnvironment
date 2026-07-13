@@ -26,10 +26,12 @@ public class InMemoryCosmosDbService : ICosmosDbService
     private readonly ConcurrentDictionary<string, HumanInteraction> _interactions = new();
 
     private readonly ILogger<InMemoryCosmosDbService> _logger;
+    private readonly RunBoardIndex? _runBoardIndex;
 
-    public InMemoryCosmosDbService(ILogger<InMemoryCosmosDbService> logger)
+    public InMemoryCosmosDbService(ILogger<InMemoryCosmosDbService> logger, RunBoardIndex? runBoardIndex = null)
     {
         _logger = logger;
+        _runBoardIndex = runBoardIndex;
         MockDataSeeder.Seed(_boards, _tasks, _agentRoles, _runs, _artifacts, _edges, _usageRollups, _usageEvents);
         _logger.LogWarning(
             "MockDatabase enabled — serving {Boards} boards, {Tasks} tasks, {Roles} agent roles, " +
@@ -181,6 +183,7 @@ public class InMemoryCosmosDbService : ICosmosDbService
     public Task<WorkflowRun> CreateRunAsync(WorkflowRun run, CancellationToken ct = default)
     {
         _runs[run.Id] = run;
+        _runBoardIndex?.Remember(run.Id, run.TaskId, run.BoardId);   // see CosmosDbService.CreateRunAsync
         return Task.FromResult(run);
     }
 

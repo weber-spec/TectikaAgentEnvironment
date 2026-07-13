@@ -38,12 +38,50 @@ export class ApiError extends Error {
   }
 }
 
-async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
+/** A request that never came back. Distinct from ApiError's HTTP failures, and status 0 on purpose:
+ *  callers that branch on a status (api.preview.get treats 404 as "no preview") must not mistake a
+ *  timeout for a real answer from the server. */
+export class ApiTimeoutError extends ApiError {
+  constructor(method: string, path: string, ms: number) {
+    super(0,
+      `API timeout after ${ms}ms: ${method} ${path}. If several of these fire at once, the browser's ` +
+      `per-origin connection pool is likely exhausted by open EventSource streams.`);
+    this.name = 'ApiTimeoutError';
+  }
+}
+
+/** Most calls are quick. Slow ones (container provisioning, LLM summarisation) pass their own timeoutMs —
+ *  a blanket cap here would fail them falsely while the work carried on server-side. */
+const DEFAULT_TIMEOUT_MS = 25_000;
+/** Bulk data work: board reset/clone, LLM summarisation. */
+const SLOW_TIMEOUT_MS = 60_000;
+/** Container provisioning (ACI create + ACR image pull), which the request waits on synchronously. */
+const PROVISION_TIMEOUT_MS = 120_000;
+
+function withTimeout(signal: AbortSignal | null | undefined, timeout: AbortSignal): AbortSignal {
+  if (!signal) return timeout;
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout]);
+  const ctrl = new AbortController();
+  for (const s of [signal, timeout]) {
+    if (s.aborted) { ctrl.abort(s.reason); break; }
+    s.addEventListener('abort', () => ctrl.abort(s.reason), { once: true });
+  }
+  return ctrl.signal;
+}
+
+type ApiRequestInit = RequestInit & { timeoutMs?: number };
+
+async function fetchApi<T>(path: string, options?: ApiRequestInit): Promise<T> {
   const method = options?.method ?? 'GET';
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   trackEvent('[ApiRequest]', { method, path, body: redact(options?.body as string | undefined) });
+  // Without this a stalled request hangs forever rather than failing: that's what turned a saturated
+  // connection pool into "the board sits on Loading… and Reset & run does nothing, with no error".
+  const timeout = AbortSignal.timeout(timeoutMs);
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
+      signal: withTimeout(options?.signal, timeout),
       headers: {
         'Content-Type': 'application/json',
         // TODO: attach Bearer token from MSAL once auth is wired in production.
@@ -62,6 +100,12 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
     const text = await res.text();
     return (text ? JSON.parse(text) : undefined) as T;
   } catch (err) {
+    // Our timeout, not the caller's own abort — surface it as a real, named failure.
+    if (timeout.aborted && !options?.signal?.aborted) {
+      const e = new ApiTimeoutError(method, path, timeoutMs);
+      trackException(e, { method, path });
+      throw e;
+    }
     if (!(err instanceof ApiError)) trackException(err, { method, path });
     throw err;
   }
@@ -93,19 +137,24 @@ export const api = {
       }),
     disconnectGitHub: (boardId: string) =>
       fetchApi<Board>(`/api/boards/${boardId}/github`, { method: 'DELETE' }),
+    // Purges/copies every document on the board — well past the default timeout on a busy board.
     reset: (boardId: string, clearRepo: boolean) =>
       fetchApi<ResetBoardResult>(`/api/boards/${boardId}/reset`, {
-        method: 'POST', body: JSON.stringify({ clearRepo }),
+        method: 'POST', body: JSON.stringify({ clearRepo }), timeoutMs: SLOW_TIMEOUT_MS,
       }),
     clone: (boardId: string, opts: { name?: string; includeData: boolean }) =>
       fetchApi<Board>(`/api/boards/${boardId}/clone`, {
         method: 'POST', body: JSON.stringify({ name: opts.name, includeData: opts.includeData }),
+        timeoutMs: SLOW_TIMEOUT_MS,
       }),
     workspace: {
       get: (boardId: string) => fetchApi<BoardWorkspaceStatusDto>(`/api/boards/${boardId}/workspace`),
-      start: (boardId: string) => fetchApi<BoardWorkspaceStatusDto>(`/api/boards/${boardId}/workspace`, { method: 'POST' }),
-      restart: (boardId: string) => fetchApi<BoardWorkspaceStatusDto>(`/api/boards/${boardId}/workspace/restart`, { method: 'POST' }),
-      terminate: (boardId: string) => fetchApi<BoardWorkspaceStatusDto>(`/api/boards/${boardId}/workspace`, { method: 'DELETE' }),
+      // Provisioning waits on the container synchronously (WorkspaceControlService.StartAsync → ACI create +
+      // image pull), which routinely runs past a minute. Timing out here would report a false failure while
+      // the container kept coming up, stranding the board in Provisioning.
+      start: (boardId: string) => fetchApi<BoardWorkspaceStatusDto>(`/api/boards/${boardId}/workspace`, { method: 'POST', timeoutMs: PROVISION_TIMEOUT_MS }),
+      restart: (boardId: string) => fetchApi<BoardWorkspaceStatusDto>(`/api/boards/${boardId}/workspace/restart`, { method: 'POST', timeoutMs: PROVISION_TIMEOUT_MS }),
+      terminate: (boardId: string) => fetchApi<BoardWorkspaceStatusDto>(`/api/boards/${boardId}/workspace`, { method: 'DELETE', timeoutMs: SLOW_TIMEOUT_MS }),
     },
   },
 
@@ -125,9 +174,11 @@ export const api = {
   },
 
   preview: {
-    /** Start (or re-provision) a live preview for a board's branch. */
+    /** Start (or re-provision) a live preview for a board's branch. Provisions a container — see workspace.start. */
     start: (boardId: string, branch: string) =>
-      fetchApi<PreviewSession>(`/api/boards/${boardId}/preview`, { method: 'POST', body: JSON.stringify({ branch }) }),
+      fetchApi<PreviewSession>(`/api/boards/${boardId}/preview`, {
+        method: 'POST', body: JSON.stringify({ branch }), timeoutMs: PROVISION_TIMEOUT_MS,
+      }),
     /** Current preview session, or null when none is active (backend 404s). Polled while Provisioning. */
     get: async (boardId: string): Promise<PreviewSession | null> => {
       try {
@@ -168,8 +219,9 @@ export const api = {
       fetchApi<void>(`/api/boards/${boardId}/tasks/${taskId}/clear`, { method: 'POST' }),
     stop: (boardId: string, taskId: string) =>
       fetchApi<void>(`/api/boards/${boardId}/tasks/${taskId}/stop`, { method: 'POST' }),
+    /** Summarises the conversation through the model — an LLM round-trip, not a CRUD call. */
     compact: (boardId: string, taskId: string) =>
-      fetchApi<{ summarized: boolean }>(`/api/boards/${boardId}/tasks/${taskId}/compact`, { method: 'POST' }),
+      fetchApi<{ summarized: boolean }>(`/api/boards/${boardId}/tasks/${taskId}/compact`, { method: 'POST', timeoutMs: SLOW_TIMEOUT_MS }),
   },
 
   comments: {
@@ -326,29 +378,17 @@ export const api = {
   // External CLI bridge status (is a local agent currently linked to this task?).
   cliStatus: (taskId: string) => fetchApi<{ taskId: string; connected: boolean }>(`/api/tasks/${taskId}/cli/status`),
 
-  // SSE stream for live run updates.
-  streamRun: (runId: string, onEvent: (event: AgentEvent) => void): (() => void) => {
-    const es = new EventSource(`${API_BASE}/api/runs/${runId}/stream`);
-    es.onmessage = (e) => {
-      try { onEvent(JSON.parse(e.data)); } catch { /* skip malformed */ }
-    };
-    return () => es.close();
-  },
+  // Run events are NOT streamed per-run from the browser: see lib/board-stream.ts, which multiplexes every
+  // run on a board onto one connection. A stream per run blew past the browser's ~6-connections-per-origin
+  // cap and left every other request hanging. The server still serves /api/runs/{id}/stream for the CLI.
 
-  // SSE stream for live channel messages.
+  // SSE stream for live channel messages. One per open channel, on its own page — not a fan-out.
   streamChannel: (channelId: string, onMessage: (message: ChannelMessage) => void): (() => void) => {
     const es = new EventSource(`${API_BASE}/api/channels/${channelId}/stream`);
     es.onmessage = (e) => {
       try { onMessage(JSON.parse(e.data)); } catch { /* skip malformed */ }
     };
     return () => es.close();
-  },
-
-  // CLI Bridge WebSocket.
-  connectCli: (taskId: string, runId: string, onMessage: (msg: string) => void): WebSocket => {
-    const ws = new WebSocket(`${API_BASE.replace('http', 'ws')}/api/tasks/${taskId}/cli/stream?runId=${runId}`);
-    ws.onmessage = (e) => onMessage(e.data);
-    return ws;
   },
 
   usage: {

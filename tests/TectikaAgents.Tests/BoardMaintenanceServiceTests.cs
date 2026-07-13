@@ -35,7 +35,7 @@ public class BoardMaintenanceServiceTests
     {
         var cosmos = new InMemoryCosmosDbService(NullLogger<InMemoryCosmosDbService>.Instance);
         var chat = new ChatService(cosmos, HttpFactory(), Options.Create(new DurableFunctionsSettings()),
-            new SseConnectionManager(NullLogger<SseConnectionManager>.Instance), NullLogger<ChatService>.Instance);
+            TestSse.Manager(cosmos), NullLogger<ChatService>.Instance);
         var ws = new StubWorkspace();
         var snaps = new InMemoryWorkspaceSnapshotStore();
         var svc = new BoardMaintenanceService(cosmos, chat, ws, snaps, NullLogger<BoardMaintenanceService>.Instance);

@@ -11,18 +11,18 @@ namespace TectikaAgents.Api.Controllers;
 public class NotificationsController : ControllerBase
 {
     private readonly NotificationRepository _notificationRepo;
-    private readonly NotificationConnectionManager _notificationManager;
+    private readonly SseHub _hub;
     private readonly UserSettingsRepository _userSettingsRepo;
     private readonly ILogger<NotificationsController> _logger;
 
     public NotificationsController(
         NotificationRepository notificationRepo,
-        NotificationConnectionManager notificationManager,
+        SseHub hub,
         UserSettingsRepository userSettingsRepo,
         ILogger<NotificationsController> logger)
     {
         _notificationRepo = notificationRepo;
-        _notificationManager = notificationManager;
+        _hub = hub;
         _userSettingsRepo = userSettingsRepo;
         _logger = logger;
     }
@@ -41,26 +41,8 @@ public class NotificationsController : ControllerBase
     /// <summary>Global SSE stream — pushes NotificationDocument as JSON events.</summary>
     [HttpGet("stream")]
     [AllowAnonymous]
-    public async Task StreamNotifications(CancellationToken ct)
-    {
-        Response.Headers.Append("Content-Type", "text/event-stream");
-        Response.Headers.Append("Cache-Control", "no-cache");
-        Response.Headers.Append("X-Accel-Buffering", "no");
-
-        var client = new SseClient(new StreamWriter(Response.Body), ct);
-        _notificationManager.AddClient(client);
-        _logger.LogInformation("[NotificationsController] SSE client subscribed");
-
-        try
-        {
-            await Task.Delay(Timeout.Infinite, ct);
-        }
-        catch (OperationCanceledException) { }
-        finally
-        {
-            _notificationManager.RemoveClient(client);
-        }
-    }
+    public Task StreamNotifications(CancellationToken ct) =>
+        SseEndpoint.RunAsync(Response, _hub, SseKeys.Notifications, ct, _logger);
 
     /// <summary>Updates lastReadAt for the current user to now.</summary>
     [HttpPatch("mark-all-read")]
