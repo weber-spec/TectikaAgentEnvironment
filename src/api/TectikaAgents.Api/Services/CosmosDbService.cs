@@ -14,6 +14,7 @@ public class CosmosDbService : ICosmosDbService
     private readonly CosmosClient _client;
     private readonly string _dbName;
     private readonly ILogger<CosmosDbService> _logger;
+    private readonly RunBoardIndex? _runBoardIndex;
 
     // Container names
     public const string BoardsContainer = "boards";
@@ -61,11 +62,13 @@ public class CosmosDbService : ICosmosDbService
         (ChannelMessagesContainer,   "/channelId"),
     };
 
-    public CosmosDbService(CosmosClient client, IOptions<CosmosDbSettings> settings, ILogger<CosmosDbService> logger)
+    public CosmosDbService(CosmosClient client, IOptions<CosmosDbSettings> settings, ILogger<CosmosDbService> logger,
+                          RunBoardIndex? runBoardIndex = null)
     {
         _client = client;
         _dbName = settings.Value.DatabaseName;
         _logger = logger;
+        _runBoardIndex = runBoardIndex;
     }
 
     private Container GetContainer(string name) => _client.GetContainer(_dbName, name);
@@ -406,6 +409,9 @@ public class CosmosDbService : ICosmosDbService
     {
         var res = await GetContainer(WorkflowRunsContainer).CreateItemAsync(run, new PartitionKey(run.TaskId), cancellationToken: ct);
         _logger.LogDebug("[CosmosWrite] create WorkflowRun id={Id} task={TaskId}", res.Resource.Id, run.TaskId);
+        // Every run-creation path goes through here (RunStartService and the chat path both), so seeding the
+        // run→board map here is what keeps the board stream's Cosmos fallback the exception, not the rule.
+        _runBoardIndex?.Remember(res.Resource.Id, run.TaskId, run.BoardId);
         return res.Resource;
     }
 

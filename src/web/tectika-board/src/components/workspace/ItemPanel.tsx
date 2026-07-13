@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useBoard } from '@/lib/board-context';
 import { api } from '@/lib/api';
+import { subscribeBoardEvents } from '@/lib/board-stream';
 import type { Artifact, AgentTask, AgentRole, RunEvent, HumanInteraction, Output } from '@/lib/types';
 import { STATUS_CONFIG, STATUS_ORDER, PRIORITY_CONFIG, PRIORITY_ORDER, textOn } from '@/lib/palette';
 import { Avatar, Pill, Button, Spinner } from '@/components/ui/primitives';
@@ -188,7 +189,7 @@ function mergeById(prev: RunEvent[], incoming: RunEvent[]): RunEvent[] {
 
 // ── Live + replayable run trace (shared by Chat and Activity) ─────────────────
 // Loads the persisted RunEvents for a task, then appends live `run_event`s over SSE.
-function useRunEvents(task: AgentTask, activeRunId?: string): RunEvent[] {
+function useRunEvents(task: AgentTask): RunEvent[] {
   const [events, setEvents] = useState<RunEvent[]>([]);
 
   useEffect(() => {
@@ -208,11 +209,16 @@ function useRunEvents(task: AgentTask, activeRunId?: string): RunEvent[] {
     return () => { alive = false; clearInterval(poll); };
   }, [task.boardId, task.id]);
 
+  // Live events come off the board's single multiplexed stream, shared with board-context and every other
+  // panel tab — this hook used to open an EventSource of its own, and it's mounted up to three times per
+  // open panel (chat, activity, failure banner), which is a large part of what exhausted the browser's
+  // connection pool. Filtering on taskId rather than runId is also strictly better: a run the client hasn't
+  // learned about yet (one started from chat, or by a cascade) renders immediately instead of waiting for
+  // the /state poll to attach its id to the task.
   useEffect(() => {
-    const runId = activeRunId ?? task.workflowRunId;
-    if (!runId) return;
-    const stop = api.streamRun(runId, (e) => {
+    return subscribeBoardEvents(task.boardId, (e) => {
       if (e.type !== 'run_event') return;
+      if (e.taskId !== task.id) return;
       const re: RunEvent = {
         id: e.eventId ?? `${e.runId}-${e.timestamp}`,
         taskId: e.taskId ?? task.id, runId: e.runId, round: e.round ?? 0,
@@ -229,8 +235,7 @@ function useRunEvents(task: AgentTask, activeRunId?: string): RunEvent[] {
         return next;
       });
     });
-    return stop;
-  }, [activeRunId, task.workflowRunId, task.id]);
+  }, [task.boardId, task.id]);
 
   // Hide events before the /clear boundary (non-destructive — they stay in the DB).
   return useMemo(
@@ -504,8 +509,7 @@ function AssignAgentPrompt({ task }: { task: AgentTask }) {
 }
 
 function AgentChat({ task, role }: { task: AgentTask; role?: AgentRole }) {
-  const [activeRunId, setActiveRunId] = useState<string | undefined>(task.workflowRunId);
-  const events = useRunEvents(task, activeRunId);
+  const events = useRunEvents(task);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [pending, setPending] = useState<Bubble[]>([]);   // optimistic human turns (echo isn't streamed live)
@@ -530,7 +534,7 @@ function AgentChat({ task, role }: { task: AgentTask; role?: AgentRole }) {
 
   // Reset per-task UI state when switching tasks.
   // eslint-disable-next-line react-hooks/set-state-in-effect -- clear pending bubbles on task change
-  useEffect(() => { setPending([]); setActiveRunId(task.workflowRunId); setJustSent(false); }, [task.id]);
+  useEffect(() => { setPending([]); setJustSent(false); }, [task.id]);
 
   // Once the server reflects the run (status → InProgress), task.status drives `working`.
   // eslint-disable-next-line react-hooks/set-state-in-effect -- clear the optimistic bridge once status syncs
@@ -594,7 +598,8 @@ function AgentChat({ task, role }: { task: AgentTask; role?: AgentRole }) {
     setDraft('');
     setSending(true);
     setJustSent(true);
-    try { const res = await api.tasks.chat(task.boardId, task.id, text); setActiveRunId(res.runId); }
+    // The run this starts needs no tracking here: the board stream delivers its events by taskId.
+    try { await api.tasks.chat(task.boardId, task.id, text); }
     catch { toast('Could not send message', 'error'); setJustSent(false); }
     finally { setSending(false); }
   };
@@ -615,7 +620,7 @@ function AgentChat({ task, role }: { task: AgentTask; role?: AgentRole }) {
   const cmdCtx: ChatCommandContext = {
     boardId: task.boardId, taskId: task.id, isRunning: working, lastUserText,
     refreshTask: () => refreshTask(task.id),
-    resend: (text) => { setDraft(''); api.tasks.chat(task.boardId, task.id, text).then(r => setActiveRunId(r.runId)).catch(() => toast('Could not resend', 'error')); },
+    resend: (text) => { setDraft(''); api.tasks.chat(task.boardId, task.id, text).catch(() => toast('Could not resend', 'error')); },
     openHelp: () => setHelpOpen(true),
     toast,
   };
@@ -818,17 +823,16 @@ function CliBridgeTab({ task }: { task: AgentTask }) {
     return () => { active = false; clearInterval(t); };
   }, [task.id]);
 
-  // receive cli_* events over the run's SSE stream
+  // receive cli_* events over the board's shared stream (no run id needed — they're keyed by task)
   useEffect(() => {
-    if (!task.workflowRunId) return;
-    return api.streamRun(task.workflowRunId, (ev) => {
-      if (ev.taskId && ev.taskId !== task.id) return;
+    return subscribeBoardEvents(task.boardId, (ev) => {
+      if (ev.taskId !== task.id) return;
       if (ev.type === 'cli_connected') { setConnected(true); push('sys', '✓ local agent connected'); }
       else if (ev.type === 'cli_disconnected') { setConnected(false); push('sys', '× local agent disconnected'); }
       else if (ev.type === 'cli_output' && ev.content) ev.content.split('\n').forEach(l => push(classifyLine(l), l));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task.workflowRunId, task.id]);
+  }, [task.boardId, task.id]);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [lines.length]);
 
@@ -909,6 +913,12 @@ function ArtifactPane({ task }: { task: AgentTask }) {
 
   const load = () => { api.artifacts.versions(task.id).then(v => { setVersions(v); setIdx(0); }).catch(() => setVersions([])); };
   useEffect(load, [task.id]);
+
+  // Follow the agent's output live. Free now that the board stream is already open — before, the pane
+  // fetched once and went stale for the whole run.
+  useEffect(() => subscribeBoardEvents(task.boardId, (ev) => {
+    if (ev.taskId === task.id && ev.type === 'artifact_updated') load();
+  }), [task.boardId, task.id]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const current = versions?.[idx];
 

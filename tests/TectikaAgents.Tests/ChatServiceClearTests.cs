@@ -12,7 +12,7 @@ public class ChatServiceClearTests
         new ServiceCollection().AddHttpClient().BuildServiceProvider().GetRequiredService<IHttpClientFactory>();
 
     private static ChatService Make(InMemoryCosmosDbService cosmos) =>
-        new(cosmos, HttpFactory(), Options.Create(new DurableFunctionsSettings()), new SseConnectionManager(NullLogger<SseConnectionManager>.Instance), NullLogger<ChatService>.Instance);
+        new(cosmos, HttpFactory(), Options.Create(new DurableFunctionsSettings()), TestSse.Manager(cosmos), NullLogger<ChatService>.Instance);
 
     [Fact]
     public async Task ClearAsync_ResetsThreadBriefAndSetsBoundary()

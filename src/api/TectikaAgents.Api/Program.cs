@@ -173,6 +173,12 @@ builder.Services.AddSingleton<TectikaAgents.AgentRuntime.FoundryConnectionsCatal
 builder.Services.AddSingleton<IClaudeModelCatalog, TectikaAgents.AgentRuntime.ClaudeModelCatalog>();
 
 // ── SSE + Service Bus ────────────────────────────────────────────────────────
+// SseHub is the single keyed fan-out every stream sits on (run / board / channel / notifications).
+// RunBoardIndex is a dependency-free cache seeded by the data layer on every run creation; RunBoardResolver
+// reads Cosmos only when it misses. That split is what lets CosmosDbService seed it without a DI cycle.
+builder.Services.AddSingleton<SseHub>();
+builder.Services.AddSingleton<RunBoardIndex>();
+builder.Services.AddSingleton<IRunBoardResolver, RunBoardResolver>();
 builder.Services.AddSingleton<SseConnectionManager>();
 builder.Services.AddHostedService<ServiceBusListenerService>();
 

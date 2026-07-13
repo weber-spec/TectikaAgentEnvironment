@@ -58,6 +58,11 @@ export function useNotifications() {
 
   useEffect(() => {
     let es: EventSource | null = null;
+    // The stream is opened after two awaits, so an unmount before that point (a fast route change, or
+    // React StrictMode's double-invoke in dev) used to run the cleanup while `es` was still null — and the
+    // connection that arrived a moment later was never closed. Leaked connections are exactly what
+    // exhausts the browser's per-origin pool.
+    let cancelled = false;
 
     async function init() {
       // 1. Load user settings from backend (preferences + lastReadAt)
@@ -85,20 +90,23 @@ export function useNotifications() {
       } catch {
         // Backend unavailable — use localStorage value (already set)
       }
+      if (cancelled) return;
 
       // 2. Load notification history
       try {
         const res = await fetch(`${API_BASE}/api/notifications?limit=100`);
         if (res.ok) {
           const data: AppNotification[] = await res.json();
-          setRaw(data.filter(n => isEnabled(n.sourceEventType)));
+          if (!cancelled) setRaw(data.filter(n => isEnabled(n.sourceEventType)));
         }
       } catch {
         // Backend unavailable — show empty list
       }
+      if (cancelled) return;
 
       // 3. Subscribe to live SSE stream
       es = new EventSource(`${API_BASE}/api/notifications/stream`);
+      if (cancelled) { es.close(); es = null; return; }   // unmounted while we were awaiting
       es.onmessage = (e) => {
         const n: AppNotification = JSON.parse(e.data as string);
         if (isEnabled(n.sourceEventType)) {
@@ -108,7 +116,7 @@ export function useNotifications() {
     }
 
     void init();
-    return () => es?.close();
+    return () => { cancelled = true; es?.close(); es = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

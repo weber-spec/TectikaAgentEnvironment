@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { api, type TaskPatch } from './api';
+import { subscribeBoardEvents } from './board-stream';
 import type {
   Board, AgentTask, AgentRole, WorkflowRun, Person, TaskEdge,
   ColumnDef, ColumnKind, ViewDef, ViewKind, FilterGroup, SortRule,
@@ -372,11 +373,15 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
   // (QA §4.5 — the separate 4s per-run poll was folded in), plus instant SSE status events.
 
   // ── live sync (PRD §2) ────────────────────────────────────────────────────────
-  // Real-time updates via SSE on each active run, with a polling reconcile as a
-  // resilient fallback. Server-authoritative status changes + newly-created tasks
-  // flow in automatically; recent local edits are left untouched for 5s to avoid
-  // clobbering optimistic changes.
-  const activeRunKey = tasks.map(t => t.workflowRunId).filter(Boolean).join(',');
+  // Real-time updates over ONE multiplexed board stream, with a polling reconcile as a resilient
+  // fallback. Server-authoritative status changes + newly-created tasks flow in automatically;
+  // recent local edits are left untouched for 5s to avoid clobbering optimistic changes.
+  //
+  // This used to open an EventSource per task-with-a-run — including long-finished ones, since nothing
+  // closed a stream when a run went terminal — and the effect was keyed on the set of run ids, so every
+  // new run tore down and rebuilt all of them. Past ~6 connections the browser's per-origin pool was
+  // exhausted and every fetch on the page hung forever, with no error: the board sat on "Loading…" and
+  // "Reset & run" silently did nothing. One connection per board, regardless of task count.
   useEffect(() => {
     if (loading || error) return;
     if (!liveEnabled) { setLiveState('paused'); return; }
@@ -384,15 +389,15 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
-    const runIds = [...new Set(tasks.map(t => t.workflowRunId).filter((r): r is string => !!r))];
-    const unsubs = runIds.map(rid => api.streamRun(rid, (ev) => {
+    const unsubscribe = subscribeBoardEvents(boardId, (ev) => {
       if (!ev.taskId) return;
       if ((ev.type || '').toLowerCase().includes('status') && ev.content) {
         setTasks(prev => prev.map(t => t.id === ev.taskId ? { ...t, status: ev.content as AgentTaskStatus } : t));
       }
-      // Any run event for a task may carry new usage — refresh its rollup so token/cost stay live.
-      void refreshUsage(ev.taskId);
-    }));
+      // Usage deliberately does NOT refresh here. This ran a GET /api/usage/task/{id} per event, so a live
+      // run fired a burst of requests into the very connection pool it was starving. The /state poll below
+      // already returns usageByTaskId for every task.
+    });
 
     const tick = async () => {
       if (cancelled) return;
@@ -443,9 +448,8 @@ export function BoardProvider({ boardId, children }: { boardId: string; children
     };
     timer = setTimeout(tick, 7000);
 
-    return () => { cancelled = true; if (timer) clearTimeout(timer); unsubs.forEach(u => u()); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boardId, liveEnabled, loading, error, activeRunKey]);
+    return () => { cancelled = true; if (timer) clearTimeout(timer); unsubscribe(); };
+  }, [boardId, liveEnabled, loading, error]);
 
   const toggleLive = useCallback(() => setLiveEnabled(v => !v), []);
 

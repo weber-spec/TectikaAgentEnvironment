@@ -11,18 +11,18 @@ namespace TectikaAgents.Api.Controllers;
 public class RunsController : ControllerBase
 {
     private readonly ICosmosDbService _cosmos;
-    private readonly SseConnectionManager _sse;
+    private readonly SseHub _hub;
     private readonly IRunStartService _runStart;
     private readonly ILogger<RunsController> _logger;
 
     public RunsController(
         ICosmosDbService cosmos,
-        SseConnectionManager sse,
+        SseHub hub,
         IRunStartService runStart,
         ILogger<RunsController> logger)
     {
         _cosmos = cosmos;
-        _sse = sse;
+        _hub = hub;
         _runStart = runStart;
         _logger = logger;
     }
@@ -74,24 +74,8 @@ public class RunsController : ControllerBase
     /// </summary>
     [HttpGet("{runId}/stream")]
     [AllowAnonymous] // SSE streams — auth via query token in Phase 2
-    public async Task Stream(string runId, CancellationToken ct)
-    {
-        _logger.LogInformation("[RunStream] SSE client subscribing to run {RunId}", runId);
-        Response.Headers["Content-Type"]      = "text/event-stream";
-        Response.Headers["Cache-Control"]     = "no-cache";
-        Response.Headers["X-Accel-Buffering"] = "no";
-
-        var client = new SseClient(new StreamWriter(Response.Body), ct);
-        _sse.AddClient(runId, client);
-
-        try { await Task.Delay(Timeout.Infinite, ct); }
-        catch (OperationCanceledException) { }
-        finally
-        {
-            _sse.RemoveClient(runId, client);
-            _logger.LogInformation("[RunStream] SSE client unsubscribed from run {RunId}", runId);
-        }
-    }
+    public Task Stream(string runId, CancellationToken ct) =>
+        SseEndpoint.RunAsync(Response, _hub, SseKeys.Run(runId), ct, _logger);
 }
 
 public record StartRunRequest(
